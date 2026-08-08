@@ -1,0 +1,6 @@
+{
+  "name": "Kin Immobilier",
+  "description": "Plateforme immobilière professionnelle à Kinshasa et RDC avec base de données Firestore en temps réel, gestion d'annonces, CRM leads et console administrateur.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

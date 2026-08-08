@@ -1,0 +1,142 @@
+{
+  "entities": {
+    "properties": {
+      "title": "Properties",
+      "description": "Real estate property listings in Kinshasa and RDC",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "currency": { "type": "string" },
+        "period": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "category": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "zipCode": { "type": "string" },
+        "country": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "bedrooms": { "type": "number" },
+        "bathrooms": { "type": "number" },
+        "area": { "type": "number" },
+        "yearBuilt": { "type": "number" },
+        "garages": { "type": "number" },
+        "amenities": { "type": "array", "items": { "type": "string" } },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "videoUrl": { "type": "string" },
+        "virtualTourUrl": { "type": "string" },
+        "floorPlanUrl": { "type": "string" },
+        "customFields": { "type": "object" },
+        "privateFields": { "type": "object" },
+        "agentId": { "type": "string" },
+        "agencyId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "viewsCount": { "type": "number" },
+        "featured": { "type": "boolean" },
+        "published": { "type": "boolean" }
+      },
+      "required": ["title", "price", "type", "status", "city"]
+    },
+    "customFields": {
+      "title": "Custom Fields Definitions",
+      "description": "Dynamic custom field configuration for properties",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "key": { "type": "string" },
+        "label": { "type": "object" },
+        "type": { "type": "string" },
+        "group": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "unit": { "type": "string" },
+        "required": { "type": "boolean" },
+        "isPrivate": { "type": "boolean" },
+        "showInSearch": { "type": "boolean" },
+        "icon": { "type": "string" },
+        "defaultValue": { "type": "string" }
+      },
+      "required": ["key", "type", "group"]
+    },
+    "leads": {
+      "title": "Lead Requests",
+      "description": "Contact and tour requests submitted by buyers or renters",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "propertyTitle": { "type": "string" },
+        "agentId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userPhone": { "type": "string" },
+        "message": { "type": "string" },
+        "requestType": { "type": "string" },
+        "tourDate": { "type": "string" },
+        "tourTime": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userName", "userEmail", "message"]
+    },
+    "users": {
+      "title": "User Accounts",
+      "description": "Admin, agents, owners and clients",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string" },
+        "avatar": { "type": "string" },
+        "agentId": { "type": "string" },
+        "agencyName": { "type": "string" },
+        "rccmOrNif": { "type": "string" },
+        "planId": { "type": "string" },
+        "planExpiry": { "type": "string" },
+        "twoFactorEnabled": { "type": "boolean" },
+        "kinshasaBadgeVerified": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "email", "role"]
+    },
+    "agents": {
+      "title": "Agents",
+      "description": "Real estate agents profile records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "title": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "avatar": { "type": "string font" },
+        "agencyId": { "type": "string" },
+        "agencyName": { "type": "string" },
+        "rating": { "type": "number" },
+        "listingsCount": { "type": "number" },
+        "bio": { "type": "string" }
+      },
+      "required": ["name", "email"]
+    },
+    "systemSettings": {
+      "title": "System Settings",
+      "description": "Global administration parameters",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "platformName": { "type": "string" },
+        "commissionRate": { "type": "number" },
+        "defaultCurrency": { "type": "string font" },
+        "maintenanceMode": { "type": "boolean" },
+        "adminEmail": { "type": "string" }
+      }
+    }
+  }
+}

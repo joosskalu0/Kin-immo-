@@ -1,0 +1,442 @@
+import React, { useState } from 'react';
+import { useApp } from '../../context/AppContext';
+import { initialSubscriptionPlans } from '../../data/mockData';
+import { Property, LeadRequest } from '../../types';
+import { AdminDatabaseManager } from './AdminDatabaseManager';
+import { AdminBillingManager } from './AdminBillingManager';
+import {
+  Building2,
+  Users,
+  Search,
+  CreditCard,
+  FileSpreadsheet,
+  Plus,
+  Trash2,
+  Edit,
+  Eye,
+  Check,
+  CheckCircle2,
+  Sparkles,
+  Bell,
+  Send,
+  Download,
+  Upload,
+  Shield,
+  ShieldCheck,
+  BadgeCheck,
+  KeyRound,
+  Zap,
+  Database,
+  Receipt,
+} from 'lucide-react';
+
+export const UserDashboard: React.FC = () => {
+  const {
+    user,
+    properties,
+    deleteProperty,
+    setEditingProperty,
+    setIsSubmitPropertyOpen,
+    setActivePropertyModalId,
+    setIsSecurityModalOpen,
+    savedSearches,
+    deleteSavedSearch,
+    leads,
+    updateLeadStatus,
+    exportCSV,
+    importCSV,
+  } = useApp();
+
+  const isAdmin = user?.role === 'admin';
+  const [activeTab, setActiveTab] = useState<'billing' | 'database' | 'listings' | 'leads' | 'saved' | 'plans' | 'csv'>(
+    isAdmin ? 'billing' : 'listings'
+  );
+  const [csvTextInput, setCsvTextInput] = useState('');
+  const [selectedPlanSuccess, setSelectedPlanSuccess] = useState<string | null>(null);
+
+  // Filter properties belonging to user/agent
+  const myProperties = properties.filter((p) => p.agentId === user?.agentId || user?.role === 'admin');
+
+  const handleCsvUpload = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (csvTextInput.trim()) {
+      importCSV(csvTextInput);
+      setCsvTextInput('');
+      alert('Importation CSV réussie ! Les propriétés ont été ajoutées.');
+    }
+  };
+
+  const handleSelectPlan = (planName: string) => {
+    setSelectedPlanSuccess(planName);
+    setTimeout(() => setSelectedPlanSuccess(null), 4000);
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Dashboard Top Banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-8 text-slate-100 shadow-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div className="flex items-center gap-4">
+          <img
+            src={user?.avatar || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80'}
+            alt={user?.name}
+            className="w-16 h-16 rounded-2xl object-cover ring-2 ring-emerald-500/40"
+          />
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-white">{user?.name}</h2>
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold capitalize flex items-center gap-1">
+                <BadgeCheck className="w-3.5 h-3.5" /> Compte {user?.role} PRO
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">{user?.email} • Formule Pro Agent Active</p>
+            
+            {/* 2FA & RCCM Status Badges */}
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold border ${
+                user?.twoFactorEnabled
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+              }`}>
+                <KeyRound className="w-3 h-3" />
+                {user?.twoFactorEnabled ? '2FA Active (Google Auth / SMS)' : '2FA Inactive'}
+              </span>
+
+              {user?.rccmOrNif && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  RCCM: {user.rccmOrNif}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => setActiveTab('billing')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'billing'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                    : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+                }`}
+              >
+                <Receipt className="w-4 h-4 text-emerald-400" />
+                <span>Facturation Globale Admin</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('database')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'database'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                }`}
+              >
+                <Database className="w-4 h-4 text-emerald-400" />
+                <span>Console DB Admin</span>
+              </button>
+            </>
+          )}
+
+          {!isAdmin && (
+            <button
+              onClick={() => setActiveTab('plans')}
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                activeTab === 'plans'
+                  ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                  : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+              }`}
+            >
+              <CreditCard className="w-4 h-4 text-emerald-400" />
+              <span>Mon Abonnement Pro</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsSecurityModalOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all flex items-center gap-2 shadow-sm"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>Sécurité & 2FA</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setEditingProperty(null);
+              setIsSubmitPropertyOpen(true);
+            }}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold text-xs hover:scale-105 transition-transform shadow-lg shadow-emerald-500/20 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Publier un Bien
+          </button>
+        </div>
+      </div>
+
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-slate-800 gap-2 overflow-x-auto text-xs font-semibold">
+        {[
+          ...(isAdmin || activeTab === 'billing'
+            ? [{ id: 'billing', label: 'Facturation & Encaissements Admin', icon: Receipt }]
+            : []),
+          ...(isAdmin || activeTab === 'database'
+            ? [{ id: 'database', label: 'Base de Données Firestore Admin', icon: Database }]
+            : []),
+          { id: 'listings', label: `Mes Annonces (${myProperties.length})`, icon: Building2 },
+          { id: 'leads', label: `CRM Leads & Demandes (${leads.length})`, icon: Users },
+          { id: 'saved', label: `Alertes & Recherches (${savedSearches.length})`, icon: Bell },
+          { id: 'plans', label: 'Formules & Abonnements', icon: CreditCard },
+          { id: 'csv', label: 'Import / Export CSV (WP All Import)', icon: FileSpreadsheet },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`py-3 px-4 rounded-t-2xl border-b-2 whitespace-nowrap transition-all flex items-center gap-2 ${
+                activeTab === tab.id
+                  ? 'border-emerald-500 text-emerald-400 bg-slate-900 font-bold'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* TAB 0: Admin Billing & Invoicing Manager */}
+      {activeTab === 'billing' && (
+        <AdminBillingManager />
+      )}
+
+      {/* TAB 1: Firestore Admin Database Manager */}
+      {activeTab === 'database' && (
+        <AdminDatabaseManager />
+      )}
+
+      {/* TAB 1: My Listings */}
+      {activeTab === 'listings' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4">
+            {myProperties.map((prop) => (
+              <div
+                key={prop.id}
+                className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4"
+              >
+                <div className="flex items-center gap-4 w-full sm:w-auto">
+                  <img
+                    src={prop.images[0]}
+                    alt={prop.title}
+                    className="w-20 h-16 rounded-xl object-cover shrink-0"
+                  />
+                  <div>
+                    <div className="font-bold text-white text-sm line-clamp-1">{prop.title}</div>
+                    <div className="text-xs text-emerald-400 font-semibold">{prop.price} {prop.currency}</div>
+                    <div className="text-[11px] text-slate-400">📍 {prop.city} • Views: {prop.viewsCount}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    onClick={() => setActivePropertyModalId(prop.id)}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
+                    title="Voir Fiche"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setEditingProperty(prop);
+                      setIsSubmitPropertyOpen(true);
+                    }}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400"
+                    title="Modifier"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    onClick={() => deleteProperty(prop.id)}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-rose-400"
+                    title="Supprimer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: Leads & Requests CRM */}
+      {activeTab === 'leads' && (
+        <div className="space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 bg-slate-950 border-b border-slate-800 font-bold text-sm text-white">
+              Inbox Demandes de Visites & Prospects (Leads CRM)
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-950/60 text-slate-400 border-b border-slate-800">
+                    <th className="p-3">Prospect</th>
+                    <th className="p-3">Propriété Visée</th>
+                    <th className="p-3">Type</th>
+                    <th className="p-3">Message / Date Visite</th>
+                    <th className="p-3">Statut CRM</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {leads.map((lead) => (
+                    <tr key={lead.id} className="hover:bg-slate-800/50">
+                      <td className="p-3 font-bold text-white">
+                        {lead.userName}
+                        <span className="block text-[10px] text-slate-400 font-normal">{lead.userEmail} | {lead.userPhone}</span>
+                      </td>
+                      <td className="p-3 text-slate-300 max-w-[180px] truncate">{lead.propertyTitle}</td>
+                      <td className="p-3 uppercase text-[10px] font-bold text-emerald-400">{lead.requestType}</td>
+                      <td className="p-3 text-slate-300">
+                        {lead.message}
+                        {lead.tourDate && <div className="text-amber-400 font-semibold">🗓️ {lead.tourDate} à {lead.tourTime}</div>}
+                      </td>
+                      <td className="p-3">
+                        <select
+                          value={lead.status}
+                          onChange={(e) => updateLeadStatus(lead.id, e.target.value as any)}
+                          className="bg-slate-950 border border-slate-800 text-emerald-400 font-bold rounded-lg px-2 py-1 focus:outline-none"
+                        >
+                          <option value="new">Nouveau</option>
+                          <option value="contacted">Contacté</option>
+                          <option value="viewing">Visite Maintien</option>
+                          <option value="closed">Conclu</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: Saved Searches */}
+      {activeTab === 'saved' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {savedSearches.map((search) => (
+              <div key={search.id} className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 text-xs">
+                <div className="flex justify-between items-center font-bold text-white">
+                  <span>{search.title}</span>
+                  <button onClick={() => deleteSavedSearch(search.id)} className="text-rose-400 hover:text-rose-300">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="text-slate-400 text-[11px]">
+                  Filtres: Ville ({search.filters.city || 'Toutes'}), Type ({search.filters.type || 'Tous'})
+                </div>
+                <div className="text-emerald-400 font-medium text-[10px] flex items-center gap-1">
+                  <Bell className="w-3 h-3" /> Notifications Email: {search.notifyFrequency.toUpperCase()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: Subscription Plans */}
+      {activeTab === 'plans' && (
+        <div className="space-y-6">
+          {selectedPlanSuccess && (
+            <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500 text-emerald-400 text-center font-bold text-xs">
+              ✓ Abonnement **{selectedPlanSuccess}** activé avec succès par PayPal / Carte !
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {initialSubscriptionPlans.map((plan) => (
+              <div
+                key={plan.id}
+                className={`p-6 rounded-3xl border text-xs flex flex-col justify-between space-y-6 relative ${
+                  plan.recommended
+                    ? 'bg-gradient-to-b from-slate-900 to-slate-950 border-emerald-500 shadow-2xl shadow-emerald-500/10'
+                    : 'bg-slate-900 border-slate-800'
+                }`}
+              >
+                {plan.recommended && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-emerald-500 text-slate-950 font-bold text-[10px] uppercase">
+                    Formule Recommandée
+                  </span>
+                )}
+
+                <div className="space-y-4">
+                  <h3 className="font-bold text-white text-base">{plan.name}</h3>
+                  <div className="text-3xl font-extrabold text-emerald-400">
+                    {plan.priceMonthly === 0 ? 'Gratuit' : `${plan.priceMonthly} €`}
+                    <span className="text-xs font-normal text-slate-400">/mois</span>
+                  </div>
+
+                  <ul className="space-y-2 text-slate-300">
+                    {plan.features.map((feat, i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>{feat}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <button
+                  onClick={() => handleSelectPlan(plan.name)}
+                  className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition-all shadow-md"
+                >
+                  Choisir cette Formule
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: CSV Import / Export */}
+      {activeTab === 'csv' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 text-xs text-slate-100">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h3 className="font-bold text-white text-base">Export / Import CSV (WP All Import Compatible)</h3>
+              <p className="text-slate-400">Exportez en 1 clic vos propriétés ou collez du contenu CSV brut pour importation en masse.</p>
+            </div>
+            <button
+              onClick={exportCSV}
+              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl flex items-center gap-2 shadow-md"
+            >
+              <Download className="w-4 h-4" /> Exporter CSV
+            </button>
+          </div>
+
+          <form onSubmit={handleCsvUpload} className="space-y-3">
+            <label className="block font-semibold text-slate-300">Copier / Coller du texte CSV brut</label>
+            <textarea
+              rows={5}
+              value={csvTextInput}
+              onChange={(e) => setCsvTextInput(e.target.value)}
+              placeholder="title,price,currency,type,status,city&#10;Villa Luxe,1500000,EUR,villa,for-sale,Nice"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+            />
+            <button
+              type="submit"
+              className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl flex items-center gap-2"
+            >
+              <Upload className="w-4 h-4 text-emerald-400" /> Importer le CSV
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+};
