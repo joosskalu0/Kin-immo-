@@ -76,15 +76,15 @@ export const Footer: React.FC = () => {
           <ul className="space-y-2.5 text-xs">
             <li className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-emerald-400" />
-              Avenue Boulevard du 30 Juin, Gombe, Kinshasa, RDC
+              Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC
             </li>
             <li className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-emerald-400" />
-              +243 81 555 0100 / +243 99 000 0000
+              +243 84 529 4616
             </li>
             <li className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-emerald-400" />
-              contact@kin-immobilier.cd
+              joosskalu72@gmail.com
             </li>
           </ul>
         </div>

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { initialSubscriptionPlans } from '../../data/mockData';
-import { Property, LeadRequest } from '../../types';
+import { Property, LeadRequest, User } from '../../types';
 import { AdminDatabaseManager } from './AdminDatabaseManager';
 import { AdminBillingManager } from './AdminBillingManager';
+import { AdminSettingsManager } from './AdminSettingsManager';
+import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
 import {
   Building2,
   Users,
@@ -28,17 +30,21 @@ import {
   Zap,
   Database,
   Receipt,
+  Lock,
+  X,
 } from 'lucide-react';
 
 export const UserDashboard: React.FC = () => {
   const {
     user,
+    setUser,
     properties,
     deleteProperty,
     setEditingProperty,
     setIsSubmitPropertyOpen,
     setActivePropertyModalId,
     setIsSecurityModalOpen,
+    setIsAuthModalOpen,
     savedSearches,
     deleteSavedSearch,
     leads,
@@ -48,11 +54,169 @@ export const UserDashboard: React.FC = () => {
   } = useApp();
 
   const isAdmin = user?.role === 'admin';
-  const [activeTab, setActiveTab] = useState<'billing' | 'database' | 'listings' | 'leads' | 'saved' | 'plans' | 'csv'>(
-    isAdmin ? 'billing' : 'listings'
+  const [activeTab, setActiveTab] = useState<'billing' | 'database' | 'admin_settings' | 'listings' | 'leads' | 'saved' | 'plans' | 'csv'>(
+    isAdmin ? 'admin_settings' : 'listings'
   );
   const [csvTextInput, setCsvTextInput] = useState('');
   const [selectedPlanSuccess, setSelectedPlanSuccess] = useState<string | null>(null);
+
+  // Admin PIN Protection State
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+
+  const handleVerifyAdminPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (verifyAdminPin(pinInput)) {
+      handleSwitchToAdmin();
+      setShowPinModal(false);
+      setPinInput('');
+      setPinError(null);
+    } else {
+      setPinError('Code PIN Administrateur incorrect. Accès refusé.');
+    }
+  };
+
+  const handleSwitchToAdmin = () => {
+    const creds = getAdminCredentials();
+    const adminProfile: User = {
+      id: 'usr_admin_001',
+      name: creds.name,
+      email: creds.email,
+      phone: creds.phone,
+      role: 'admin',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      agencyName: creds.agencyName,
+      rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
+      planId: 'pro',
+      isVerified: true,
+      emailVerified: true,
+      phoneVerified: true,
+      twoFactorEnabled: false,
+      kinshasaBadgeVerified: true,
+      lastLoginLocation: 'Kinshasa (Gombe), RDC',
+      createdAt: new Date().toISOString(),
+    };
+    setUser(adminProfile);
+    localStorage.setItem('estatik_kinshasa_user', JSON.stringify(adminProfile));
+    setActiveTab('admin_settings');
+  };
+
+  // If not logged in at all
+  if (!user) {
+    return (
+      <div className="p-8 sm:p-12 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-6 max-w-2xl mx-auto my-8 shadow-2xl relative overflow-hidden">
+        <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/10">
+          <ShieldCheck className="w-8 h-8" />
+        </div>
+
+        <div className="space-y-2">
+          <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-black uppercase tracking-wider">
+            Espace Administrateur & Agent
+          </span>
+          <h3 className="text-2xl font-black text-white">Connectez-vous à votre Espace Administrateur</h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+            Accédez à la gestion des annonces, demandes de clients, facturation globale et console de base de données Firestore.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs hover:opacity-95 transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+          >
+            <Users className="w-4 h-4 text-slate-950" />
+            <span>Se Connecter / Formulaire Authentification</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setPinInput('');
+              setPinError(null);
+              setShowPinModal(true);
+            }}
+            className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all flex items-center justify-center gap-2"
+          >
+            <Lock className="w-4 h-4 text-amber-400" />
+            <span>Accès Administrateur Protégé (PIN)</span>
+          </button>
+        </div>
+
+        {/* PIN PROMPT MODAL FOR UNLOGGED USER */}
+        {showPinModal && (
+          <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 relative shadow-2xl text-left space-y-4">
+              <button
+                onClick={() => setShowPinModal(false)}
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-base font-black text-white">Déverrouillage Administrateur</h4>
+                  <p className="text-xs text-slate-400">Saisissez votre code PIN d'administration secret</p>
+                </div>
+              </div>
+
+              {pinError && (
+                <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs">
+                  {pinError}
+                </div>
+              )}
+
+              <form onSubmit={handleVerifyAdminPin} autoComplete="off" className="space-y-4 pt-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                    Code PIN Secret Administrateur
+                  </label>
+                  <input
+                    type="password"
+                    maxLength={20}
+                    required
+                    autoComplete="new-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    data-lpignore="true"
+                    value={pinInput}
+                    onChange={(e) => {
+                      setPinInput(e.target.value);
+                      if (pinError) setPinError(null);
+                    }}
+                    placeholder="••••"
+                    className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-center text-2xl font-mono text-emerald-400 tracking-[0.5em] focus:outline-none focus:border-emerald-500"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPinModal(false)}
+                    className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-black text-xs hover:opacity-90 flex items-center justify-center gap-2 shadow-lg"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-slate-950" />
+                    <span>Valider Code PIN</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Filter properties belonging to user/agent
   const myProperties = properties.filter((p) => p.agentId === user?.agentId || user?.role === 'admin');
@@ -115,6 +279,18 @@ export const UserDashboard: React.FC = () => {
           {isAdmin && (
             <>
               <button
+                onClick={() => setActiveTab('admin_settings')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_settings'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-extrabold'
+                    : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border-slate-700'
+                }`}
+              >
+                <KeyRound className="w-4 h-4 text-amber-400" />
+                <span>Identifiants & PIN Admin</span>
+              </button>
+
+              <button
                 onClick={() => setActiveTab('billing')}
                 className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
                   activeTab === 'billing'
@@ -141,17 +317,31 @@ export const UserDashboard: React.FC = () => {
           )}
 
           {!isAdmin && (
-            <button
-              onClick={() => setActiveTab('plans')}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
-                activeTab === 'plans'
-                  ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                  : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
-              }`}
-            >
-              <CreditCard className="w-4 h-4 text-emerald-400" />
-              <span>Mon Abonnement Pro</span>
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setPinInput('');
+                  setPinError(null);
+                  setShowPinModal(true);
+                }}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 shadow-md flex items-center gap-2 transition-all"
+              >
+                <Lock className="w-4 h-4 text-amber-400" />
+                <span>Passer Administrateur (PIN)</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('plans')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'plans'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                    : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+                }`}
+              >
+                <CreditCard className="w-4 h-4 text-emerald-400" />
+                <span>Mon Abonnement Pro</span>
+              </button>
+            </>
           )}
 
           <button
@@ -177,6 +367,9 @@ export const UserDashboard: React.FC = () => {
       {/* Navigation Tabs */}
       <div className="flex border-b border-slate-800 gap-2 overflow-x-auto text-xs font-semibold">
         {[
+          ...(isAdmin || activeTab === 'admin_settings'
+            ? [{ id: 'admin_settings', label: 'Sécurité & Identifiants Admin', icon: KeyRound }]
+            : []),
           ...(isAdmin || activeTab === 'billing'
             ? [{ id: 'billing', label: 'Facturation & Encaissements Admin', icon: Receipt }]
             : []),
@@ -207,12 +400,17 @@ export const UserDashboard: React.FC = () => {
         })}
       </div>
 
-      {/* TAB 0: Admin Billing & Invoicing Manager */}
+      {/* TAB 0: Admin Credentials & Security Settings */}
+      {activeTab === 'admin_settings' && (
+        <AdminSettingsManager />
+      )}
+
+      {/* TAB 1: Admin Billing & Invoicing Manager */}
       {activeTab === 'billing' && (
         <AdminBillingManager />
       )}
 
-      {/* TAB 1: Firestore Admin Database Manager */}
+      {/* TAB 2: Firestore Admin Database Manager */}
       {activeTab === 'database' && (
         <AdminDatabaseManager />
       )}

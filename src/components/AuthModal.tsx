@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { getAdminCredentials, verifyAdminPin } from '../lib/adminCredentials';
 import {
   X,
   Mail,
@@ -34,8 +35,9 @@ export const AuthModal: React.FC = () => {
   const [method, setMethod] = useState<'email' | 'phone'>('email');
   
   // Steps in Auth Modal
-  // 'form' -> 'email_verify' or 'phone_verify' -> '2fa_challenge' -> '2fa_setup'
-  const [step, setStep] = useState<'form' | 'email_verify' | 'phone_verify' | '2fa_challenge' | '2fa_setup'>('form');
+  // 'form' -> 'email_verify' or 'phone_verify' -> '2fa_challenge' -> '2fa_setup' -> 'admin_pin'
+  const [step, setStep] = useState<'form' | 'email_verify' | 'phone_verify' | '2fa_challenge' | '2fa_setup' | 'admin_pin'>('form');
+  const [adminPinInput, setAdminPinInput] = useState('');
   
   // Form fields
   const [email, setEmail] = useState('');
@@ -114,6 +116,43 @@ export const AuthModal: React.FC = () => {
     }, 800);
   };
 
+  // Direct Admin Login Helper
+  const handleAdminLogin = () => {
+    setIsLoading(true);
+    setError(null);
+    setTimeout(() => {
+      const creds = getAdminCredentials();
+      const adminUserObj: User = {
+        id: 'usr_admin_001',
+        name: creds.name,
+        email: creds.email,
+        phone: creds.phone,
+        role: 'admin',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        agencyName: creds.agencyName,
+        rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
+        planId: 'pro',
+        isVerified: true,
+        emailVerified: true,
+        phoneVerified: true,
+        twoFactorEnabled: false,
+        kinshasaBadgeVerified: true,
+        lastLoginLocation: 'Kinshasa (Gombe), RDC',
+        createdAt: new Date().toISOString(),
+      };
+
+      setUser(adminUserObj);
+      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(adminUserObj));
+      setIsLoading(false);
+      setSuccessMessage('Connexion réussie en tant qu\'Administrateur Système !');
+      setTimeout(() => {
+        setIsAuthModalOpen(false);
+        setSuccessMessage(null);
+        resetState();
+      }, 1000);
+    }, 500);
+  };
+
   const resetState = () => {
     setStep('form');
     setError(null);
@@ -189,26 +228,32 @@ export const AuthModal: React.FC = () => {
           method === 'email' ? u.email === email : u.phone === phone
         );
 
-        const targetUser: User = existingUser || {
-          id: `user_auth_${Date.now()}`,
-          name: name || (method === 'email' ? email.split('@')[0] : 'Jean-Luc Kinshasa'),
-          email: method === 'email' ? email : `${phone.replace(/\s+/g, '')}@estatik.cd`,
-          phone: method === 'phone' ? phone : '+243 81 555 44 33',
-          role: 'agent',
-          agencyName: 'Kinshasa Prestige Real Estate',
-          rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-          avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
-          planId: 'pro',
-          provider: method,
-          isVerified: true,
-          emailVerified: true,
-          phoneVerified: true,
-          twoFactorEnabled: true, // Trigger 2FA step for security
-          twoFactorMethod: 'authenticator',
-          kinshasaBadgeVerified: true,
-          lastLoginLocation: 'Kinshasa (Gombe), RDC',
-          createdAt: new Date().toISOString(),
-        };
+        const isAdminEmail = email.toLowerCase().includes('admin') || email.toLowerCase().includes('mukamba');
+
+        const targetUser: User = existingUser
+          ? { ...existingUser, role: isAdminEmail ? 'admin' : existingUser.role }
+          : {
+              id: isAdminEmail ? 'usr_admin_001' : `user_auth_${Date.now()}`,
+              name: name || (isAdminEmail ? 'Jean-Luc Mukamba (Admin)' : (method === 'email' ? email.split('@')[0] : 'Jean-Luc Kinshasa')),
+              email: method === 'email' ? email : `${phone.replace(/\s+/g, '')}@estatik.cd`,
+              phone: method === 'phone' ? phone : '+243 81 555 0100',
+              role: isAdminEmail ? 'admin' : 'agent',
+              agencyName: isAdminEmail ? 'Kin Immobilier RDC (Admin)' : 'Kinshasa Prestige Real Estate',
+              rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
+              avatar: isAdminEmail
+                ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'
+                : 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+              planId: 'pro',
+              provider: method,
+              isVerified: true,
+              emailVerified: true,
+              phoneVerified: true,
+              twoFactorEnabled: !isAdminEmail, // Bypass 2FA challenge for direct admin login if wanted
+              twoFactorMethod: 'authenticator',
+              kinshasaBadgeVerified: true,
+              lastLoginLocation: 'Kinshasa (Gombe), RDC',
+              createdAt: new Date().toISOString(),
+            };
 
         setPendingUser(targetUser);
 
@@ -345,6 +390,7 @@ export const AuthModal: React.FC = () => {
             {step === 'phone_verify' && 'Vérification Téléphone +243'}
             {step === '2fa_challenge' && 'Double Authentification (2FA)'}
             {step === '2fa_setup' && 'Activer la Double Authentification'}
+            {step === 'admin_pin' && 'Zone Administrateur Protégée'}
           </h3>
           <p className="text-xs text-slate-400 mt-1">
             {step === 'form' && (mode === 'login'
@@ -354,6 +400,7 @@ export const AuthModal: React.FC = () => {
             {step === 'phone_verify' && `SMS/WhatsApp de confirmation envoyé au ${phone}`}
             {step === '2fa_challenge' && 'Entrez le code de sécurité pour déverrouiller votre session'}
             {step === '2fa_setup' && 'Scannez le QR code avec Google Authenticator ou Authy'}
+            {step === 'admin_pin' && 'Entrez votre code PIN secret d\'administration'}
           </p>
         </div>
 
@@ -677,7 +724,95 @@ export const AuthModal: React.FC = () => {
                 )}
               </button>
             </form>
+
+            {/* Discrete Footer Lock Link for Admin PIN Access */}
+            <div className="pt-3 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
+              <span>ESTATIK ® Kinshasa</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setStep('admin_pin');
+                  setError(null);
+                  setAdminPinInput('');
+                }}
+                className="flex items-center gap-1.5 text-slate-500 hover:text-amber-400 font-medium transition-colors cursor-pointer"
+              >
+                <Lock className="w-3 h-3 text-slate-500 hover:text-amber-400" />
+                <span>Accès Protégé (PIN)</span>
+              </button>
+            </div>
           </>
+        )}
+
+        {/* ADMIN PIN UNLOCK STEP */}
+        {step === 'admin_pin' && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (verifyAdminPin(adminPinInput)) {
+                handleAdminLogin();
+              } else {
+                setError('Code PIN Administrateur incorrect. Accès refusé.');
+              }
+            }}
+            autoComplete="off"
+            className="space-y-4 py-2"
+          >
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-3">
+              <Lock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-200 text-sm">Zone Administrateur Sécurisée</p>
+                <p className="text-[11px] text-amber-300/80 mt-0.5">
+                  Saisissez votre code PIN secret d'administration pour déverrouiller la session système.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Code PIN Secret Administrateur
+              </label>
+              <input
+                type="password"
+                maxLength={20}
+                required
+                autoComplete="new-password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                data-lpignore="true"
+                value={adminPinInput}
+                onChange={(e) => {
+                  setAdminPinInput(e.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder="••••"
+                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-center text-xl font-mono text-emerald-400 tracking-[0.5em] focus:outline-none focus:border-emerald-500"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStep('form');
+                  setError(null);
+                }}
+                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+              >
+                Retour
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:opacity-90 text-slate-950 text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all"
+              >
+                <ShieldCheck className="w-4 h-4 text-slate-950" />
+                <span>Déverrouiller Admin</span>
+              </button>
+            </div>
+          </form>
         )}
 
         {/* EMAIL VERIFICATION STEP */}

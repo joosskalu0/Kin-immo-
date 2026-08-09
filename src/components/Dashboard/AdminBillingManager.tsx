@@ -1059,9 +1059,9 @@ export const AdminBillingManager: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-2 leading-tight">
-                    Boulevard du 30 Juin, Gombe, Kinshasa, RDC<br />
+                    Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC<br />
                     RCCM: CD/KIN/RCCM/20-B-04921 • ID.NAT: 01-93-N39201F<br />
-                    Tél: +243 81 555 0100 • contact@kin-immobilier.cd
+                    Tél: +243 84 529 4616 • joosskalu72@gmail.com
                   </p>
                 </div>
 

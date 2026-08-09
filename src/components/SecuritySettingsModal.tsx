@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { verifyAdminPin } from '../lib/adminCredentials';
 import {
   X,
   ShieldCheck,
@@ -121,7 +122,7 @@ export const SecuritySettingsModal: React.FC = () => {
     const nClean = newPwd.trim();
     const cfClean = confirmPwd.trim();
 
-    if (cClean !== adminPin && cClean !== '2026' && cClean !== 'admin' && cClean !== '1234') {
+    if (!verifyAdminPin(cClean)) {
       setErrorMsg('Le mot de passe actuel est incorrect.');
       return;
     }
@@ -478,7 +479,7 @@ export const SecuritySettingsModal: React.FC = () => {
 
         {/* TAB 5: Admin Secret Password */}
         {activeTab === 'password' && (
-          <form onSubmit={handleSavePassword} className="space-y-4">
+          <form onSubmit={handleSavePassword} autoComplete="off" className="space-y-4">
             <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-3.5 text-xs">
               <div className="flex items-center gap-2 text-amber-400 font-bold">
                 <Lock className="w-4 h-4" /> Changement du Mot de Passe Administrateur
@@ -495,6 +496,11 @@ export const SecuritySettingsModal: React.FC = () => {
                 <input
                   type="password"
                   required
+                  autoComplete="current-password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-lpignore="true"
                   value={currPwd}
                   onChange={(e) => setCurrPwd(e.target.value)}
                   placeholder="Entrez votre mot de passe actuel"

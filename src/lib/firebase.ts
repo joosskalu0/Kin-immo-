@@ -130,8 +130,8 @@ export async function seedInitialFirestoreData() {
       const adminUser: User = {
         id: 'usr_admin_001',
         name: 'Jean-Luc Mukamba',
-        email: 'admin@kin-immobilier.cd',
-        phone: '+243 81 555 0100',
+        email: 'joosskalu72@gmail.com',
+        phone: '+243 84 529 4616',
         role: 'admin',
         avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
         agencyName: 'Kin Immobilier RDC',
