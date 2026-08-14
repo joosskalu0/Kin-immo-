@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Invoice, InvoiceItem, Agent, Agency } from '../../types';
+import { Invoice, InvoiceItem, Agent, Agency, User } from '../../types';
+import { subscribeToUsers } from '../../lib/firebase';
 import {
   Receipt,
   CreditCard,
@@ -28,15 +29,24 @@ import {
   Eye,
   Calendar,
   Zap,
-  Globe
+  Globe,
+  Edit3,
+  Gift
 } from 'lucide-react';
 
 export const AdminBillingManager: React.FC = () => {
   const {
     invoices,
     addInvoice,
+    updateInvoice,
     updateInvoiceStatus,
     deleteInvoice,
+    deleteUser,
+    deleteAgent,
+    deleteAgency,
+    updateAgencySubscriptionStatus,
+    updateUserSubscriptionStatus,
+    requestConfirm,
     agents,
     agencies,
     user
@@ -50,6 +60,7 @@ export const AdminBillingManager: React.FC = () => {
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = useState(false);
   const [selectedInvoiceModal, setSelectedInvoiceModal] = useState<Invoice | null>(null);
   const [markPaidModalInvoice, setMarkPaidModalInvoice] = useState<Invoice | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [paymentRefInput, setPaymentRefInput] = useState('');
   const [paymentMethodSelect, setPaymentMethodSelect] = useState<Invoice['paymentMethod']>('mpesa');
 
@@ -75,7 +86,69 @@ export const AdminBillingManager: React.FC = () => {
       quantity: 1
     }
   ]);
-  const [notes, setNotes] = useState('Paiement par Vodacom M-Pesa (+243 81 555 0100) ou Orange Money (+243 89 000 0000)');
+  const [notes, setNotes] = useState('Paiement par Mobile Money / WhatsApp: +243 84 529 46 16 (M-Pesa, Orange, Airtel)');
+
+  // Registered Users state (Nouveaux venus & membres inscrits)
+  const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    const localUsers: User[] = JSON.parse(localStorage.getItem('estatik_registered_users') || '[]');
+    
+    const unsub = subscribeToUsers((firestoreUsers) => {
+      const mergedMap = new Map<string, User>();
+      localUsers.forEach((u) => {
+        if (u.email) mergedMap.set(u.email.toLowerCase(), u);
+      });
+      firestoreUsers.forEach((u) => {
+        if (u.email) mergedMap.set(u.email.toLowerCase(), u);
+      });
+      if (user && user.email) {
+        mergedMap.set(user.email.toLowerCase(), user);
+      }
+      setRegisteredUsers(Array.from(mergedMap.values()));
+    });
+
+    if (localUsers.length > 0) {
+      const map = new Map<string, User>();
+      localUsers.forEach((u) => {
+        if (u.email) map.set(u.email.toLowerCase(), u);
+      });
+      if (user && user.email) map.set(user.email.toLowerCase(), user);
+      setRegisteredUsers(Array.from(map.values()));
+    }
+
+    return () => unsub();
+  }, [user]);
+
+  // Combined targets: registered users (nouveaux venus) + demo agents
+  const combinedAgentTargets = [
+    ...registeredUsers.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      phone: u.phone || '+243 84 529 4616',
+      role: u.role || 'agent',
+      agencyName: u.agencyName || (u.role === 'agent' ? 'Agent Indépendant Inscrit' : 'Membre Inscrit'),
+      avatar: u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      rccmOrNif: u.rccmOrNif || 'CD/KIN/RCCM/20-B-04921',
+      planId: u.planId || 'pro',
+      isNew: true,
+    })),
+    ...agents
+      .filter((a) => !registeredUsers.some((u) => u.email?.toLowerCase() === a.email.toLowerCase()))
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        email: a.email,
+        phone: a.phone,
+        role: 'agent' as const,
+        agencyName: a.agencyName || 'Démo Agent',
+        avatar: a.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80',
+        rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
+        planId: 'pro',
+        isNew: false,
+      })),
+  ];
 
   // Pre-fill target details when target selection changes
   const handleTargetChange = (type: 'agency' | 'agent' | 'custom', id: string) => {
@@ -100,18 +173,18 @@ export const AdminBillingManager: React.FC = () => {
         ]);
       }
     } else if (type === 'agent') {
-      const agt = agents.find(a => a.id === id);
-      if (agt) {
-        setCustomName(`${agt.name} (${agt.title})`);
-        setCustomEmail(agt.email);
-        setCustomPhone(agt.phone);
-        setCustomNifRccm('');
-        setPlanId('pro');
+      const targetUser = combinedAgentTargets.find((a) => a.id === id) || combinedAgentTargets[0];
+      if (targetUser) {
+        setCustomName(`${targetUser.name} (${targetUser.agencyName})`);
+        setCustomEmail(targetUser.email);
+        setCustomPhone(targetUser.phone);
+        setCustomNifRccm(targetUser.rccmOrNif);
+        setPlanId((targetUser.planId as any) || 'pro');
         setItems([
           {
             id: 'item_1',
-            description: `Abonnement Mensuel Pack Agent Pro - ${agt.name}`,
-            amount: 35,
+            description: `Abonnement Mensuel Pack Agent/Membre - ${targetUser.name}`,
+            amount: targetUser.planId === 'starter' ? 20 : 35,
             quantity: 1
           }
         ]);
@@ -146,6 +219,68 @@ export const AdminBillingManager: React.FC = () => {
     setItems(prev =>
       prev.map(item => (item.id === id ? { ...item, [field]: val } : item))
     );
+  };
+
+  const handleGrantFreeMonth = (targetType: 'agency' | 'agent', targetId: string, targetName: string, targetEmail: string, targetPhone?: string) => {
+    const nextExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    if (targetType === 'agency') {
+      updateAgencySubscriptionStatus(targetId, 'Active', nextExpiry);
+    } else {
+      updateUserSubscriptionStatus(targetId, 'Active', nextExpiry);
+      if (targetEmail) {
+        updateUserSubscriptionStatus(targetEmail, 'Active', nextExpiry);
+      }
+    }
+
+    const freeInvoice: Invoice = {
+      id: `inv_free_${Date.now()}`,
+      invoiceNumber: `KIN-FREE-${Math.floor(1000 + Math.random() * 9000)}`,
+      targetType,
+      targetId,
+      targetName,
+      targetEmail,
+      targetPhone,
+      planId: targetType === 'agency' ? 'agency' : 'pro',
+      items: [
+        {
+          id: `item_free_${Date.now()}`,
+          description: `Abonnement ${targetType === 'agency' ? 'Agence' : 'Agent'} - 1er Mois Gratuit (Offert)`,
+          amount: 0,
+          quantity: 1
+        }
+      ],
+      subtotalAmount: 0,
+      taxAmount: 0,
+      totalAmount: 0,
+      currency: 'USD',
+      status: 'paid',
+      paymentMethod: 'mpesa',
+      dueDate: nextExpiry,
+      createdAt: new Date().toISOString(),
+      paidAt: new Date().toISOString(),
+      notes: 'Offre spéciale : 1 mois d\'abonnement gratuit offert par l\'administration Kin Immobilier.'
+    };
+
+    addInvoice(freeInvoice);
+    alert(`🎉 1 Mois Gratuit offert avec succès à ${targetName} ! Accès actif jusqu'au ${new Date(nextExpiry).toLocaleDateString('fr-FR')}.`);
+  };
+
+  const handleSaveEditedInvoice = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingInvoice) return;
+
+    // Recalculate subtotal
+    const newSubtotal = editingInvoice.items.reduce((sum, item) => sum + (Number(item.amount) || 0) * (Number(item.quantity) || 1), 0);
+    const updatedInv: Invoice = {
+      ...editingInvoice,
+      subtotalAmount: newSubtotal,
+      totalAmount: newSubtotal
+    };
+
+    updateInvoice(updatedInv);
+    setEditingInvoice(null);
+    alert(`✅ Facture ${updatedInv.invoiceNumber} mise à jour avec succès ! Nouveau montant : ${updatedInv.totalAmount} ${updatedInv.currency}`);
   };
 
   const calculateSubtotal = () => {
@@ -209,13 +344,11 @@ export const AdminBillingManager: React.FC = () => {
       `💰 Montant Total: *${inv.totalAmount} ${inv.currency}*\n` +
       `📅 Date d'échéance: ${new Date(inv.dueDate).toLocaleDateString('fr-FR')}\n\n` +
       `Mode de paiement rapide Mobile Money RDC:\n` +
-      `📱 Vodacom M-Pesa: *+243 81 555 0100*\n` +
-      `📱 Orange Money: *+243 89 000 0000*\n` +
-      `📱 Airtel Money: *+243 99 000 0000*\n` +
+      `📱 Vodacom M-Pesa / Orange / Airtel: *+243 84 529 46 16*\n` +
       `🏦 Equity BCDC: Compte USD 00018-992019-91\n\n` +
       `Veuillez nous envoyer la référence du paiement. Merci pour votre confiance !`
     );
-    const phone = inv.targetPhone ? inv.targetPhone.replace(/[^0-9]/g, '') : '243815550100';
+    const phone = inv.targetPhone ? inv.targetPhone.replace(/[^0-9]/g, '') : '243845294616';
     window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
   };
 
@@ -500,6 +633,14 @@ export const AdminBillingManager: React.FC = () => {
                         <td className="p-3.5 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
+                              onClick={() => setEditingInvoice(inv)}
+                              className="p-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center gap-1 transition-all"
+                              title="Modifier le montant ou les détails de la facture"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" /> Modifier Montant
+                            </button>
+
+                            <button
                               onClick={() => setSelectedInvoiceModal(inv)}
                               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-medium text-xs flex items-center gap-1 transition-all"
                               title="Voir & Imprimer Facture Détaillée"
@@ -527,9 +668,11 @@ export const AdminBillingManager: React.FC = () => {
 
                             <button
                               onClick={() => {
-                                if (window.confirm(`Supprimer la facture ${inv.invoiceNumber} ?`)) {
-                                  deleteInvoice(inv.id);
-                                }
+                                requestConfirm({
+                                  title: "Suppression de la facture",
+                                  message: `Voulez-vous vraiment supprimer la facture ${inv.invoiceNumber} ?`,
+                                  onConfirm: () => deleteInvoice(inv.id)
+                                });
                               }}
                               className="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400 transition-all"
                               title="Supprimer"
@@ -561,79 +704,217 @@ export const AdminBillingManager: React.FC = () => {
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-              {agencies.map(ag => (
-                <div key={ag.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <img src={ag.logo} alt={ag.name} className="w-14 h-14 rounded-2xl object-cover ring-2 ring-emerald-500/20 shrink-0" />
-                    <div>
-                      <h4 className="font-bold text-white text-base">{ag.name}</h4>
-                      <p className="text-xs text-slate-400">📍 {ag.address}, Kinshasa</p>
-                      <p className="text-xs text-emerald-400 font-mono mt-0.5">{ag.email} • {ag.phone}</p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
-                          Pack Agence Elite ($99/mois)
+              {agencies.map(ag => {
+                const isExpired = ag.subscriptionStatus === 'Expired';
+                return (
+                  <div key={ag.id} className={`bg-slate-950 border rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all ${
+                    isExpired ? 'border-rose-500/40 ring-1 ring-rose-500/20' : 'border-slate-800'
+                  }`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-4">
+                        <img src={ag.logo} alt={ag.name} className="w-14 h-14 rounded-2xl object-cover ring-2 ring-emerald-500/20 shrink-0" />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-white text-base">{ag.name}</h4>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                              isExpired
+                                ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+                                : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                            }`}>
+                              {isExpired ? '🔴 Expiré' : '🟢 Actif'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400">📍 {ag.address}, Kinshasa</p>
+                          <p className="text-xs text-emerald-400 font-mono mt-0.5">{ag.email} • {ag.phone}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-bold">
+                              Pack Agence Elite ($99/mois)
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-medium">{ag.agentsCount} agents rattachés</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-slate-400 font-medium">Statut Abonnement: </span>
+                        <span className={`font-bold ${isExpired ? 'text-rose-400' : 'text-emerald-400'}`}>
+                          {isExpired ? 'Paiement en retard / Compte Expiré' : 'Abonnement Actif'}
                         </span>
-                        <span className="text-[11px] text-slate-400 font-medium">{ag.agentsCount} agents rattachés</span>
+                        {ag.subscriptionExpiresAt && (
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            Échéance: {new Date(ag.subscriptionExpiresAt).toLocaleDateString('fr-FR')}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          const nextStatus = isExpired ? 'Active' : 'Expired';
+                          updateAgencySubscriptionStatus(ag.id, nextStatus);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                          isExpired
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20'
+                            : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+                        }`}
+                      >
+                        {isExpired ? 'Re-Activer (Paiement Reçu)' : 'Marquer comme Expiré'}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-slate-800/80 pt-3 text-xs">
+                      <span className="text-slate-400 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Agence Vérifiée & Agréée RDC
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            requestConfirm({
+                              title: "Suppression de l'agence / concessionnaire",
+                              message: `Voulez-vous vraiment supprimer l'agence / concessionnaire "${ag.name}" ?`,
+                              onConfirm: () => deleteAgency(ag.id)
+                            });
+                          }}
+                          className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all shrink-0"
+                          title="Supprimer cette agence"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => handleGrantFreeMonth('agency', ag.id, ag.name, ag.email, ag.phone)}
+                          className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold flex items-center gap-1.5 transition-all text-xs"
+                          title="Offrir 1 mois d'abonnement gratuit"
+                        >
+                          <Gift className="w-3.5 h-3.5 text-amber-400" /> 1 Mois Gratuit ($0)
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            handleTargetChange('agency', ag.id);
+                            setIsNewInvoiceOpen(true);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center gap-1.5 transition-all"
+                        >
+                          <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Facturer Agence
+                        </button>
                       </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-between border-t border-slate-800/80 pt-3 text-xs">
-                    <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Compte Validé Admin
-                    </span>
-                    <button
-                      onClick={() => {
-                        handleTargetChange('agency', ag.id);
-                        setIsNewInvoiceOpen(true);
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center gap-1.5 transition-all"
-                    >
-                      <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Facturer Agence
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <Users className="w-5 h-5 text-emerald-400" />
-              Répertoire des Agents Immobilier Indépendants & Certifiés
+              Répertoire des Agents Immobilier Indépendants & Membres Inscrits ({combinedAgentTargets.length})
             </h3>
             <p className="text-xs text-slate-400">
-              Abonnements individuels (Pack Agent Pro $35/mois). Activez les badges "Agent Vérifié +243" et émettez des appels de fonds.
+              Abonnements individuels (Pack Agent Pro $35/mois ou Starter $20/mois). Émettez des factures directement pour les nouveaux venus et agents de démonstration.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
-              {agents.map(agt => (
-                <div key={agt.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <img src={agt.avatar} alt={agt.name} className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/20 shrink-0" />
-                    <div className="overflow-hidden">
-                      <h4 className="font-bold text-white text-sm truncate">{agt.name}</h4>
-                      <p className="text-[11px] text-slate-400 truncate">{agt.title}</p>
-                      <p className="text-[10px] text-emerald-400 font-mono truncate">{agt.phone}</p>
+              {combinedAgentTargets.map((agt) => {
+                // Find agent or user matching status
+                const existingAgent = agents.find(a => a.id === agt.id || a.email === agt.email);
+                const isExpired = agt.subscriptionStatus === 'Expired' || existingAgent?.subscriptionStatus === 'Expired';
+                
+                return (
+                  <div key={agt.id} className={`bg-slate-950 border rounded-2xl p-4 space-y-3 relative overflow-hidden transition-all ${
+                    isExpired ? 'border-rose-500/40 ring-1 ring-rose-500/20' : 'border-slate-800'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${
+                        isExpired
+                          ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                          : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                      }`}>
+                        {isExpired ? '🔴 Compte Expiré' : '🟢 Abonnement Actif'}
+                      </span>
+                      {agt.isNew && (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 font-bold text-[9px] uppercase tracking-wider">
+                          🆕 Nouveau Membre
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <img src={agt.avatar} alt={agt.name} className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/20 shrink-0" />
+                      <div className="overflow-hidden">
+                        <h4 className="font-bold text-white text-sm truncate">{agt.name}</h4>
+                        <p className="text-[11px] text-slate-400 truncate">{agt.agencyName}</p>
+                        <p className="text-[10px] text-emerald-400 font-mono truncate">{agt.email}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-slate-800 pt-2 text-[11px]">
+                      <span className="text-slate-400">📱 {agt.phone}</span>
+                      <span className="text-emerald-400 font-bold">{agt.planId === 'starter' ? '$20' : '$35'} / mois</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                      <button
+                        onClick={() => {
+                          const nextStatus = isExpired ? 'Active' : 'Expired';
+                          updateUserSubscriptionStatus(agt.id, nextStatus);
+                          if (agt.email) {
+                            updateUserSubscriptionStatus(agt.email, nextStatus);
+                          }
+                        }}
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all ${
+                          isExpired
+                            ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40'
+                            : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+                        }`}
+                      >
+                        {isExpired ? 'Activer Compte' : 'Marquer Expiré'}
+                      </button>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleGrantFreeMonth('agent', agt.id, agt.name, agt.email, agt.phone)}
+                          className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-bold flex items-center gap-1 transition-all"
+                          title="Offrir 1 mois d'abonnement gratuit à cet agent"
+                        >
+                          <Gift className="w-3 h-3 text-amber-400" /> 1 Mois Gratuit
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            handleTargetChange('agent', agt.id);
+                            setIsNewInvoiceOpen(true);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1 transition-all"
+                        >
+                          <Receipt className="w-3 h-3 text-emerald-400" /> Facturer
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            requestConfirm({
+                              title: "Suppression du membre / agent",
+                              message: `Voulez-vous vraiment supprimer le membre / agent "${agt.name}" (${agt.email}) ?`,
+                              onConfirm: () => {
+                                deleteUser(agt.id);
+                                deleteAgent(agt.id);
+                                setRegisteredUsers((prev) => prev.filter((u) => u.id !== agt.id && u.email !== agt.email));
+                              }
+                            });
+                          }}
+                          className="p-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all shrink-0"
+                          title="Supprimer cet utilisateur"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-between border-t border-slate-800 pt-2 text-[11px]">
-                    <span className="text-slate-400">18 annonces en ligne</span>
-                    <span className="text-emerald-400 font-bold">$35 / mois</span>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      handleTargetChange('agent', agt.id);
-                      setIsNewInvoiceOpen(true);
-                    }}
-                    className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                  >
-                    <Receipt className="w-3 h-3 text-emerald-400" /> Facturer Agent
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -748,14 +1029,14 @@ export const AdminBillingManager: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => handleTargetChange('agent', agents[0]?.id || '')}
+                    onClick={() => handleTargetChange('agent', combinedAgentTargets[0]?.id || '')}
                     className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                       targetType === 'agent'
                         ? 'bg-emerald-500 text-slate-950 border-emerald-400'
                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    <Users className="w-4 h-4" /> Agent
+                    <Users className="w-4 h-4" /> Agent / Inscrit ({combinedAgentTargets.length})
                   </button>
 
                   <button
@@ -792,17 +1073,27 @@ export const AdminBillingManager: React.FC = () => {
 
               {targetType === 'agent' && (
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-400">Choisir l'Agent Immobilier</label>
+                  <label className="text-xs font-semibold text-slate-400">Choisir l'Agent ou le Membre Inscrit (Nouveau Venu)</label>
                   <select
                     value={selectedTargetId}
                     onChange={e => handleTargetChange('agent', e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                   >
-                    {agents.map(agt => (
-                      <option key={agt.id} value={agt.id}>
-                        {agt.name} - {agt.agencyName || 'Indépendant'} ({agt.phone})
-                      </option>
-                    ))}
+                    <option value="">-- Sélectionnez un destinataire --</option>
+                    <optgroup label="🆕 Nouveaux Membres & Agents Inscrits">
+                      {combinedAgentTargets.filter(u => u.isNew).map(u => (
+                        <option key={u.id} value={u.id}>
+                          🆕 {u.name} — {u.email} ({u.phone})
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="🏢 Agents Démo Prédéfinis">
+                      {combinedAgentTargets.filter(u => !u.isNew).map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} — {u.agencyName} ({u.phone})
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
                 </div>
               )}
@@ -1147,13 +1438,198 @@ export const AdminBillingManager: React.FC = () => {
               <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-600 space-y-2 bg-slate-50 p-4 rounded-xl">
                 <p className="font-bold text-slate-800">Instructions de Paiement Mobile Money & Virement Kinshasa:</p>
                 <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
-                  <div>• Vodacom M-Pesa: <span className="font-bold text-slate-900">+243 81 555 0100</span> (Marchand 112200)</div>
-                  <div>• Orange Money: <span className="font-bold text-slate-900">+243 89 000 0000</span> (Marchand 889900)</div>
-                  <div>• Airtel Money: <span className="font-bold text-slate-900">+243 99 000 0000</span></div>
+                  <div>• Vodacom M-Pesa / Orange / Airtel: <span className="font-bold text-slate-900">+243 84 529 46 16</span></div>
                   <div>• Equity BCDC USD: <span className="font-bold text-slate-900">00018-992019-91</span></div>
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT INVOICE & AMOUNT */}
+      {editingInvoice && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                <Edit3 className="w-5 h-5" />
+                <span>Modifier le Montant - Facture {editingInvoice.invoiceNumber}</span>
+              </div>
+              <button
+                onClick={() => setEditingInvoice(null)}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedInvoice} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-400">Client / Destinataire</label>
+                <input
+                  type="text"
+                  disabled
+                  value={`${editingInvoice.targetName} (${editingInvoice.targetEmail})`}
+                  className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-400 mt-1 cursor-not-allowed"
+                />
+              </div>
+
+              {/* Presets */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">Tarifs Réduits & Modifiables (Abonnements Agence/Agent)</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingInvoice(prev => prev ? {
+                        ...prev,
+                        totalAmount: 0,
+                        subtotalAmount: 0,
+                        items: [{ id: prev.items[0]?.id || 'item_1', description: 'Abonnement Agence - 1er Mois Gratuit (Offert)', amount: 0, quantity: 1 }]
+                      } : null);
+                    }}
+                    className="p-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all text-center"
+                  >
+                    🎁 1er Mois Gratuit ($0)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingInvoice(prev => prev ? {
+                        ...prev,
+                        totalAmount: 20,
+                        subtotalAmount: 20,
+                        items: [{ id: prev.items[0]?.id || 'item_1', description: 'Abonnement Pack Starter ($20)', amount: 20, quantity: 1 }]
+                      } : null);
+                    }}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 text-[11px] font-bold transition-all text-center"
+                  >
+                    ⚡ Starter $20
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingInvoice(prev => prev ? {
+                        ...prev,
+                        totalAmount: 35,
+                        subtotalAmount: 35,
+                        items: [{ id: prev.items[0]?.id || 'item_1', description: 'Abonnement Pack Agent Pro ($35)', amount: 35, quantity: 1 }]
+                      } : null);
+                    }}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 text-[11px] font-bold transition-all text-center"
+                  >
+                    💼 Agent Pro $35
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingInvoice(prev => prev ? {
+                        ...prev,
+                        totalAmount: 99,
+                        subtotalAmount: 99,
+                        items: [{ id: prev.items[0]?.id || 'item_1', description: 'Abonnement Pack Agence Elite ($99)', amount: 99, quantity: 1 }]
+                      } : null);
+                    }}
+                    className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold transition-all text-center"
+                  >
+                    🏢 Agence Elite $99
+                  </button>
+                </div>
+              </div>
+
+              {/* Items Amount List */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-400">Montant Saisi & Description de l'Abonnement</label>
+                {editingInvoice.items.map((item, idx) => (
+                  <div key={item.id} className="flex items-center gap-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                    <input
+                      type="text"
+                      value={item.description}
+                      onChange={e => {
+                        const newDesc = e.target.value;
+                        setEditingInvoice(prev => {
+                          if (!prev) return null;
+                          const newItems = [...prev.items];
+                          newItems[idx] = { ...newItems[idx], description: newDesc };
+                          return { ...prev, items: newItems };
+                        });
+                      }}
+                      className="flex-1 bg-transparent border-none text-xs text-white focus:outline-none"
+                    />
+                    <div className="w-24">
+                      <input
+                        type="number"
+                        value={item.amount}
+                        onChange={e => {
+                          const newAmt = Number(e.target.value);
+                          setEditingInvoice(prev => {
+                            if (!prev) return null;
+                            const newItems = [...prev.items];
+                            newItems[idx] = { ...newItems[idx], amount: newAmt };
+                            return { ...prev, items: newItems };
+                          });
+                        }}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-right text-emerald-400 font-bold focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Status & Due Date */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-400">Statut Facture</label>
+                  <select
+                    value={editingInvoice.status}
+                    onChange={e => setEditingInvoice(prev => prev ? { ...prev, status: e.target.value as any } : null)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white mt-1 focus:outline-none"
+                  >
+                    <option value="pending">En Attente</option>
+                    <option value="paid">Payée</option>
+                    <option value="overdue">En Retard</option>
+                    <option value="cancelled">Annulée</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-400">Date d'Échéance</label>
+                  <input
+                    type="date"
+                    value={editingInvoice.dueDate.split('T')[0]}
+                    onChange={e => setEditingInvoice(prev => prev ? { ...prev, dueDate: e.target.value } : null)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white mt-1 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-400">Notes & Conditions</label>
+                <textarea
+                  value={editingInvoice.notes || ''}
+                  onChange={e => setEditingInvoice(prev => prev ? { ...prev, notes: e.target.value } : null)}
+                  rows={2}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white mt-1 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingInvoice(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition-all"
+                >
+                  Enregistrer les modifications
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

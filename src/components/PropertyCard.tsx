@@ -84,21 +84,21 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
           <>
             <button
               onClick={handlePrevImage}
-              className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-slate-950/70 hover:bg-slate-900 text-white flex items-center justify-center backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity z-20 shadow-md"
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-slate-950/80 hover:bg-slate-900 text-white flex items-center justify-center backdrop-blur-md border border-white/10 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all z-20 shadow-lg active:scale-90"
               title="Photo précédente"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-5 h-5" />
             </button>
             <button
               onClick={handleNextImage}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-slate-950/70 hover:bg-slate-900 text-white flex items-center justify-center backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity z-20 shadow-md"
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-slate-950/80 hover:bg-slate-900 text-white flex items-center justify-center backdrop-blur-md border border-white/10 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all z-20 shadow-lg active:scale-90"
               title="Photo suivante"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-5 h-5" />
             </button>
 
             {/* Dots indicator */}
-            <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-1 z-20">
+            <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-20 bg-slate-950/60 backdrop-blur-md px-2 py-1 rounded-full border border-white/10">
               {images.map((_, idx) => (
                 <button
                   key={idx}
@@ -106,8 +106,8 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
                     e.stopPropagation();
                     setActiveImgIndex(idx);
                   }}
-                  className={`w-1.5 h-1.5 rounded-full transition-all ${
-                    idx === activeImgIndex ? 'bg-emerald-400 w-3' : 'bg-white/50 hover:bg-white'
+                  className={`h-1.5 rounded-full transition-all ${
+                    idx === activeImgIndex ? 'bg-emerald-400 w-4' : 'bg-white/60 hover:bg-white w-1.5'
                   }`}
                 />
               ))}
@@ -118,7 +118,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
         {/* Top Badges */}
         <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
           <span
-            className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-md ${
               property.status === 'for-sale'
                 ? 'bg-emerald-500 text-slate-950'
                 : property.status === 'for-rent'
@@ -138,21 +138,21 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
           </span>
 
           {property.labels.includes('featured') && (
-            <span className="px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-400 text-slate-950 flex items-center gap-1 shadow-sm">
+            <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-950 flex items-center gap-1 shadow-md">
               <Sparkles className="w-3 h-3 fill-slate-950" />
               Vedette
             </span>
           )}
 
           {property.labels.includes('hot') && (
-            <span className="px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-rose-500 text-white flex items-center gap-1 shadow-sm">
+            <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-500 text-white flex items-center gap-1 shadow-md">
               <Flame className="w-3 h-3 fill-white" />
               Hot Deal
             </span>
           )}
         </div>
 
-        {/* Top Right Action Buttons (Compare, Wishlist, Share) */}
+        {/* Top Right Action Buttons (Compare, Wishlist, Share with 44px touch target) */}
         <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
           {/* Wishlist Button */}
           <button
@@ -161,13 +161,13 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
               toggleWishlist(property.id);
             }}
             title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-            className={`p-2 rounded-xl backdrop-blur-md transition-all ${
+            className={`p-2.5 min-w-[42px] min-h-[42px] rounded-2xl backdrop-blur-md border border-white/10 flex items-center justify-center transition-all active:scale-90 ${
               isFavorite
                 ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30 scale-105'
-                : 'bg-slate-950/60 hover:bg-slate-900 text-slate-300 hover:text-white'
+                : 'bg-slate-950/70 hover:bg-slate-900 text-slate-200'
             }`}
           >
-            <Heart className={`w-4 h-4 ${isFavorite ? 'fill-white' : ''}`} />
+            <Heart className={`w-4.5 h-4.5 ${isFavorite ? 'fill-white' : ''}`} />
           </button>
 
           {/* Compare Button */}
@@ -177,13 +177,13 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
               toggleCompare(property.id);
             }}
             title={isCompared ? 'Retirer du comparateur' : 'Ajouter au comparateur'}
-            className={`p-2 rounded-xl backdrop-blur-md transition-all ${
+            className={`p-2.5 min-w-[42px] min-h-[42px] rounded-2xl backdrop-blur-md border border-white/10 flex items-center justify-center transition-all active:scale-90 ${
               isCompared
-                ? 'bg-amber-500 text-slate-950 font-bold scale-105'
-                : 'bg-slate-950/60 hover:bg-slate-900 text-slate-300 hover:text-white'
+                ? 'bg-amber-500 text-slate-950 font-bold scale-105 shadow-lg shadow-amber-500/20'
+                : 'bg-slate-950/70 hover:bg-slate-900 text-slate-200'
             }`}
           >
-            <Scale className="w-4 h-4" />
+            <Scale className="w-4.5 h-4.5" />
           </button>
 
           {/* Social Share Button */}
@@ -193,43 +193,44 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
               setIsSocialShareOpen(true);
             }}
             title="Partager l'annonce"
-            className="p-2 rounded-xl bg-slate-950/60 hover:bg-slate-900 text-slate-300 hover:text-white backdrop-blur-md transition-all"
+            className="p-2.5 min-w-[42px] min-h-[42px] rounded-2xl bg-slate-950/70 hover:bg-slate-900 text-slate-200 backdrop-blur-md border border-white/10 flex items-center justify-center transition-all active:scale-90"
           >
-            <Share2 className="w-4 h-4" />
+            <Share2 className="w-4.5 h-4.5" />
           </button>
         </div>
 
         {/* Bottom Image Overlay: Price Tag & Eye Button */}
         <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between z-10">
-          <div className="bg-slate-950/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800">
-            <span className="text-lg font-bold text-emerald-400">
+          <div className="bg-slate-950/90 backdrop-blur-md px-3.5 py-1.5 rounded-2xl border border-emerald-500/30 shadow-xl">
+            <span className="text-base sm:text-lg font-black text-emerald-400 tracking-tight">
               {formattedPrice}
             </span>
             {property.period === 'month' && (
-              <span className="text-xs text-slate-400 font-medium"> /mois</span>
+              <span className="text-xs text-slate-400 font-bold"> /mois</span>
             )}
           </div>
 
           <button
             onClick={() => setActivePropertyModalId(property.id)}
-            className="p-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-all font-semibold text-xs flex items-center gap-1 shadow-md shadow-emerald-500/20"
+            className="p-2.5 min-w-[42px] min-h-[42px] rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-all font-bold text-xs flex items-center justify-center gap-1 shadow-lg shadow-emerald-500/20 active:scale-90"
+            title="Voir fiche rapide"
           >
-            <Eye className="w-4 h-4" />
+            <Eye className="w-4.5 h-4.5" />
           </button>
         </div>
       </div>
 
       {/* Content */}
       <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-        <div>
+        <div className="space-y-1.5">
           {/* Category & Location */}
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span className="font-medium text-emerald-400/90 flex items-center gap-1">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span className="font-bold text-emerald-400/90 flex items-center gap-1.5 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
               <Tag className="w-3 h-3" />
               {property.category}
             </span>
-            <span className="flex items-center gap-1 text-slate-400">
-              <MapPin className="w-3 h-3 text-slate-500" />
+            <span className="flex items-center gap-1 text-slate-300 font-medium">
+              <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               {property.city}
             </span>
           </div>
@@ -237,23 +238,23 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
           {/* Title */}
           <h3
             onClick={() => setActivePropertyModalId(property.id)}
-            className="text-sm font-bold text-white hover:text-emerald-400 transition-colors line-clamp-2 cursor-pointer"
+            className="text-base font-extrabold text-white hover:text-emerald-400 transition-colors line-clamp-2 cursor-pointer leading-snug pt-1"
           >
             {property.title}
           </h3>
         </div>
 
         {/* Specs Grid */}
-        <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800/80 text-xs text-slate-300">
-          <div className="flex items-center gap-1.5">
+        <div className="grid grid-cols-3 gap-2 py-2 border-y border-slate-800/80 text-xs text-slate-200">
+          <div className="bg-slate-950/80 border border-slate-800 px-2 py-2 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-slate-200">
             <Bed className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{property.bedrooms} ch.</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="bg-slate-950/80 border border-slate-800 px-2 py-2 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-slate-200">
             <Bath className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{property.bathrooms} sdb</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="bg-slate-950/80 border border-slate-800 px-2 py-2 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-slate-200">
             <Maximize className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{property.area} m²</span>
           </div>
@@ -303,7 +304,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
             <span className="text-[11px] text-slate-400">Kin Immobilier</span>
           )}
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Quick WhatsApp button */}
             {agent && (
               <a
@@ -311,7 +312,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="p-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 transition-all flex items-center gap-1 text-[11px] font-bold"
+                className="px-2.5 py-1.5 min-h-[36px] rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/30 transition-all flex items-center gap-1.5 text-[11px] font-extrabold active:scale-95"
                 title="Contacter sur WhatsApp"
               >
                 <MessageCircle className="w-3.5 h-3.5 fill-current" />
@@ -324,7 +325,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
               <a
                 href={`tel:${agent.phone}`}
                 onClick={(e) => e.stopPropagation()}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
+                className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center justify-center active:scale-95"
                 title={`Appeler ${agent.phone}`}
               >
                 <Phone className="w-3.5 h-3.5 text-emerald-400" />
@@ -333,7 +334,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
 
             <button
               onClick={() => setActivePropertyModalId(property.id)}
-              className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 hover:underline ml-1"
+              className="px-2.5 py-1.5 min-h-[36px] rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-extrabold text-xs flex items-center gap-1 border border-slate-700 active:scale-95 transition-all"
             >
               Fiche →
             </button>

@@ -221,11 +221,11 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
             <button
               onClick={() => setCurrentTab('wishlist')}
               title="Mes Favoris"
-              className="relative p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-700/50"
+              className="relative p-2.5 min-w-[42px] min-h-[42px] rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white transition-all border border-slate-700/60 flex items-center justify-center active:scale-95"
             >
               <Heart className={`w-4 h-4 ${wishlist.length > 0 ? 'text-rose-400 fill-rose-400' : ''}`} />
               {wishlist.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[10px] font-bold flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[10px] font-black flex items-center justify-center ring-2 ring-slate-900">
                   {wishlist.length}
                 </span>
               )}
@@ -235,11 +235,11 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
             <button
               onClick={() => setIsCompareOpen(true)}
               title="Comparateur de biens"
-              className="relative p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-700/50"
+              className="relative p-2.5 min-w-[42px] min-h-[42px] rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white transition-all border border-slate-700/60 flex items-center justify-center active:scale-95"
             >
               <Scale className="w-4 h-4 text-amber-400" />
               {compareList.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-slate-950 rounded-full text-[10px] font-bold flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-slate-950 rounded-full text-[10px] font-black flex items-center justify-center ring-2 ring-slate-900">
                   {compareList.length}
                 </span>
               )}
@@ -248,9 +248,9 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
             {/* Submit Property Button */}
             <button
               onClick={() => setIsSubmitPropertyOpen(true)}
-              className="hidden sm:flex items-center gap-1 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/20 hover:scale-[1.02] active:scale-95 transition-all"
+              className="hidden sm:flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20 hover:scale-[1.02] active:scale-95 transition-all"
             >
-              <PlusCircle className="w-3.5 h-3.5" />
+              <PlusCircle className="w-4 h-4" />
               Publier
             </button>
 
@@ -260,7 +260,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
                 <button
                   onClick={() => setIsSecurityModalOpen(true)}
                   title="2FA & Sécurité"
-                  className="p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-all flex items-center gap-1.5 text-xs font-semibold"
+                  className="p-2.5 min-h-[42px] rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-all flex items-center gap-1.5 text-xs font-semibold active:scale-95"
                 >
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
                   <span className="hidden md:inline text-[11px] font-bold">2FA & Sécurité</span>
@@ -273,7 +273,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
                   <img
                     src={user.avatar}
                     alt={user.name}
-                    className="w-7 h-7 rounded-lg object-cover ring-2 ring-emerald-500/40"
+                    className="w-8 h-8 rounded-lg object-cover ring-2 ring-emerald-500/40"
                   />
                   <div className="hidden xl:block text-left">
                     <span className="block text-xs font-semibold text-slate-200 leading-tight">
@@ -288,7 +288,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
                 <button
                   onClick={() => setUser(null)}
                   title="Se déconnecter"
-                  className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors"
+                  className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-xl transition-colors"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -296,9 +296,9 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
             ) : (
               <button
                 onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition-all"
+                className="flex items-center gap-1.5 px-3 py-2.5 min-h-[42px] rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all active:scale-95"
               >
-                <UserIcon className="w-3.5 h-3.5 text-emerald-400" />
+                <UserIcon className="w-4 h-4 text-emerald-400" />
                 <span className="hidden sm:inline">Connexion</span>
               </button>
             )}
@@ -307,182 +307,236 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               aria-label="Menu principal"
-              className="lg:hidden p-2 rounded-xl bg-slate-800 text-slate-200 hover:text-white border border-slate-700/60"
+              className="lg:hidden p-2.5 min-w-[44px] min-h-[44px] rounded-xl bg-slate-800 text-slate-200 hover:text-white border border-slate-700/60 flex items-center justify-center active:scale-95 transition-transform"
             >
               {isMobileMenuOpen ? <X className="w-5 h-5 text-emerald-400" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
         </div>
 
-        {/* Mobile Slide-down Menu Panel */}
+        {/* Mobile Slide-down Overlay & Menu Panel */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden border-t border-slate-800 bg-slate-950/95 backdrop-blur-xl px-4 py-4 space-y-3 animate-in slide-in-from-top duration-200">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => {
-                  setCurrentTab('home');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`p-3 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-                  currentTab === 'home'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                <Home className="w-4 h-4 text-emerald-400" />
-                <span>Accueil</span>
-              </button>
+          <>
+            {/* Dark Backdrop */}
+            <div
+              className="fixed inset-0 z-30 bg-slate-950/80 backdrop-blur-sm lg:hidden transition-opacity"
+              onClick={() => setIsMobileMenuOpen(false)}
+            />
 
-              <button
-                onClick={() => {
-                  setCurrentTab('map');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`p-3 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-                  currentTab === 'map'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                <MapPin className="w-4 h-4 text-emerald-400" />
-                <span>Carte</span>
-              </button>
+            {/* Mobile Menu Panel */}
+            <div className="fixed inset-x-0 top-[102px] z-40 bg-slate-950/98 border-b border-slate-800/90 backdrop-blur-xl px-4 py-5 space-y-4 shadow-2xl max-h-[82vh] overflow-y-auto lg:hidden rounded-b-3xl animate-in slide-in-from-top duration-200">
+              {/* User Profile Card Header inside Mobile Menu */}
+              {user ? (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <img src={user.avatar} alt={user.name} className="w-10 h-10 rounded-xl object-cover ring-2 ring-emerald-500/40" />
+                    <div>
+                      <h4 className="font-extrabold text-white text-sm flex items-center gap-1">
+                        {user.name}
+                        <BadgeCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      </h4>
+                      <p className="text-[11px] text-slate-400">{user.email}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsSecurityModalOpen(true);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold"
+                    title="Sécurité 2FA"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setIsAuthModalOpen(true);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-white font-extrabold text-sm flex items-center justify-center gap-2 active:scale-98 transition-all"
+                >
+                  <UserIcon className="w-4 h-4 text-emerald-400" />
+                  <span>Se Connecter / S'inscrire</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => {
-                  setCurrentTab('grid');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`p-3 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-                  currentTab === 'grid'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                <Grid className="w-4 h-4 text-emerald-400" />
-                <span>Grille Biens</span>
-              </button>
+              <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-1 pt-1">
+                Navigation Principale
+              </div>
 
-              <button
-                onClick={() => {
-                  setCurrentTab('agencies');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`p-3 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-                  currentTab === 'agencies'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                <Building2 className="w-4 h-4 text-emerald-400" />
-                <span>Agences</span>
-              </button>
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  onClick={() => {
+                    setCurrentTab('home');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
+                    currentTab === 'home'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-md shadow-emerald-500/10'
+                      : 'bg-slate-900 text-slate-200 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <Home className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Accueil</span>
+                </button>
 
-              <button
-                onClick={() => {
-                  setCurrentTab('agents');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`p-3 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-                  currentTab === 'agents'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                <Users className="w-4 h-4 text-emerald-400" />
-                <span>Agents</span>
-              </button>
+                <button
+                  onClick={() => {
+                    setCurrentTab('map');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
+                    currentTab === 'map'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-md shadow-emerald-500/10'
+                      : 'bg-slate-900 text-slate-200 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Carte RDC</span>
+                </button>
 
-              <button
-                onClick={() => {
-                  setCurrentTab('dashboard');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`p-3 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-                  currentTab === 'dashboard'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                <UserIcon className="w-4 h-4 text-emerald-400" />
-                <span>Mon Espace Admin</span>
-              </button>
+                <button
+                  onClick={() => {
+                    setCurrentTab('grid');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
+                    currentTab === 'grid'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-md shadow-emerald-500/10'
+                      : 'bg-slate-900 text-slate-200 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <Grid className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Toutes Annonces</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setCurrentTab('agencies');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
+                    currentTab === 'agencies'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-md shadow-emerald-500/10'
+                      : 'bg-slate-900 text-slate-200 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Agences</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setCurrentTab('agents');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
+                    currentTab === 'agents'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-md shadow-emerald-500/10'
+                      : 'bg-slate-900 text-slate-200 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <Users className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Agents Vérifiés</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setCurrentTab('dashboard');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
+                    currentTab === 'dashboard'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-md shadow-emerald-500/10'
+                      : 'bg-slate-900 text-slate-200 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <UserIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Tableau de Bord</span>
+                </button>
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2.5">
+                <button
+                  onClick={() => {
+                    setIsSubmitPropertyOpen(true);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 active:scale-98 transition-all"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Publier une Annonce</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIsFieldsBuilderOpen(true);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full py-3 rounded-2xl bg-slate-900 border border-slate-800 text-emerald-400 font-bold text-xs flex items-center justify-center gap-2 active:scale-98 transition-all"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  <span>Fields Builder (Champs Custom)</span>
+                </button>
+              </div>
             </div>
-
-            <div className="pt-2 flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  setIsSubmitPropertyOpen(true);
-                  setIsMobileMenuOpen(false);
-                }}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Publier une Annonce</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setIsFieldsBuilderOpen(true);
-                  setIsMobileMenuOpen(false);
-                }}
-                className="w-full py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-emerald-400 font-bold text-xs flex items-center justify-center gap-2"
-              >
-                <SlidersHorizontal className="w-4 h-4" />
-                <span>Fields Builder PRO</span>
-              </button>
-            </div>
-          </div>
+          </>
         )}
       </header>
 
-      {/* Fixed Mobile Bottom Navigation Bar (Visible on phones & tablets < lg) */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/80 px-2 h-16 flex items-center justify-around text-[10px] font-bold text-slate-400 shadow-2xl">
+      {/* Fixed Mobile Bottom Navigation Bar (Optimized for tactile touch on phones) */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/98 backdrop-blur-2xl border-t border-slate-800/80 px-2 h-16 sm:h-18 flex items-center justify-around text-[10px] font-bold text-slate-400 shadow-2xl select-none pb-safe">
         <button
           onClick={() => setCurrentTab('home')}
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            currentTab === 'home' ? 'text-emerald-400' : 'hover:text-slate-200'
+          className={`flex flex-col items-center justify-center min-w-[52px] min-h-[48px] gap-1 transition-all active:scale-90 ${
+            currentTab === 'home' ? 'text-emerald-400 font-black' : 'hover:text-slate-200'
           }`}
         >
-          <Home className="w-5 h-5" />
+          <Home className={`w-5 h-5 ${currentTab === 'home' ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]' : ''}`} />
           <span>Accueil</span>
         </button>
 
         <button
           onClick={() => setCurrentTab('map')}
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            currentTab === 'map' ? 'text-emerald-400' : 'hover:text-slate-200'
+          className={`flex flex-col items-center justify-center min-w-[52px] min-h-[48px] gap-1 transition-all active:scale-90 ${
+            currentTab === 'map' ? 'text-emerald-400 font-black' : 'hover:text-slate-200'
           }`}
         >
-          <MapPin className="w-5 h-5" />
+          <MapPin className={`w-5 h-5 ${currentTab === 'map' ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]' : ''}`} />
           <span>Carte</span>
         </button>
 
+        {/* Central Floating "Publier" Action Button */}
         <button
           onClick={() => setIsSubmitPropertyOpen(true)}
-          className="flex flex-col items-center justify-center -mt-5 w-12 h-12 rounded-full bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30 font-extrabold active:scale-90 transition-transform"
+          className="relative -mt-6 flex flex-col items-center group active:scale-90 transition-transform"
           aria-label="Publier un bien"
         >
-          <PlusCircle className="w-6 h-6" />
+          <div className="w-13 h-13 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 text-slate-950 shadow-xl shadow-emerald-500/40 ring-4 ring-slate-950 flex items-center justify-center font-black">
+            <PlusCircle className="w-6 h-6 stroke-[2.5]" />
+          </div>
+          <span className="text-[9px] font-black text-emerald-400 mt-0.5 tracking-tight">Publier</span>
         </button>
 
         <button
           onClick={() => setCurrentTab('agencies')}
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            currentTab === 'agencies' ? 'text-emerald-400' : 'hover:text-slate-200'
+          className={`flex flex-col items-center justify-center min-w-[52px] min-h-[48px] gap-1 transition-all active:scale-90 ${
+            currentTab === 'agencies' ? 'text-emerald-400 font-black' : 'hover:text-slate-200'
           }`}
         >
-          <Building2 className="w-5 h-5" />
+          <Building2 className={`w-5 h-5 ${currentTab === 'agencies' ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]' : ''}`} />
           <span>Agences</span>
         </button>
 
         <button
           onClick={() => setCurrentTab('dashboard')}
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            currentTab === 'dashboard' ? 'text-emerald-400' : 'hover:text-slate-200'
+          className={`flex flex-col items-center justify-center min-w-[52px] min-h-[48px] gap-1 transition-all active:scale-90 ${
+            currentTab === 'dashboard' ? 'text-emerald-400 font-black' : 'hover:text-slate-200'
           }`}
         >
-          <UserIcon className="w-5 h-5" />
+          <UserIcon className={`w-5 h-5 ${currentTab === 'dashboard' ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]' : ''}`} />
           <span>Espace</span>
         </button>
       </nav>

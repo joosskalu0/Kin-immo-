@@ -293,7 +293,7 @@ export const SecuritySettingsModal: React.FC = () => {
                   <Smartphone className="w-5 h-5 shrink-0" />
                   <div>
                     <div className="font-bold">Téléphone +243 SMS Vérifié</div>
-                    <div className="text-[10px] opacity-80">{user.phone || '+243 81 555 44 33'}</div>
+                    <div className="text-[10px] opacity-80">{user.phone || '+243 84 529 46 16'}</div>
                   </div>
                 </div>
 
@@ -581,7 +581,7 @@ export const SecuritySettingsModal: React.FC = () => {
                 <div className="p-3 bg-slate-900/50 border border-slate-800 rounded-xl flex items-center justify-between opacity-75">
                   <div>
                     <div className="font-semibold text-slate-300">
-                      Application Mobile WhatsApp (+243 81 555 44 33)
+                      Application Mobile WhatsApp (+243 84 529 46 16)
                     </div>
                     <div className="text-[11px] text-slate-500">
                       Hier à 18:42 • Kinshasa (Ngaliema)

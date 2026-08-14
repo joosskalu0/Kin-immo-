@@ -21,27 +21,39 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({ properties, height = '
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
+    const container = mapContainerRef.current;
+
     // Initialize Map if not existing
     if (!mapInstanceRef.current) {
-      const initialLat = properties[0]?.lat || 48.8566;
-      const initialLng = properties[0]?.lng || 2.3522;
+      // Clear any stale _leaflet_id on container if it exists
+      if ((container as any)._leaflet_id) {
+        delete (container as any)._leaflet_id;
+      }
 
-      const map = L.map(mapContainerRef.current, {
-        center: [initialLat, initialLng],
-        zoom: 11,
-        zoomControl: false,
-      });
+      // Kinshasa default center: -4.322444, 15.307045
+      const initialLat = properties[0]?.lat || -4.322444;
+      const initialLng = properties[0]?.lng || 15.307045;
 
-      // Dark styled tile layer
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-        maxZoom: 19,
-      }).addTo(map);
+      try {
+        const map = L.map(container, {
+          center: [initialLat, initialLng],
+          zoom: 11,
+          zoomControl: false,
+        });
 
-      L.control.zoom({ position: 'topright' }).addTo(map);
+        // Dark styled tile layer
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap &copy; CARTO',
+          maxZoom: 19,
+        }).addTo(map);
 
-      mapInstanceRef.current = map;
-      markersGroupRef.current = L.layerGroup().addTo(map);
+        L.control.zoom({ position: 'topright' }).addTo(map);
+
+        mapInstanceRef.current = map;
+        markersGroupRef.current = L.layerGroup().addTo(map);
+      } catch (err) {
+        console.warn('Leaflet initialization warning:', err);
+      }
     }
 
     const map = mapInstanceRef.current;
@@ -90,10 +102,12 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({ properties, height = '
       marker.bindPopup(popupHtml);
 
       marker.on('popupopen', () => {
-        const btn = document.getElementById(`view-prop-${property.id}`);
-        if (btn) {
-          btn.onclick = () => setActivePropertyModalId(property.id);
-        }
+        setTimeout(() => {
+          const btn = document.getElementById(`view-prop-${property.id}`);
+          if (btn) {
+            btn.onclick = () => setActivePropertyModalId(property.id);
+          }
+        }, 50);
       });
 
       markersGroup.addLayer(marker);
@@ -102,8 +116,24 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({ properties, height = '
 
     // Fit map bounds if properties exist
     if (properties.length > 0 && bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+      try {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+      } catch (e) {
+        console.warn('Leaflet fitBounds error:', e);
+      }
     }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.remove();
+        } catch (e) {
+          console.warn('Error during Leaflet cleanup:', e);
+        }
+        mapInstanceRef.current = null;
+        markersGroupRef.current = null;
+      }
+    };
   }, [properties, currency, setActivePropertyModalId]);
 
   return (

@@ -109,6 +109,10 @@ export const initialAgencies: Agency[] = [
     website: 'https://kinshasa-prestige.cd',
     agentsCount: 12,
     description: 'Premier cabinet immobilier de luxe à Kinshasa. Spécialisé en vente et location de villas, appartements haut de gamme et concessions à Gombe, Ngaliema et Macampagne.',
+    subscriptionStatus: 'Active',
+    subscriptionExpiresAt: '2026-09-30',
+    planId: 'agency',
+    lastPaymentDate: '2026-08-01',
   },
   {
     id: 'agency_2',
@@ -121,6 +125,10 @@ export const initialAgencies: Agency[] = [
     website: 'https://congorealassets.cd',
     agentsCount: 8,
     description: 'Agence experte dans l\'immobilier d\'entreprise, les locaux commerciaux, les résidences sécurisées et l\'accompagnement juridique des titres fonciers à Kinshasa.',
+    subscriptionStatus: 'Expired',
+    subscriptionExpiresAt: '2026-08-01',
+    planId: 'agency',
+    unpaidInvoiceId: 'inv_002',
   },
 ];
 
@@ -142,6 +150,8 @@ export const initialAgents: Agent[] = [
     bio: 'Plus de 10 ans d\'expertise immobilière à Kinshasa. Spécialiste certifié des villas de prestige à Binza Macampagne, Penthouse à Gombe et transactions foncières sécurisées.',
     specialties: ['Villas de Standing', 'Appartements Gombe', 'Gestion de Titres Fonciers'],
     languages: ['Français', 'Lingala', 'English'],
+    subscriptionStatus: 'Active',
+    subscriptionExpiresAt: '2026-09-30',
   },
   {
     id: 'agent_2',
@@ -160,6 +170,8 @@ export const initialAgents: Agent[] = [
     bio: 'Experte du marché locatif haut de gamme pour diplomates, expatriés et dirigeants d\'entreprises à Gombe et Ngaliema.',
     specialties: ['Locations Diplomatiques', 'Penthouses', 'Résidences Meublées'],
     languages: ['Français', 'English', 'Lingala'],
+    subscriptionStatus: 'Active',
+    subscriptionExpiresAt: '2026-09-30',
   },
   {
     id: 'agent_3',
@@ -176,6 +188,8 @@ export const initialAgents: Agent[] = [
     bio: 'Spécialiste du développement foncier et vente de terrains viabilisés à Mont-Ngafula, Maluku et Limete.',
     specialties: ['Terrains avec Titres', 'Immeubles de Bureaux', 'Promotions Immobilières'],
     languages: ['Français', 'Swahili', 'Lingala'],
+    subscriptionStatus: 'Expired',
+    subscriptionExpiresAt: '2026-08-03',
   },
 ];
 

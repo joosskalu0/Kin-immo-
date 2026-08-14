@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 import {
   Property,
   CustomFieldDefinition,
@@ -12,6 +13,14 @@ import {
   LanguageCode,
   Invoice,
 } from '../types';
+
+export interface ConfirmOptions {
+  title?: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+}
 import {
   initialProperties,
   initialCustomFields,
@@ -28,14 +37,23 @@ import {
   subscribeToCustomFields,
   subscribeToLeads,
   subscribeToInvoices,
+  subscribeToAgents,
+  subscribeToAgencies,
+  subscribeToUsers,
   savePropertyToFirestore,
   deletePropertyFromFirestore,
   saveCustomFieldToFirestore,
   deleteCustomFieldFromFirestore,
   saveLeadToFirestore,
+  deleteLeadFromFirestore,
   saveUserToFirestore,
+  deleteUserFromFirestore,
   saveInvoiceToFirestore,
   deleteInvoiceFromFirestore,
+  saveAgentToFirestore,
+  deleteAgentFromFirestore,
+  saveAgencyToFirestore,
+  deleteAgencyFromFirestore,
   saveAdminPinToFirestore,
   getAdminPinFromFirestore
 } from '../lib/firebase';
@@ -49,6 +67,8 @@ interface AppContextType {
 
   user: User | null;
   setUser: (user: User | null) => void;
+  deleteUser: (id: string) => void;
+  allUsers: User[];
 
   customFields: CustomFieldDefinition[];
   addCustomField: (field: CustomFieldDefinition) => void;
@@ -61,7 +81,16 @@ interface AppContextType {
   deleteProperty: (id: string) => void;
 
   agents: Agent[];
+  addAgent: (agent: Agent) => void;
+  updateAgent: (agent: Agent) => void;
+  deleteAgent: (id: string) => void;
+
   agencies: Agency[];
+  addAgency: (agency: Agency) => void;
+  updateAgency: (agency: Agency) => void;
+  deleteAgency: (id: string) => void;
+  updateAgencySubscriptionStatus: (agencyId: string, status: 'Active' | 'Expired', expiresAt?: string) => void;
+  updateUserSubscriptionStatus: (targetIdOrEmail: string, status: 'Active' | 'Expired', expiresAt?: string) => void;
 
   wishlist: string[];
   toggleWishlist: (propertyId: string) => void;
@@ -77,9 +106,11 @@ interface AppContextType {
   leads: LeadRequest[];
   addLeadRequest: (lead: Omit<LeadRequest, 'id' | 'createdAt' | 'status'>) => void;
   updateLeadStatus: (leadId: string, status: LeadRequest['status']) => void;
+  deleteLead: (id: string) => void;
 
   invoices: Invoice[];
   addInvoice: (invoice: Invoice) => void;
+  updateInvoice: (invoice: Invoice) => void;
   updateInvoiceStatus: (id: string, status: Invoice['status'], paymentMethod?: Invoice['paymentMethod'], notes?: string) => void;
   deleteInvoice: (id: string) => void;
 
@@ -108,6 +139,8 @@ interface AppContextType {
 
   importCSV: (csvContent: string) => void;
   exportCSV: () => void;
+
+  requestConfirm: (options: ConfirmOptions) => void;
 }
 
 const defaultFilters: PropertyFilters = {
@@ -168,8 +201,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : initialProperties;
   });
 
-  const [agents] = useState<Agent[]>(initialAgents);
-  const [agencies] = useState<Agency[]>(initialAgencies);
+  const [allUsers, setAllUsers] = useState<User[]>(() => {
+    const saved = localStorage.getItem('estatik_registered_users');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [agents, setAgents] = useState<Agent[]>(() => {
+    const saved = localStorage.getItem('immocraft_agents');
+    return saved ? JSON.parse(saved) : initialAgents;
+  });
+
+  const [agencies, setAgencies] = useState<Agency[]>(() => {
+    const saved = localStorage.getItem('immocraft_agencies');
+    return saved ? JSON.parse(saved) : initialAgencies;
+  });
 
   const [wishlist, setWishlist] = useState<string[]>(() => {
     const saved = localStorage.getItem('immocraft_wishlist');
@@ -204,7 +249,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
 
-  // Admin PIN Secret State
+  // Confirm Modal State
+  const [confirmState, setConfirmState] = useState<ConfirmOptions | null>(null);
+
+  const requestConfirm = (options: ConfirmOptions) => {
+    setConfirmState(options);
+  };
   const [adminPin, setAdminPinState] = useState<string>(() => {
     return localStorage.getItem('kin_admin_secret_pin') || '2026';
   });
@@ -231,26 +281,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Subscribe to real-time updates from Firestore
     const unsubProperties = subscribeToProperties((firestoreProps) => {
-      if (firestoreProps && firestoreProps.length > 0) {
+      if (Array.isArray(firestoreProps)) {
         setProperties(firestoreProps);
+        try {
+          localStorage.setItem('immocraft_properties', JSON.stringify(firestoreProps));
+        } catch (e) {
+          console.error('Error saving properties to localStorage:', e);
+        }
       }
     });
 
     const unsubFields = subscribeToCustomFields((firestoreFields) => {
-      if (firestoreFields && firestoreFields.length > 0) {
+      if (Array.isArray(firestoreFields)) {
         setCustomFields(firestoreFields);
       }
     });
 
     const unsubLeads = subscribeToLeads((firestoreLeads) => {
-      if (firestoreLeads && firestoreLeads.length > 0) {
+      if (Array.isArray(firestoreLeads)) {
         setLeads(firestoreLeads);
       }
     });
 
     const unsubInvoices = subscribeToInvoices((firestoreInvoices) => {
-      if (firestoreInvoices && firestoreInvoices.length > 0) {
+      if (Array.isArray(firestoreInvoices)) {
         setInvoices(firestoreInvoices);
+      }
+    });
+
+    const unsubAgents = subscribeToAgents((firestoreAgents) => {
+      if (Array.isArray(firestoreAgents)) {
+        setAgents(firestoreAgents);
+        try {
+          localStorage.setItem('immocraft_agents', JSON.stringify(firestoreAgents));
+        } catch (e) {
+          console.error('Error saving agents to localStorage:', e);
+        }
+      }
+    });
+
+    const unsubAgencies = subscribeToAgencies((firestoreAgencies) => {
+      if (Array.isArray(firestoreAgencies)) {
+        setAgencies(firestoreAgencies);
+        try {
+          localStorage.setItem('immocraft_agencies', JSON.stringify(firestoreAgencies));
+        } catch (e) {
+          console.error('Error saving agencies to localStorage:', e);
+        }
+      }
+    });
+
+    const unsubUsers = subscribeToUsers((firestoreUsers) => {
+      if (Array.isArray(firestoreUsers)) {
+        setAllUsers(firestoreUsers);
+        try {
+          localStorage.setItem('estatik_registered_users', JSON.stringify(firestoreUsers));
+        } catch (e) {
+          console.error('Error saving users to localStorage:', e);
+        }
       }
     });
 
@@ -259,6 +347,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubFields();
       unsubLeads();
       unsubInvoices();
+      unsubAgents();
+      unsubAgencies();
+      unsubUsers();
     };
   }, []);
 
@@ -311,18 +402,236 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Properties Actions
   const addProperty = (property: Property) => {
-    setProperties((prev) => [property, ...prev]);
-    savePropertyToFirestore(property).catch(err => console.error(err));
+    setProperties((prev) => {
+      const updated = [property, ...prev];
+      try {
+        localStorage.setItem('immocraft_properties', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save property to localStorage:', e);
+      }
+      return updated;
+    });
+    savePropertyToFirestore(property).catch((err) => console.error('Firestore save property error:', err));
   };
 
   const updateProperty = (property: Property) => {
-    setProperties((prev) => prev.map((p) => (p.id === property.id ? property : p)));
-    savePropertyToFirestore(property).catch(err => console.error(err));
+    setProperties((prev) => {
+      const updated = prev.map((p) => (p.id === property.id ? property : p));
+      try {
+        localStorage.setItem('immocraft_properties', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to update property in localStorage:', e);
+      }
+      return updated;
+    });
+    savePropertyToFirestore(property).catch((err) => console.error('Firestore update property error:', err));
   };
 
   const deleteProperty = (id: string) => {
-    setProperties((prev) => prev.filter((p) => p.id !== id));
-    deletePropertyFromFirestore(id).catch(err => console.error(err));
+    setProperties((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      try {
+        localStorage.setItem('immocraft_properties', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to delete property from localStorage:', e);
+      }
+      return updated;
+    });
+    deletePropertyFromFirestore(id).catch((err) => console.error('Firestore delete property error:', err));
+  };
+
+  // Agent Actions
+  const addAgent = (agent: Agent) => {
+    setAgents((prev) => {
+      const updated = [agent, ...prev];
+      try {
+        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save agent to localStorage:', e);
+      }
+      return updated;
+    });
+    saveAgentToFirestore(agent).catch((err) => console.error('Firestore save agent error:', err));
+  };
+
+  const updateAgent = (agent: Agent) => {
+    setAgents((prev) => {
+      const updated = prev.map((a) => (a.id === agent.id ? agent : a));
+      try {
+        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to update agent in localStorage:', e);
+      }
+      return updated;
+    });
+    saveAgentToFirestore(agent).catch((err) => console.error('Firestore update agent error:', err));
+  };
+
+  const deleteAgent = (id: string) => {
+    setAgents((prev) => {
+      const updated = prev.filter((a) => a.id !== id);
+      try {
+        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to delete agent from localStorage:', e);
+      }
+      return updated;
+    });
+    deleteAgentFromFirestore(id).catch((err) => console.error('Firestore delete agent error:', err));
+  };
+
+  // Agency (Concessionnaire) Actions
+  const addAgency = (agency: Agency) => {
+    const nextExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const agencyWithFreeTrial: Agency = {
+      ...agency,
+      subscriptionStatus: 'Active',
+      subscriptionExpiresAt: agency.subscriptionExpiresAt || nextExpiry,
+      lastPaymentDate: new Date().toISOString().split('T')[0],
+    };
+
+    setAgencies((prev) => {
+      const updated = [agencyWithFreeTrial, ...prev];
+      try {
+        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save agency to localStorage:', e);
+      }
+      return updated;
+    });
+    saveAgencyToFirestore(agencyWithFreeTrial).catch((err) => console.error('Firestore save agency error:', err));
+
+    // Auto-generate 1 month free welcome invoice ($0)
+    const promoInvoice: Invoice = {
+      id: `inv_free_${Date.now()}`,
+      invoiceNumber: `KIN-FREE-${Math.floor(1000 + Math.random() * 9000)}`,
+      targetType: 'agency',
+      targetId: agencyWithFreeTrial.id,
+      targetName: agencyWithFreeTrial.name,
+      targetEmail: agencyWithFreeTrial.email,
+      targetPhone: agencyWithFreeTrial.phone,
+      planId: 'agency',
+      items: [
+        {
+          id: `item_free_${Date.now()}`,
+          description: `Abonnement Agence Immobilière - 1er Mois Gratuit (Offre Spéciale de Bienvenue)`,
+          amount: 0,
+          quantity: 1
+        }
+      ],
+      subtotalAmount: 0,
+      taxAmount: 0,
+      totalAmount: 0,
+      currency: 'USD',
+      status: 'paid',
+      paymentMethod: 'mpesa',
+      dueDate: nextExpiry,
+      createdAt: new Date().toISOString(),
+      paidAt: new Date().toISOString(),
+      notes: 'Offre spéciale de bienvenue : 1 mois d\'abonnement offert gratuitement à toute nouvelle agence.'
+    };
+
+    setInvoices((prev) => [promoInvoice, ...prev]);
+    saveInvoiceToFirestore(promoInvoice).catch(err => console.error(err));
+  };
+
+  const updateAgency = (agency: Agency) => {
+    setAgencies((prev) => {
+      const updated = prev.map((a) => (a.id === agency.id ? agency : a));
+      try {
+        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to update agency in localStorage:', e);
+      }
+      return updated;
+    });
+    saveAgencyToFirestore(agency).catch((err) => console.error('Firestore update agency error:', err));
+  };
+
+  const deleteAgency = (id: string) => {
+    setAgencies((prev) => {
+      const updated = prev.filter((a) => a.id !== id);
+      try {
+        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to delete agency from localStorage:', e);
+      }
+      return updated;
+    });
+    deleteAgencyFromFirestore(id).catch((err) => console.error('Firestore delete agency error:', err));
+  };
+
+  const updateAgencySubscriptionStatus = (agencyId: string, status: 'Active' | 'Expired', expiresAt?: string) => {
+    const nextExpiry = expiresAt || (status === 'Active'
+      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0]);
+
+    setAgencies((prev) => {
+      const updated = prev.map((ag) => {
+        if (ag.id === agencyId || ag.name.toLowerCase() === agencyId.toLowerCase() || ag.email?.toLowerCase() === agencyId.toLowerCase()) {
+          const updatedAg: Agency = {
+            ...ag,
+            subscriptionStatus: status,
+            subscriptionExpiresAt: nextExpiry,
+            ...(status === 'Active' ? { unpaidInvoiceId: undefined } : {})
+          };
+          saveAgencyToFirestore(updatedAg).catch((err) => console.error('Firestore update agency subscription status error:', err));
+          return updatedAg;
+        }
+        return ag;
+      });
+      try {
+        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to update agency subscription in localStorage:', e);
+      }
+      return updated;
+    });
+
+    // Also sync user if logged in under this agency
+    if (user && (user.agencyId === agencyId || (user.agencyName && user.agencyName.toLowerCase() === agencyId.toLowerCase()))) {
+      const updatedUser: User = {
+        ...user,
+        subscriptionStatus: status,
+        subscriptionExpiresAt: nextExpiry,
+      };
+      setUser(updatedUser);
+      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(updatedUser));
+      saveUserToFirestore(updatedUser).catch((err) => console.error('Firestore update user error:', err));
+    }
+  };
+
+  const updateUserSubscriptionStatus = (targetIdOrEmail: string, status: 'Active' | 'Expired', expiresAt?: string) => {
+    const nextExpiry = expiresAt || (status === 'Active'
+      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0]);
+
+    setAgents((prev) => {
+      const updated = prev.map((agt) => {
+        if (agt.id === targetIdOrEmail || agt.email?.toLowerCase() === targetIdOrEmail.toLowerCase()) {
+          const updatedAgt: Agent = {
+            ...agt,
+            subscriptionStatus: status,
+            subscriptionExpiresAt: nextExpiry,
+          };
+          saveAgentToFirestore(updatedAgt).catch((err) => console.error('Firestore update agent error:', err));
+          return updatedAgt;
+        }
+        return agt;
+      });
+      return updated;
+    });
+
+    if (user && (user.id === targetIdOrEmail || user.email?.toLowerCase() === targetIdOrEmail.toLowerCase())) {
+      const updatedUser: User = {
+        ...user,
+        subscriptionStatus: status,
+        subscriptionExpiresAt: nextExpiry,
+      };
+      setUser(updatedUser);
+      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(updatedUser));
+      saveUserToFirestore(updatedUser).catch((err) => console.error('Firestore update user error:', err));
+    }
   };
 
   // Wishlist Actions
@@ -389,10 +698,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const deleteLead = (id: string) => {
+    setLeads((prev) => prev.filter((l) => l.id !== id));
+    deleteLeadFromFirestore(id).catch(err => console.error(err));
+  };
+
+  const deleteUser = (id: string) => {
+    const localUsers: User[] = JSON.parse(localStorage.getItem('estatik_registered_users') || '[]');
+    const updatedLocal = localUsers.filter((u) => u.id !== id && u.email !== id);
+    localStorage.setItem('estatik_registered_users', JSON.stringify(updatedLocal));
+
+    if (user && (user.id === id || user.email === id)) {
+      setUser(null);
+      localStorage.removeItem('estatik_kinshasa_user');
+    }
+
+    deleteUserFromFirestore(id).catch(err => console.error(err));
+  };
+
   // Invoices Actions
   const addInvoice = (invoice: Invoice) => {
     setInvoices((prev) => [invoice, ...prev]);
     saveInvoiceToFirestore(invoice).catch(err => console.error(err));
+  };
+
+  const updateInvoice = (updatedInvoice: Invoice) => {
+    setInvoices((prev) => prev.map((inv) => (inv.id === updatedInvoice.id ? updatedInvoice : inv)));
+    saveInvoiceToFirestore(updatedInvoice).catch(err => console.error(err));
   };
 
   const updateInvoiceStatus = (id: string, status: Invoice['status'], paymentMethod?: Invoice['paymentMethod'], notes?: string) => {
@@ -407,6 +739,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...(status === 'paid' ? { paidAt: new Date().toISOString() } : {})
           };
           saveInvoiceToFirestore(updatedInv).catch(err => console.error(err));
+
+          // Auto update subscription status of target
+          if (status === 'paid') {
+            const nextExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            if (inv.targetType === 'agency' || inv.targetId.startsWith('agency_')) {
+              updateAgencySubscriptionStatus(inv.targetId, 'Active', nextExpiry);
+            }
+            updateUserSubscriptionStatus(inv.targetId, 'Active', nextExpiry);
+            if (inv.targetEmail) {
+              updateUserSubscriptionStatus(inv.targetEmail, 'Active', nextExpiry);
+            }
+          } else if (status === 'overdue') {
+            if (inv.targetType === 'agency' || inv.targetId.startsWith('agency_')) {
+              updateAgencySubscriptionStatus(inv.targetId, 'Expired');
+            }
+            updateUserSubscriptionStatus(inv.targetId, 'Expired');
+            if (inv.targetEmail) {
+              updateUserSubscriptionStatus(inv.targetEmail, 'Expired');
+            }
+          }
+
           return updatedInv;
         }
         return inv;
@@ -489,7 +842,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     link.setAttribute('download', `ImmoCraft_Properties_Export_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    if (link.parentNode) {
+      link.parentNode.removeChild(link);
+    } else {
+      link.remove();
+    }
   };
 
   return (
@@ -502,6 +859,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         t,
         user,
         setUser,
+        deleteUser,
+        allUsers,
         customFields,
         addCustomField,
         updateCustomField,
@@ -511,7 +870,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateProperty,
         deleteProperty,
         agents,
+        addAgent,
+        updateAgent,
+        deleteAgent,
         agencies,
+        addAgency,
+        updateAgency,
+        deleteAgency,
+        updateAgencySubscriptionStatus,
+        updateUserSubscriptionStatus,
         wishlist,
         toggleWishlist,
         compareList,
@@ -523,8 +890,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         leads,
         addLeadRequest,
         updateLeadStatus,
+        deleteLead,
         invoices,
         addInvoice,
+        updateInvoice,
         updateInvoiceStatus,
         deleteInvoice,
         adminPin,
@@ -548,11 +917,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setEditingProperty,
         importCSV,
         exportCSV,
+        requestConfirm,
       }}
     >
       <div dir={languages.find((l) => l.code === language)?.dir || 'ltr'}>
         {children}
       </div>
+
+      {confirmState && (
+        <div className="fixed inset-0 z-[99999] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl relative">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-xl font-bold text-white">
+                {confirmState.title || 'Confirmation de suppression'}
+              </h3>
+              <p className="text-slate-300 text-sm leading-relaxed">
+                {confirmState.message}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmState(null)}
+                className="flex-1 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-sm transition-all"
+              >
+                {confirmState.cancelText || 'Annuler'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    confirmState.onConfirm();
+                  } catch (e) {
+                    console.error('Error executing confirm action:', e);
+                  } finally {
+                    setConfirmState(null);
+                  }
+                }}
+                className="flex-1 py-3 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm shadow-lg shadow-rose-500/20 transition-all flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {confirmState.confirmText || 'Supprimer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppContext.Provider>
   );
 };

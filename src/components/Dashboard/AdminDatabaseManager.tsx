@@ -47,7 +47,24 @@ import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore'
 import { User, Property, CustomFieldDefinition, LeadRequest } from '../../types';
 
 export const AdminDatabaseManager: React.FC = () => {
-  const { properties, customFields, leads, invoices, user, setUser, adminPin, updateAdminPin } = useApp();
+  const {
+    properties,
+    customFields,
+    leads,
+    invoices,
+    user,
+    setUser,
+    deleteProperty,
+    deleteCustomField,
+    deleteLead,
+    deleteInvoice,
+    deleteUser,
+    deleteAgent,
+    deleteAgency,
+    requestConfirm,
+    adminPin,
+    updateAdminPin
+  } = useApp();
 
   const [isAdminUnlocked, setIsAdminUnlocked] = useState<boolean>(user?.role === 'admin');
   const [adminPinInput, setAdminPinInput] = useState('');
@@ -258,23 +275,46 @@ export const AdminDatabaseManager: React.FC = () => {
     }
   };
 
-  const handleDeleteDoc = async (id: string) => {
-    if (!window.confirm(`Voulez-vous vraiment supprimer définitivement le document "${id}" de Firestore ?`)) return;
+  const handleDeleteDoc = (id: string) => {
+    requestConfirm({
+      title: "Suppression du document Firestore",
+      message: `Voulez-vous vraiment supprimer définitivement le document "${id}" de la collection "${activeCollection}" ?`,
+      onConfirm: async () => {
+        setLoading(true);
+        try {
+          const ref = doc(db, activeCollection, id);
+          await deleteDoc(ref);
 
-    setLoading(true);
-    try {
-      const ref = doc(db, activeCollection, id);
-      await deleteDoc(ref);
-      setStatusMessage(`Document ${id} supprimé de Firestore avec succès.`);
-      if (selectedDoc?.id === id) {
-        setSelectedDoc(null);
+          // Clean local context state and storage
+          if (activeCollection === 'properties') {
+            deleteProperty(id);
+          } else if (activeCollection === 'users') {
+            deleteUser(id);
+            setUsersList((prev) => prev.filter((u) => u.id !== id && u.email !== id));
+          } else if (activeCollection === 'customFields') {
+            deleteCustomField(id);
+          } else if (activeCollection === 'invoices') {
+            deleteInvoice(id);
+          } else if (activeCollection === 'leads') {
+            deleteLead(id);
+          } else if (activeCollection === 'agents') {
+            deleteAgent(id);
+          } else if (activeCollection === 'agencies') {
+            deleteAgency(id);
+          }
+
+          setStatusMessage(`Document ${id} supprimé de Firestore et des données locales avec succès.`);
+          if (selectedDoc?.id === id) {
+            setSelectedDoc(null);
+          }
+        } catch (e: any) {
+          alert(`Erreur lors de la suppression: ${e.message}`);
+        } finally {
+          setLoading(false);
+          setTimeout(() => setStatusMessage(null), 3000);
+        }
       }
-    } catch (e: any) {
-      alert(`Erreur lors de la suppression: ${e.message}`);
-    } finally {
-      setLoading(false);
-      setTimeout(() => setStatusMessage(null), 3000);
-    }
+    });
   };
 
   const handleCreateDoc = async () => {

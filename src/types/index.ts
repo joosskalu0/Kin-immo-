@@ -107,6 +107,9 @@ export interface Agent {
   bio: string;
   specialties: string[];
   languages: string[];
+  isVerified?: boolean;
+  subscriptionStatus?: 'Active' | 'Expired';
+  subscriptionExpiresAt?: string;
 }
 
 export interface Agency {
@@ -120,6 +123,11 @@ export interface Agency {
   website: string;
   agentsCount: number;
   description: string;
+  subscriptionStatus?: 'Active' | 'Expired';
+  subscriptionExpiresAt?: string;
+  planId?: string;
+  lastPaymentDate?: string;
+  unpaidInvoiceId?: string;
 }
 
 export interface SavedSearch {
@@ -153,6 +161,7 @@ export interface User {
   name: string;
   email: string;
   phone?: string;
+  whatsapp?: string;
   role: 'admin' | 'agent' | 'user' | 'owner';
   avatar: string;
   agentId?: string;
@@ -160,6 +169,8 @@ export interface User {
   rccmOrNif?: string; // RCCM / NIF Impôts RDC
   planId: string; // 'starter' | 'pro' | 'agency'
   planExpiry?: string;
+  subscriptionStatus?: 'Active' | 'Expired';
+  subscriptionExpiresAt?: string;
   provider?: 'google' | 'facebook' | 'email' | 'phone';
   isVerified?: boolean;
   emailVerified?: boolean;

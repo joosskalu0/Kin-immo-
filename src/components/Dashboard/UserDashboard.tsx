@@ -5,6 +5,7 @@ import { Property, LeadRequest, User } from '../../types';
 import { AdminDatabaseManager } from './AdminDatabaseManager';
 import { AdminBillingManager } from './AdminBillingManager';
 import { AdminSettingsManager } from './AdminSettingsManager';
+import { PaymentReminderBanner } from './PaymentReminderBanner';
 import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
 import {
   Building2,
@@ -49,16 +50,28 @@ export const UserDashboard: React.FC = () => {
     deleteSavedSearch,
     leads,
     updateLeadStatus,
+    deleteLead,
     exportCSV,
     importCSV,
+    invoices,
+    requestConfirm,
   } = useApp();
 
   const isAdmin = user?.role === 'admin';
-  const [activeTab, setActiveTab] = useState<'billing' | 'database' | 'admin_settings' | 'listings' | 'leads' | 'saved' | 'plans' | 'csv'>(
+  const [activeTab, setActiveTab] = useState<'billing' | 'database' | 'admin_settings' | 'listings' | 'my_invoices' | 'leads' | 'saved' | 'plans' | 'csv'>(
     isAdmin ? 'admin_settings' : 'listings'
   );
   const [csvTextInput, setCsvTextInput] = useState('');
   const [selectedPlanSuccess, setSelectedPlanSuccess] = useState<string | null>(null);
+
+  // Invoices belonging to this logged-in user or agent
+  const myInvoices = invoices.filter(
+    (inv) =>
+      inv.targetEmail?.toLowerCase() === user?.email?.toLowerCase() ||
+      inv.targetName?.toLowerCase().includes(user?.name?.toLowerCase() || '___') ||
+      inv.targetId === user?.id ||
+      (user?.phone && inv.targetPhone && inv.targetPhone.replace(/\s+/g, '').includes(user.phone.replace(/\s+/g, '')))
+  );
 
   // Admin PIN Protection State
   const [showPinModal, setShowPinModal] = useState(false);
@@ -219,7 +232,13 @@ export const UserDashboard: React.FC = () => {
   }
 
   // Filter properties belonging to user/agent
-  const myProperties = properties.filter((p) => p.agentId === user?.agentId || user?.role === 'admin');
+  const myProperties = properties.filter(
+    (p) =>
+      user?.role === 'admin' ||
+      p.agentId === user?.agentId ||
+      p.agentId === user?.id ||
+      (user?.email && (p.agentId === user.email || p.privateFields?.ownerEmail === user.email))
+  );
 
   const handleCsvUpload = (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,6 +256,9 @@ export const UserDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      {/* Payment Reminder Banner for Expired Subscriptions */}
+      {!isAdmin && <PaymentReminderBanner onOpenBilling={() => setActiveTab('my_invoices')} />}
+
       {/* Dashboard Top Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-8 text-slate-100 shadow-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="flex items-center gap-4">
@@ -377,6 +399,7 @@ export const UserDashboard: React.FC = () => {
             ? [{ id: 'database', label: 'Base de Données Firestore Admin', icon: Database }]
             : []),
           { id: 'listings', label: `Mes Annonces (${myProperties.length})`, icon: Building2 },
+          { id: 'my_invoices', label: `Mes Factures & Réglements (${myInvoices.length})`, icon: Receipt },
           { id: 'leads', label: `CRM Leads & Demandes (${leads.length})`, icon: Users },
           { id: 'saved', label: `Alertes & Recherches (${savedSearches.length})`, icon: Bell },
           { id: 'plans', label: 'Formules & Abonnements', icon: CreditCard },
@@ -458,15 +481,91 @@ export const UserDashboard: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={() => deleteProperty(prop.id)}
+                    onClick={() => {
+                      requestConfirm({
+                        title: "Suppression de l'annonce",
+                        message: `Voulez-vous vraiment supprimer l'annonce "${prop.title}" ?`,
+                        onConfirm: () => deleteProperty(prop.id)
+                      });
+                    }}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-rose-400"
-                    title="Supprimer"
+                    title="Supprimer l'annonce"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: My Invoices */}
+      {activeTab === 'my_invoices' && (
+        <div className="space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-emerald-400" /> Mes Factures & Abonnements ({myInvoices.length})
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Consultez l'historique de vos abonnements et réglez vos factures par Mobile Money (M-Pesa, Orange, Airtel) ou Carte.
+                </p>
+              </div>
+            </div>
+
+            {myInvoices.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 space-y-2">
+                <Receipt className="w-8 h-8 text-slate-600 mx-auto" />
+                <p className="text-xs font-semibold">Aucune facture émise pour le moment.</p>
+                <p className="text-[11px] text-slate-500">
+                  Lorsqu'une facture d'abonnement est générée par l'administration, elle apparaîtra ici.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-950/60 text-slate-400 border-b border-slate-800">
+                      <th className="p-3">N° Facture</th>
+                      <th className="p-3">Désignation / Pack</th>
+                      <th className="p-3">Montant</th>
+                      <th className="p-3">Échéance</th>
+                      <th className="p-3">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {myInvoices.map((inv) => (
+                      <tr key={inv.id} className="hover:bg-slate-800/50">
+                        <td className="p-3 font-mono font-bold text-emerald-400">{inv.invoiceNumber}</td>
+                        <td className="p-3 text-white">
+                          <div className="font-semibold">{inv.items[0]?.description || 'Abonnement Kinshasa Immobilier'}</div>
+                          <div className="text-[10px] text-slate-400">{inv.targetName} • {inv.targetEmail}</div>
+                        </td>
+                        <td className="p-3 font-black text-white">
+                          ${inv.totalAmount} <span className="text-[10px] text-slate-400 font-normal">{inv.currency}</span>
+                        </td>
+                        <td className="p-3 text-slate-300 font-medium">{inv.dueDate}</td>
+                        <td className="p-3">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                              inv.status === 'paid'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : inv.status === 'pending'
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}
+                          >
+                            {inv.status === 'paid' ? 'Payé ✓' : inv.status === 'pending' ? 'En Attente' : 'En Retard'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -503,16 +602,32 @@ export const UserDashboard: React.FC = () => {
                         {lead.tourDate && <div className="text-amber-400 font-semibold">🗓️ {lead.tourDate} à {lead.tourTime}</div>}
                       </td>
                       <td className="p-3">
-                        <select
-                          value={lead.status}
-                          onChange={(e) => updateLeadStatus(lead.id, e.target.value as any)}
-                          className="bg-slate-950 border border-slate-800 text-emerald-400 font-bold rounded-lg px-2 py-1 focus:outline-none"
-                        >
-                          <option value="new">Nouveau</option>
-                          <option value="contacted">Contacté</option>
-                          <option value="viewing">Visite Maintien</option>
-                          <option value="closed">Conclu</option>
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={lead.status}
+                            onChange={(e) => updateLeadStatus(lead.id, e.target.value as any)}
+                            className="bg-slate-950 border border-slate-800 text-emerald-400 font-bold rounded-lg px-2 py-1 focus:outline-none"
+                          >
+                            <option value="new">Nouveau</option>
+                            <option value="contacted">Contacté</option>
+                            <option value="viewing">Visite Maintien</option>
+                            <option value="closed">Conclu</option>
+                          </select>
+
+                          <button
+                            onClick={() => {
+                              requestConfirm({
+                                title: "Suppression de la demande",
+                                message: "Voulez-vous vraiment supprimer cette demande client ?",
+                                onConfirm: () => deleteLead(lead.id)
+                              });
+                            }}
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
+                            title="Supprimer la demande"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

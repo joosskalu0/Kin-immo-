@@ -220,6 +220,32 @@ export function subscribeToUsers(callback: (users: User[]) => void) {
   });
 }
 
+export function subscribeToAgents(callback: (agents: Agent[]) => void) {
+  const q = collection(db, COLLECTIONS.AGENTS);
+  return onSnapshot(q, (snapshot) => {
+    const list: Agent[] = [];
+    snapshot.forEach((doc) => {
+      list.push(doc.data() as Agent);
+    });
+    callback(list);
+  }, (error) => {
+    console.error('Firestore agents subscription error:', error);
+  });
+}
+
+export function subscribeToAgencies(callback: (agencies: Agency[]) => void) {
+  const q = collection(db, COLLECTIONS.AGENCIES);
+  return onSnapshot(q, (snapshot) => {
+    const list: Agency[] = [];
+    snapshot.forEach((doc) => {
+      list.push(doc.data() as Agency);
+    });
+    callback(list);
+  }, (error) => {
+    console.error('Firestore agencies subscription error:', error);
+  });
+}
+
 export function subscribeToInvoices(callback: (invoices: Invoice[]) => void) {
   const q = collection(db, COLLECTIONS.INVOICES);
   return onSnapshot(q, (snapshot) => {
@@ -262,6 +288,11 @@ export async function saveLeadToFirestore(lead: LeadRequest) {
   await setDoc(ref, sanitizeForFirestore(lead), { merge: true });
 }
 
+export async function deleteLeadFromFirestore(id: string) {
+  const ref = doc(db, COLLECTIONS.LEADS, id);
+  await deleteDoc(ref);
+}
+
 export async function saveUserToFirestore(user: User) {
   const ref = doc(db, COLLECTIONS.USERS, user.id);
   await setDoc(ref, sanitizeForFirestore(user), { merge: true });
@@ -297,6 +328,26 @@ export async function saveInvoiceToFirestore(invoice: Invoice) {
 
 export async function deleteInvoiceFromFirestore(id: string) {
   const ref = doc(db, COLLECTIONS.INVOICES, id);
+  await deleteDoc(ref);
+}
+
+export async function saveAgentToFirestore(agent: Agent) {
+  const ref = doc(db, COLLECTIONS.AGENTS, agent.id);
+  await setDoc(ref, sanitizeForFirestore(agent), { merge: true });
+}
+
+export async function deleteAgentFromFirestore(id: string) {
+  const ref = doc(db, COLLECTIONS.AGENTS, id);
+  await deleteDoc(ref);
+}
+
+export async function saveAgencyToFirestore(agency: Agency) {
+  const ref = doc(db, COLLECTIONS.AGENCIES, agency.id);
+  await setDoc(ref, sanitizeForFirestore(agency), { merge: true });
+}
+
+export async function deleteAgencyFromFirestore(id: string) {
+  const ref = doc(db, COLLECTIONS.AGENCIES, id);
   await deleteDoc(ref);
 }
 

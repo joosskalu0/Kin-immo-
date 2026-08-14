@@ -36,7 +36,7 @@ export const PropertyFormModal: React.FC = () => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState<number>(450000);
-  const [currency, setCurrency] = useState('EUR');
+  const [currency, setCurrency] = useState('USD');
   const [period, setPeriod] = useState<'month' | 'year' | 'total'>('total');
   const [type, setType] = useState<PropertyType>('apartment');
   const [status, setStatus] = useState<PropertyStatus>('for-sale');
@@ -45,11 +45,11 @@ export const PropertyFormModal: React.FC = () => {
 
   // Location
   const [address, setAddress] = useState('');
-  const [city, setCity] = useState('Paris');
-  const [zipCode, setZipCode] = useState('75008');
-  const [country, setCountry] = useState('France');
-  const [lat, setLat] = useState<number>(48.8566);
-  const [lng, setLng] = useState<number>(2.3522);
+  const [city, setCity] = useState('Kinshasa');
+  const [zipCode, setZipCode] = useState('Kinshasa');
+  const [country, setCountry] = useState('RDC');
+  const [lat, setLat] = useState<number>(-4.3224);
+  const [lng, setLng] = useState<number>(15.3070);
 
   // Specs
   const [bedrooms, setBedrooms] = useState<number>(3);
@@ -213,14 +213,14 @@ export const PropertyFormModal: React.FC = () => {
       virtualTourUrl: virtualTourUrl || undefined,
       customFields: customFieldsState,
       privateFields: {
-        ownerName,
-        ownerPhone,
-        ownerEmail,
+        ownerName: ownerName || user?.name || '',
+        ownerPhone: ownerPhone || user?.phone || '',
+        ownerEmail: ownerEmail || user?.email || '',
         commissionRate,
         internalNotes,
         keyBoxCode,
       },
-      agentId: user?.agentId || 'agent_1',
+      agentId: user?.agentId || user?.id || user?.email || 'agent_1',
       createdAt: editingProperty ? editingProperty.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       viewsCount: editingProperty ? editingProperty.viewsCount : 1,

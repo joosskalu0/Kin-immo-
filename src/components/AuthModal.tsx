@@ -27,6 +27,7 @@ import {
   BadgeCheck
 } from 'lucide-react';
 import { User } from '../types';
+import { saveUserToFirestore, saveAgentToFirestore } from '../lib/firebase';
 
 export const AuthModal: React.FC = () => {
   const { isAuthModalOpen, setIsAuthModalOpen, setUser } = useApp();
@@ -42,6 +43,7 @@ export const AuthModal: React.FC = () => {
   // Form fields
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('+243 ');
+  const [whatsapp, setWhatsapp] = useState('+243 ');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [agencyName, setAgencyName] = useState('');
@@ -193,7 +195,8 @@ export const AuthModal: React.FC = () => {
           id: `user_${Date.now()}`,
           name: name || (method === 'email' ? email.split('@')[0] : 'Membre Kinshasa'),
           email: method === 'email' ? email : `${phone.replace(/\s+/g, '')}@estatik.cd`,
-          phone: method === 'phone' ? phone : '+243 81 000 00 00',
+          phone: phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000',
+          whatsapp: whatsapp && whatsapp.trim() !== '+243' ? whatsapp : (phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000'),
           role: role,
           agencyName: (role === 'agent' || role === 'owner') ? agencyName || 'Kinshasa Immobilier' : undefined,
           rccmOrNif: rccmOrNif || (role === 'agent' ? 'CD/KIN/RCCM/20-B-04921' : undefined),
@@ -202,6 +205,8 @@ export const AuthModal: React.FC = () => {
             : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
           agentId: role === 'agent' ? `agent_${Date.now()}` : undefined,
           planId: role === 'agent' ? 'pro' : 'starter',
+          subscriptionStatus: 'Active',
+          subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
           provider: method,
           isVerified: false,
           emailVerified: method === 'email' ? false : true,
@@ -345,6 +350,27 @@ export const AuthModal: React.FC = () => {
       registeredUsers.push({ ...userToSave, password });
     }
     localStorage.setItem('estatik_registered_users', JSON.stringify(registeredUsers));
+
+    saveUserToFirestore(userToSave).catch((err) => console.error('Error saving user to Firestore:', err));
+
+    if (userToSave.role === 'agent' || userToSave.role === 'owner' || userToSave.role === 'admin' || userToSave.agencyName) {
+      saveAgentToFirestore({
+        id: userToSave.agentId || userToSave.id,
+        name: userToSave.name,
+        title: userToSave.role === 'admin' ? 'Administrateur Immobilier' : userToSave.role === 'owner' ? 'Propriétaire Vendeur' : 'Agent Immobilier Agréé',
+        email: userToSave.email,
+        phone: userToSave.phone || '+243 81 000 0000',
+        whatsapp: userToSave.whatsapp || userToSave.phone || '+243 81 000 0000',
+        avatar: userToSave.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+        agencyName: userToSave.agencyName || 'Kinshasa Immobilier',
+        rating: 5.0,
+        reviewCount: 1,
+        listingsCount: 0,
+        bio: `Agent / Membre partenaire certifié Immocraft. RCCM/NIF: ${userToSave.rccmOrNif || 'CD/KIN/RCCM/20-B-04921'}.`,
+        specialties: ['Résidentiel', 'Commercial', 'Conseil'],
+        languages: ['Français', 'Lingala'],
+      }).catch((err) => console.error('Error saving agent to Firestore:', err));
+    }
 
     setUser(userToSave);
     setSuccessMessage(msg);
@@ -528,7 +554,7 @@ export const AuthModal: React.FC = () => {
                 </div>
               )}
 
-              {method === 'email' ? (
+              {method === 'email' && (
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
                     Adresse E-mail Officielle *
@@ -545,7 +571,70 @@ export const AuthModal: React.FC = () => {
                     />
                   </div>
                 </div>
-              ) : (
+              )}
+
+              {/* Phone & WhatsApp fields for registration or phone login */}
+              {mode === 'register' ? (
+                <div className="space-y-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
+                  <div className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5" /> Coordonnées de Contact (Appels & WhatsApp)
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-300 mb-1">
+                        Téléphone pour Appels *
+                      </label>
+                      <div className="relative">
+                        <Phone className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+                        <input
+                          type="tel"
+                          required
+                          value={phone}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setPhone(val);
+                            if (whatsapp === '+243 ' || !whatsapp) {
+                              setWhatsapp(val);
+                            }
+                          }}
+                          placeholder="+243 81 555 44 33"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[10px] font-medium text-slate-300">
+                          Numéro WhatsApp *
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setWhatsapp(phone)}
+                          className="text-[9px] text-emerald-400 hover:underline font-semibold"
+                        >
+                          Même numéro
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Send className="w-3.5 h-3.5 text-emerald-500 absolute left-2.5 top-2.5" />
+                        <input
+                          type="tel"
+                          required
+                          value={whatsapp}
+                          onChange={(e) => setWhatsapp(e.target.value)}
+                          placeholder="+243 81 555 44 33"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[9px] text-slate-400 leading-tight block">
+                    Ces numéros seront affichés sur vos fiches d'annonces pour recevoir des appels et messages WhatsApp directs de vos clients.
+                  </span>
+                </div>
+              ) : method === 'phone' ? (
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
                     Numéro Téléphone RDC (+243) *
@@ -565,7 +654,7 @@ export const AuthModal: React.FC = () => {
                     Un code de vérification SMS / WhatsApp vous sera transmis.
                   </span>
                 </div>
-              )}
+              ) : null}
 
               {/* Password */}
               <div>
