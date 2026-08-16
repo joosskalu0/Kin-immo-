@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
+import { trackPageView, initAllTracking } from './utils/analytics';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { SearchWidget } from './components/SearchWidget';
@@ -35,15 +37,67 @@ const AppContent: React.FC = () => {
   const [viewLayout, setViewLayout] = useState<'grid' | 'split'>('grid');
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
 
+  useEffect(() => {
+    initAllTracking();
+  }, []);
+
+  useEffect(() => {
+    const tabTitles: Record<string, string> = {
+      home: 'Accueil - Annonces Immobilières Kinshasa',
+      map: 'Carte Interactive des Biens - Kinshasa',
+      agents: 'Annuaire des Agents & Agences Immobilières',
+      shortcodes: 'Galerie des Shortcodes & Widgets',
+      dashboard: 'Tableau de Bord & Gestion Immobilière',
+      wishlist: 'Mes Favoris Sauvegardés',
+    };
+    trackPageView(tabTitles[currentTab] || `Kinshasa Immo - ${currentTab}`, `/${currentTab}`);
+  }, [currentTab]);
+
   // Filter Properties Logic
   const filteredProperties = properties.filter((p) => {
-    // Search Query
+    // Search Query (includes title, address, city, commune, quartier, avenue, reference point)
     if (filters.searchQuery) {
       const q = filters.searchQuery.toLowerCase();
       const matchTitle = p.title.toLowerCase().includes(q);
-      const matchCity = p.city.toLowerCase().includes(q);
-      const matchAddress = p.address.toLowerCase().includes(q);
-      if (!matchTitle && !matchCity && !matchAddress) return false;
+      const matchCity = p.city?.toLowerCase().includes(q);
+      const matchAddress = p.address?.toLowerCase().includes(q);
+      const matchCommune = p.commune?.toLowerCase().includes(q);
+      const matchQuartier = p.quartier?.toLowerCase().includes(q);
+      const matchAvenue = p.avenue?.toLowerCase().includes(q);
+      const matchRef = p.referencePoint?.toLowerCase().includes(q);
+      if (!matchTitle && !matchCity && !matchAddress && !matchCommune && !matchQuartier && !matchAvenue && !matchRef) {
+        return false;
+      }
+    }
+
+    // Commune Filter
+    if (filters.commune && filters.commune !== 'all') {
+      const targetCommune = filters.commune.toLowerCase();
+      const propCommune = (p.commune || '').toLowerCase();
+      const propAddress = (p.address || '').toLowerCase();
+      if (!propCommune.includes(targetCommune) && !propAddress.includes(targetCommune)) {
+        return false;
+      }
+    }
+
+    // Quartier Filter
+    if (filters.quartier && filters.quartier !== 'all') {
+      const targetQuartier = filters.quartier.toLowerCase();
+      const propQuartier = (p.quartier || '').toLowerCase();
+      const propAddress = (p.address || '').toLowerCase();
+      if (!propQuartier.includes(targetQuartier) && !propAddress.includes(targetQuartier)) {
+        return false;
+      }
+    }
+
+    // Avenue Filter
+    if (filters.avenue) {
+      const targetAvenue = filters.avenue.toLowerCase();
+      const propAvenue = (p.avenue || '').toLowerCase();
+      const propAddress = (p.address || '').toLowerCase();
+      if (!propAvenue.includes(targetAvenue) && !propAddress.includes(targetAvenue)) {
+        return false;
+      }
     }
 
     // Type Filter
@@ -263,7 +317,7 @@ const AppContent: React.FC = () => {
             {viewLayout === 'grid' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {sortedProperties.map((property) => (
-                  <PropertyCard key={property.id} property={property} />
+                  <PropertyCard key={property.id} property={property} onShare={(id) => setSharePropertyId(id)} />
                 ))}
               </div>
             ) : (
@@ -273,7 +327,7 @@ const AppContent: React.FC = () => {
                 </div>
                 <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {sortedProperties.map((property) => (
-                    <PropertyCard key={property.id} property={property} />
+                    <PropertyCard key={property.id} property={property} onShare={(id) => setSharePropertyId(id)} />
                   ))}
                 </div>
               </div>
@@ -398,7 +452,7 @@ const AppContent: React.FC = () => {
               {properties
                 .filter((p) => sortedProperties.map((sp) => sp.id).includes(p.id))
                 .map((p) => (
-                  <PropertyCard key={p.id} property={p} />
+                  <PropertyCard key={p.id} property={p} onShare={(id) => setSharePropertyId(id)} />
                 ))}
             </div>
           </div>
@@ -421,8 +475,10 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }

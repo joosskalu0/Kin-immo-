@@ -33,7 +33,7 @@ export const PaymentReminderBanner: React.FC<PaymentReminderBannerProps> = ({ on
     (inv.targetId === user?.id || inv.targetEmail === user?.email || (userAgency && inv.targetId === userAgency.id))
   );
 
-  const amountDue = pendingInvoice ? pendingInvoice.amount : (userAgency ? 99 : 35);
+  const amountDue = pendingInvoice ? (pendingInvoice.totalAmount ?? pendingInvoice.amount ?? 35) : (userAgency ? 99 : 35);
   const currency = pendingInvoice ? pendingInvoice.currency : 'USD';
   const planName = userAgency ? 'Pack Agence Elite' : (user?.planId === 'pro' ? 'Pack Agent Pro' : 'Pack Starter');
 

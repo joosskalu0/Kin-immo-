@@ -24,6 +24,10 @@ import {
   Calculator,
   UserCheck,
   MessageCircle,
+  Compass,
+  Navigation,
+  Building2,
+  ShieldCheck,
 } from 'lucide-react';
 import { MortgageCalculator } from './MortgageCalculator';
 
@@ -44,6 +48,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
     compareList,
     toggleCompare,
     addLeadRequest,
+    recordPropertyAction,
     user,
   } = useApp();
 
@@ -84,11 +89,13 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
       tourDate: requestType === 'tour' ? tourDate : undefined,
       tourTime: requestType === 'tour' ? tourTime : undefined,
     });
+    recordPropertyAction(property.id, 'lead');
     setIsSent(true);
     setTimeout(() => setIsSent(false), 4000);
   };
 
   const handleDownloadPDF = () => {
+    recordPropertyAction(property.id, 'share');
     generatePropertyPDF(property, customFields, agent, currency);
   };
 
@@ -284,6 +291,49 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 </p>
               </div>
 
+              {/* Localisation Kinshasa (Commune, Quartier, Avenue) */}
+              <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/20 space-y-3">
+                <h4 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-emerald-400" />
+                  Localisation à Kinshasa
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
+                      <Compass className="w-3.5 h-3.5 text-emerald-400" /> Commune
+                    </span>
+                    <span className="text-sm font-bold text-white mt-0.5 block">
+                      {property.commune || 'Kinshasa'}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
+                      <Navigation className="w-3.5 h-3.5 text-emerald-400" /> Quartier
+                    </span>
+                    <span className="text-sm font-bold text-white mt-0.5 block">
+                      {property.quartier || 'Centre'}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
+                      <Building2 className="w-3.5 h-3.5 text-emerald-400" /> Avenue / Voie
+                    </span>
+                    <span className="text-sm font-bold text-white mt-0.5 block truncate">
+                      {property.avenue || property.address}
+                    </span>
+                  </div>
+                </div>
+
+                {property.referencePoint && (
+                  <div className="text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 text-slate-300 flex items-start gap-2">
+                    <span className="text-emerald-400 font-semibold shrink-0">Repère / Réf :</span>
+                    <span>{property.referencePoint}</span>
+                  </div>
+                )}
+              </div>
+
               {/* DYNAMIC FIELDS BUILDER SECTION */}
               <div>
                 <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2">
@@ -367,13 +417,28 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               {agent && (
                 <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-3">
                   <div className="flex items-center gap-3">
-                    <img
-                      src={agent.avatar}
-                      alt={agent.name}
-                      className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/40"
-                    />
+                    <div className="relative shrink-0">
+                      <img
+                        src={agent.avatar}
+                        alt={agent.name}
+                        className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/40"
+                      />
+                      {(agent.isVerified || agent.verificationStatus === 'verified') && (
+                        <span className="absolute -bottom-1 -right-1 p-0.5 bg-slate-950 rounded-full border border-emerald-500 text-emerald-400">
+                          <ShieldCheck className="w-3.5 h-3.5 fill-emerald-500/20" />
+                        </span>
+                      )}
+                    </div>
                     <div>
-                      <h4 className="font-bold text-white text-sm">{agent.name}</h4>
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="font-bold text-white text-sm">{agent.name}</h4>
+                        {(agent.isVerified || agent.verificationStatus === 'verified') && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-black">
+                            <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                            <span>Vérifié</span>
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-emerald-400 font-medium">{agent.title}</p>
                       <p className="text-[10px] text-slate-500">{agent.agencyName}</p>
                     </div>
@@ -386,6 +451,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                         href={`https://wa.me/${(agent.whatsapp || agent.phone || '+243810000000').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour ${agent.name}, je suis intéressé(e) par votre annonce "${property.title}" (${formattedPrice}) sur Kin Immobilier.`)}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={() => recordPropertyAction(property.id, 'whatsapp')}
                         className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all"
                       >
                         <MessageCircle className="w-4 h-4 fill-white" />
@@ -395,6 +461,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                       {/* Direct Phone Call */}
                       <a
                         href={`tel:${agent.phone}`}
+                        onClick={() => recordPropertyAction(property.id, 'call')}
                         className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-all"
                       >
                         <Phone className="w-4 h-4 text-emerald-400" />

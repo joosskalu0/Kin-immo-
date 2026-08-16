@@ -5,7 +5,10 @@ import { Property, LeadRequest, User } from '../../types';
 import { AdminDatabaseManager } from './AdminDatabaseManager';
 import { AdminBillingManager } from './AdminBillingManager';
 import { AdminSettingsManager } from './AdminSettingsManager';
+import { AdminVerificationManager } from './AdminVerificationManager';
+import { PropertyAnalyticsView } from './PropertyAnalyticsView';
 import { PaymentReminderBanner } from './PaymentReminderBanner';
+import { TagManagerSettingsModal } from './TagManagerSettingsModal';
 import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
 import {
   Building2,
@@ -33,6 +36,11 @@ import {
   Receipt,
   Lock,
   X,
+  BarChart3,
+  TrendingUp,
+  Clock,
+  Layers,
+  Sliders
 } from 'lucide-react';
 
 export const UserDashboard: React.FC = () => {
@@ -55,14 +63,17 @@ export const UserDashboard: React.FC = () => {
     importCSV,
     invoices,
     requestConfirm,
+    agents,
+    allUsers,
   } = useApp();
 
   const isAdmin = user?.role === 'admin';
-  const [activeTab, setActiveTab] = useState<'billing' | 'database' | 'admin_settings' | 'listings' | 'my_invoices' | 'leads' | 'saved' | 'plans' | 'csv'>(
-    isAdmin ? 'admin_settings' : 'listings'
+  const [activeTab, setActiveTab] = useState<'analytics' | 'verification' | 'billing' | 'database' | 'admin_settings' | 'listings' | 'my_invoices' | 'leads' | 'saved' | 'plans' | 'csv' | 'gtm_manager'>(
+    isAdmin ? 'admin_settings' : 'analytics'
   );
   const [csvTextInput, setCsvTextInput] = useState('');
   const [selectedPlanSuccess, setSelectedPlanSuccess] = useState<string | null>(null);
+  const [isTagManagerModalOpen, setIsTagManagerModalOpen] = useState(false);
 
   // Invoices belonging to this logged-in user or agent
   const myInvoices = invoices.filter(
@@ -254,6 +265,10 @@ export const UserDashboard: React.FC = () => {
     setTimeout(() => setSelectedPlanSuccess(null), 4000);
   };
 
+  const pendingVerificationsCount = (agents || []).filter(
+    (a) => !a.isVerified && a.verificationStatus === 'pending'
+  ).length;
+
   return (
     <div className="space-y-8">
       {/* Payment Reminder Banner for Expired Subscriptions */}
@@ -300,6 +315,23 @@ export const UserDashboard: React.FC = () => {
         <div className="flex flex-wrap items-center gap-3">
           {isAdmin && (
             <>
+              <button
+                onClick={() => setActiveTab('verification')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm relative ${
+                  activeTab === 'verification'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold'
+                    : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Audit Badges Agents</span>
+                {pendingVerificationsCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black animate-pulse">
+                    {pendingVerificationsCount}
+                  </span>
+                )}
+              </button>
+
               <button
                 onClick={() => setActiveTab('admin_settings')}
                 className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
@@ -367,6 +399,14 @@ export const UserDashboard: React.FC = () => {
           )}
 
           <button
+            onClick={() => setIsTagManagerModalOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs border border-emerald-500/30 transition-all flex items-center gap-2 shadow-sm"
+          >
+            <Layers className="w-4 h-4 text-emerald-400" />
+            <span>Balises & Pixels (GTM)</span>
+          </button>
+
+          <button
             onClick={() => setIsSecurityModalOpen(true)}
             className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all flex items-center gap-2 shadow-sm"
           >
@@ -389,6 +429,9 @@ export const UserDashboard: React.FC = () => {
       {/* Navigation Tabs */}
       <div className="flex border-b border-slate-800 gap-2 overflow-x-auto text-xs font-semibold">
         {[
+          ...(isAdmin || activeTab === 'verification'
+            ? [{ id: 'verification', label: `🛡️ Audit Badges Agents (${pendingVerificationsCount > 0 ? `${pendingVerificationsCount} en attente` : 'Conforme'})`, icon: ShieldCheck }]
+            : []),
           ...(isAdmin || activeTab === 'admin_settings'
             ? [{ id: 'admin_settings', label: 'Sécurité & Identifiants Admin', icon: KeyRound }]
             : []),
@@ -398,6 +441,8 @@ export const UserDashboard: React.FC = () => {
           ...(isAdmin || activeTab === 'database'
             ? [{ id: 'database', label: 'Base de Données Firestore Admin', icon: Database }]
             : []),
+          { id: 'analytics', label: '📊 Google Analytics & Performance', icon: BarChart3 },
+          { id: 'gtm_manager', label: '🏷️ Google Tag Manager & Pixels', icon: Layers },
           { id: 'listings', label: `Mes Annonces (${myProperties.length})`, icon: Building2 },
           { id: 'my_invoices', label: `Mes Factures & Réglements (${myInvoices.length})`, icon: Receipt },
           { id: 'leads', label: `CRM Leads & Demandes (${leads.length})`, icon: Users },
@@ -422,6 +467,16 @@ export const UserDashboard: React.FC = () => {
           );
         })}
       </div>
+
+      {/* TAB: Agent Identity Verification Desk */}
+      {activeTab === 'verification' && (
+        <AdminVerificationManager />
+      )}
+
+      {/* TAB: Google Analytics & Listings Views */}
+      {activeTab === 'analytics' && (
+        <PropertyAnalyticsView />
+      )}
 
       {/* TAB 0: Admin Credentials & Security Settings */}
       {activeTab === 'admin_settings' && (
@@ -716,6 +771,59 @@ export const UserDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* TAB: GTM & Balises Marketing */}
+      {activeTab === 'gtm_manager' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 text-slate-100 shadow-xl">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+                <Layers className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Google Tag Manager & Balises Publicitaires</h3>
+                <p className="text-xs text-slate-400">
+                  Gérez vos identifiants GTM, Google Analytics 4, Meta Pixel (FB/Insta), TikTok Pixel et conversions Google Ads.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsTagManagerModalOpen(true)}
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-slate-950 font-black text-xs transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2"
+            >
+              <Sliders className="w-4 h-4 text-slate-950" />
+              <span>Ouvrir la Console des Balises</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Couche de Données GTM</span>
+              <h4 className="text-sm font-bold text-white">Événements Prêts à l'Emploi</h4>
+              <p className="text-xs text-slate-400">
+                Les événements immobiliers (<code>view_item</code>, <code>contact_agent</code>, <code>generate_lead</code>, <code>agency_registration</code>) sont automatiquement propulsés dans <code>dataLayer</code>.
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Réseaux Sociaux</span>
+              <h4 className="text-sm font-bold text-white">Meta & TikTok Pixels</h4>
+              <p className="text-xs text-slate-400">
+                Retargetez les acheteurs et locataires potentiels à Kinshasa grâce aux événements de conversion standardisés.
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Google Ads RDC</span>
+              <h4 className="text-sm font-bold text-white">Suivi des Conversions</h4>
+              <p className="text-xs text-slate-400">
+                Mesurez le ROI de vos campagnes Google Ads lors des prises de contact WhatsApp et demandes de visites.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TAB 5: CSV Import / Export */}
       {activeTab === 'csv' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 text-xs text-slate-100">
@@ -750,6 +858,12 @@ export const UserDashboard: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Tag Manager & Pixels Modal */}
+      <TagManagerSettingsModal
+        isOpen={isTagManagerModalOpen}
+        onClose={() => setIsTagManagerModalOpen(false)}
+      />
     </div>
   );
 };

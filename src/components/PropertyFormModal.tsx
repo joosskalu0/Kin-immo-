@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Property, PropertyType, PropertyStatus, PropertyLabel } from '../types';
 import {
+  KINSHASA_COMMUNES_DATA,
+  KINSHASA_COMMUNES_LIST,
+  getQuartiersForCommune,
+  getPopularAvenuesForCommune,
+} from '../data/kinshasaLocations';
+import {
   X,
   Plus,
   Trash2,
@@ -16,6 +22,8 @@ import {
   SlidersHorizontal,
   Camera,
   Upload,
+  Compass,
+  Navigation,
 } from 'lucide-react';
 
 export const PropertyFormModal: React.FC = () => {
@@ -43,10 +51,14 @@ export const PropertyFormModal: React.FC = () => {
   const [category, setCategory] = useState('Résidentiel Haut de Gamme');
   const [labels, setLabels] = useState<PropertyLabel[]>(['new']);
 
-  // Location
-  const [address, setAddress] = useState('');
+  // Kinshasa Location Specifics
+  const [commune, setCommune] = useState<string>('Gombe');
+  const [quartier, setQuartier] = useState<string>('Centre-Ville / 30 Juin');
+  const [avenue, setAvenue] = useState<string>('Boulevard du 30 Juin');
+  const [referencePoint, setReferencePoint] = useState<string>('');
+  const [address, setAddress] = useState('Boulevard du 30 Juin, Gombe, Kinshasa');
   const [city, setCity] = useState('Kinshasa');
-  const [zipCode, setZipCode] = useState('Kinshasa');
+  const [zipCode, setZipCode] = useState('KN-01');
   const [country, setCountry] = useState('RDC');
   const [lat, setLat] = useState<number>(-4.3224);
   const [lng, setLng] = useState<number>(15.3070);
@@ -97,12 +109,16 @@ export const PropertyFormModal: React.FC = () => {
       setStatus(editingProperty.status);
       setCategory(editingProperty.category);
       setLabels(editingProperty.labels || []);
+      setCommune(editingProperty.commune || 'Gombe');
+      setQuartier(editingProperty.quartier || 'Centre-Ville / 30 Juin');
+      setAvenue(editingProperty.avenue || 'Boulevard du 30 Juin');
+      setReferencePoint(editingProperty.referencePoint || '');
       setAddress(editingProperty.address);
-      setCity(editingProperty.city);
-      setZipCode(editingProperty.zipCode);
-      setCountry(editingProperty.country);
-      setLat(editingProperty.lat);
-      setLng(editingProperty.lng);
+      setCity(editingProperty.city || 'Kinshasa');
+      setZipCode(editingProperty.zipCode || 'KN-01');
+      setCountry(editingProperty.country || 'RDC');
+      setLat(editingProperty.lat || -4.3224);
+      setLng(editingProperty.lng || 15.3070);
       setBedrooms(editingProperty.bedrooms);
       setBathrooms(editingProperty.bathrooms);
       setArea(editingProperty.area);
@@ -196,10 +212,14 @@ export const PropertyFormModal: React.FC = () => {
       status,
       labels,
       category,
-      address,
-      city,
-      zipCode,
-      country,
+      commune,
+      quartier,
+      avenue,
+      referencePoint: referencePoint || undefined,
+      address: address || `${avenue ? avenue + ', ' : ''}${quartier ? quartier + ', ' : ''}${commune}, Kinshasa`,
+      city: 'Kinshasa',
+      zipCode: zipCode || 'KN-01',
+      country: 'RDC',
       lat,
       lng,
       bedrooms,
@@ -395,89 +415,259 @@ export const PropertyFormModal: React.FC = () => {
             </div>
           )}
 
-          {/* STEP 2: Location */}
+          {/* STEP 2: Location Kinshasa */}
           {step === 2 && (
-            <div className="space-y-4">
+            <div className="space-y-5">
+              {/* Header Badge */}
+              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/20 flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 mt-0.5">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-white text-sm">Localisation à Kinshasa (RDC)</h4>
+                  <p className="text-slate-400 text-xs mt-0.5">
+                    Sélectionnez la commune, le quartier et l'avenue de Kinshasa pour permettre un filtrage précis et rapide par les acheteurs et locataires.
+                  </p>
+                </div>
+              </div>
+
+              {/* Commune Selection */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Compass className="w-4 h-4 text-emerald-400" />
+                    Commune de Kinshasa *
+                  </label>
+                  {commune && KINSHASA_COMMUNES_DATA[commune]?.districts && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-800 text-emerald-400 border border-slate-700">
+                      District : {KINSHASA_COMMUNES_DATA[commune].districts}
+                    </span>
+                  )}
+                </div>
+                <select
+                  required
+                  value={commune}
+                  onChange={(e) => {
+                    const newCommune = e.target.value;
+                    setCommune(newCommune);
+                    const qList = getQuartiersForCommune(newCommune);
+                    const defaultQ = qList.length > 0 ? qList[0] : '';
+                    setQuartier(defaultQ);
+                    const avList = getPopularAvenuesForCommune(newCommune);
+                    const defaultAv = avList.length > 0 ? avList[0] : '';
+                    setAvenue(defaultAv);
+                    setAddress(`${defaultAv ? defaultAv + ', ' : ''}${defaultQ ? defaultQ + ', ' : ''}${newCommune}, Kinshasa`);
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-medium text-xs focus:outline-none focus:border-emerald-500 transition-colors"
+                >
+                  <optgroup label="Zones Résidentielles & Centre d'Affaires (Lukunga)">
+                    {['Gombe', 'Ngaliema', 'Kintambo', 'Lingwala', 'Barumbu', 'Kinshasa'].map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Résidentiel & Universitaire (Mont-Amba)">
+                    {['Limete', 'Lemba', 'Matete', 'Ngaba', 'Kisenso'].map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Plateau & Périphérie Sud (Lukunga)">
+                    {['Mont-Ngafula'].map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Centre Populaire & Commercial (Funa)">
+                    {['Bandalungwa', 'Kalamu', 'Kasa-Vubu', 'Ngiri-Ngiri', 'Selembao', 'Bumbu', 'Makala'].map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Grand Est & Zone Industrielle (Tshangu)">
+                    {['Ndjili', 'Masina', 'Kimbanseke', 'Nsele', 'Maluku'].map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              {/* Quartier Selection & Free input */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Navigation className="w-4 h-4 text-emerald-400" />
+                    Quartier à {commune} *
+                  </label>
+                  <div className="space-y-2">
+                    <select
+                      value={getQuartiersForCommune(commune).includes(quartier) ? quartier : 'custom'}
+                      onChange={(e) => {
+                        if (e.target.value === 'custom') {
+                          setQuartier('');
+                        } else {
+                          setQuartier(e.target.value);
+                          setAddress(`${avenue ? avenue + ', ' : ''}${e.target.value}, ${commune}, Kinshasa`);
+                        }
+                      }}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white text-xs focus:outline-none focus:border-emerald-500"
+                    >
+                      {getQuartiersForCommune(commune).map((q) => (
+                        <option key={q} value={q}>{q}</option>
+                      ))}
+                      <option value="custom">Autre quartier non listé...</option>
+                    </select>
+
+                    {/* If custom or user wants to specify directly */}
+                    {(!getQuartiersForCommune(commune).includes(quartier) || quartier === '') && (
+                      <input
+                        type="text"
+                        required
+                        value={quartier}
+                        onChange={(e) => {
+                          setQuartier(e.target.value);
+                          setAddress(`${avenue ? avenue + ', ' : ''}${e.target.value}, ${commune}, Kinshasa`);
+                        }}
+                        placeholder={`Saisir le quartier à ${commune}...`}
+                        className="w-full bg-slate-950 border border-emerald-500/50 rounded-xl px-3 py-2 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-emerald-500"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Avenue / Boulevard Selection & Input */}
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-emerald-400" />
+                    Avenue / Boulevard *
+                  </label>
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      required
+                      list="kinshasa-avenues-list"
+                      value={avenue}
+                      onChange={(e) => {
+                        setAvenue(e.target.value);
+                        setAddress(`${e.target.value ? e.target.value + ', ' : ''}${quartier ? quartier + ', ' : ''}${commune}, Kinshasa`);
+                      }}
+                      placeholder="ex: Boulevard du 30 Juin, Av. de la Justice, Av. des Écuries..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                    <datalist id="kinshasa-avenues-list">
+                      {getPopularAvenuesForCommune(commune).map((av) => (
+                        <option key={av} value={av} />
+                      ))}
+                    </datalist>
+
+                    {/* Quick popular avenue pills */}
+                    {getPopularAvenuesForCommune(commune).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        <span className="text-[10px] text-slate-400">Avenues populaires :</span>
+                        {getPopularAvenuesForCommune(commune).slice(0, 3).map((av) => (
+                          <button
+                            type="button"
+                            key={av}
+                            onClick={() => {
+                              setAvenue(av);
+                              setAddress(`${av}, ${quartier ? quartier + ', ' : ''}${commune}, Kinshasa`);
+                            }}
+                            className={`text-[10px] px-2 py-0.5 rounded-md border transition-all ${
+                              avenue === av
+                                ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {av}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Point de Repère / Numéro de Parcelle */}
               <div>
                 <label className="block font-semibold text-slate-300 mb-1">
-                  Adresse postale *
+                  Point de repère / Numéro de parcelle ou Résidence (Recommandé à Kinshasa)
+                </label>
+                <input
+                  type="text"
+                  value={referencePoint}
+                  onChange={(e) => setReferencePoint(e.target.value)}
+                  placeholder="ex: N° 45, en face de l'ambassade de France, réf: Arrêt Safricas, Immeuble Crown Tower..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Full Address Generated / Editable */}
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">
+                  Adresse complète affichée sur la fiche *
                 </label>
                 <input
                   type="text"
                   required
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="ex: 28 Avenue Victor Hugo"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  placeholder="ex: Avenue des Écuries N° 12, Binza Macampagne, Ngaliema, Kinshasa"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
                 />
               </div>
 
+              {/* City, Zip, Country */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">
-                    Ville *
-                  </label>
+                  <label className="block font-semibold text-slate-300 mb-1">Ville</label>
                   <input
                     type="text"
                     required
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
-                    placeholder="Paris, Nice, Lyon..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
-
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">
-                    Code Postal
-                  </label>
+                  <label className="block font-semibold text-slate-300 mb-1">Code Postal / Réf</label>
                   <input
                     type="text"
                     value={zipCode}
                     onChange={(e) => setZipCode(e.target.value)}
-                    placeholder="75008"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
-
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">
-                    Pays
-                  </label>
+                  <label className="block font-semibold text-slate-300 mb-1">Pays</label>
                   <input
                     type="text"
                     value={country}
                     onChange={(e) => setCountry(e.target.value)}
-                    placeholder="France"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Geolocation Coordinates */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                 <div>
                   <label className="block font-semibold text-slate-300 mb-1">
-                    Latitude (Carte AJAX)
+                    Latitude (Carte Kinshasa)
                   </label>
                   <input
                     type="number"
                     step="any"
                     value={lat}
                     onChange={(e) => setLat(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
                   />
                 </div>
-
                 <div>
                   <label className="block font-semibold text-slate-300 mb-1">
-                    Longitude (Carte AJAX)
+                    Longitude (Carte Kinshasa)
                   </label>
                   <input
                     type="number"
                     step="any"
                     value={lng}
                     onChange={(e) => setLng(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>

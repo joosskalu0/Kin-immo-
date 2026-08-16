@@ -24,13 +24,14 @@ import {
   ShieldAlert,
   Smartphone,
   RefreshCw,
-  BadgeCheck
+  BadgeCheck,
+  Award
 } from 'lucide-react';
-import { User } from '../types';
-import { saveUserToFirestore, saveAgentToFirestore } from '../lib/firebase';
+import { User, Agency, Agent } from '../types';
+import { saveUserToFirestore, saveAgentToFirestore, saveAgencyToFirestore } from '../lib/firebase';
 
 export const AuthModal: React.FC = () => {
-  const { isAuthModalOpen, setIsAuthModalOpen, setUser } = useApp();
+  const { isAuthModalOpen, setIsAuthModalOpen, setUser, addAgency, addAgent } = useApp();
   
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [method, setMethod] = useState<'email' | 'phone'>('email');
@@ -47,8 +48,13 @@ export const AuthModal: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [agencyName, setAgencyName] = useState('');
+  const [legalForm, setLegalForm] = useState('SARL');
+  const [agencyCommune, setAgencyCommune] = useState('Gombe');
+  const [agencyAddress, setAgencyAddress] = useState('');
+  const [managerIdType, setManagerIdType] = useState<'passport' | 'voter_card' | 'cni'>('passport');
+  const [managerIdNumber, setManagerIdNumber] = useState('');
   const [rccmOrNif, setRccmOrNif] = useState('');
-  const [role, setRole] = useState<'user' | 'owner' | 'agent'>('user');
+  const [role, setRole] = useState<'user' | 'owner' | 'agent' | 'agency'>('user');
   const [enable2FAOnSignup, setEnable2FAOnSignup] = useState(true);
   
   // Verification codes
@@ -198,13 +204,13 @@ export const AuthModal: React.FC = () => {
           phone: phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000',
           whatsapp: whatsapp && whatsapp.trim() !== '+243' ? whatsapp : (phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000'),
           role: role,
-          agencyName: (role === 'agent' || role === 'owner') ? agencyName || 'Kinshasa Immobilier' : undefined,
-          rccmOrNif: rccmOrNif || (role === 'agent' ? 'CD/KIN/RCCM/20-B-04921' : undefined),
-          avatar: role === 'agent'
+          agencyName: (role === 'agent' || role === 'owner' || role === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
+          rccmOrNif: rccmOrNif || (role === 'agency' || role === 'agent' ? 'CD/KIN/RCCM/26-B-08420' : undefined),
+          avatar: role === 'agency' || role === 'agent'
             ? 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'
             : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
-          agentId: role === 'agent' ? `agent_${Date.now()}` : undefined,
-          planId: role === 'agent' ? 'pro' : 'starter',
+          agentId: (role === 'agent' || role === 'agency') ? `agent_${Date.now()}` : undefined,
+          planId: role === 'agency' ? 'agency' : role === 'agent' ? 'pro' : 'starter',
           subscriptionStatus: 'Active',
           subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
           provider: method,
@@ -213,8 +219,10 @@ export const AuthModal: React.FC = () => {
           phoneVerified: method === 'phone' ? false : true,
           twoFactorEnabled: enable2FAOnSignup,
           twoFactorMethod: 'authenticator',
-          kinshasaBadgeVerified: role === 'agent' || role === 'owner',
-          lastLoginLocation: 'Kinshasa (Gombe), RDC',
+          kinshasaBadgeVerified: role === 'agent' || role === 'owner' || role === 'agency',
+          identityDocType: managerIdType,
+          identityDocNumber: managerIdNumber,
+          lastLoginLocation: role === 'agency' ? `Kinshasa (${agencyCommune}), RDC` : 'Kinshasa (Gombe), RDC',
           createdAt: new Date().toISOString(),
         };
 
@@ -353,7 +361,68 @@ export const AuthModal: React.FC = () => {
 
     saveUserToFirestore(userToSave).catch((err) => console.error('Error saving user to Firestore:', err));
 
-    if (userToSave.role === 'agent' || userToSave.role === 'owner' || userToSave.role === 'admin' || userToSave.agencyName) {
+    if (userToSave.role === 'agency') {
+      const agencyId = `agency_${Date.now()}`;
+      const nextExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const newAgency: Agency = {
+        id: agencyId,
+        name: userToSave.agencyName || 'Cabinet Immobilier Kinshasa',
+        logo: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
+        address: agencyAddress ? `${agencyAddress}, ${agencyCommune}` : `Boulevard du 30 Juin, ${agencyCommune}`,
+        city: 'Kinshasa',
+        commune: agencyCommune,
+        phone: userToSave.phone || '+243 81 000 0000',
+        whatsapp: userToSave.whatsapp || userToSave.phone || '+243 81 000 0000',
+        email: userToSave.email,
+        website: `https://${(userToSave.agencyName || 'agence').toLowerCase().replace(/[^a-z0-9]/g, '')}.cd`,
+        managerName: userToSave.name,
+        rccm: userToSave.rccmOrNif || 'CD/KIN/RCCM/26-B-08420',
+        nif: 'A2609820-DGI',
+        idNat: '01-83-N84910K',
+        agentsCount: 5,
+        description: `Cabinet immobilier agréé à Kinshasa (${agencyCommune}). Spécialisé en vente et location résidentielle de standing et commerciale.`,
+        specialties: ['Résidentiel Haut Standing', 'Vente Concessions', 'Location Diplomatique'],
+        isVerified: false,
+        verificationStatus: 'pending',
+        subscriptionStatus: 'Active',
+        subscriptionExpiresAt: nextExpiry,
+        planId: 'agency',
+        lastPaymentDate: new Date().toISOString().split('T')[0],
+        createdAt: new Date().toISOString(),
+      };
+
+      addAgency(newAgency);
+      saveAgencyToFirestore(newAgency).catch((err) => console.error('Error saving agency to Firestore:', err));
+
+      const chiefAgent: Agent = {
+        id: userToSave.agentId || `agent_${Date.now()}`,
+        name: userToSave.name,
+        title: `Directeur Général - ${newAgency.name}`,
+        email: userToSave.email,
+        phone: userToSave.phone || '+243 81 000 0000',
+        whatsapp: userToSave.whatsapp || userToSave.phone || '+243 81 000 0000',
+        avatar: userToSave.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+        agencyId: agencyId,
+        agencyName: newAgency.name,
+        agencyLogo: newAgency.logo,
+        rating: 5.0,
+        reviewCount: 1,
+        listingsCount: 0,
+        bio: `Direction générale du cabinet ${newAgency.name} à Kinshasa (${agencyCommune}). RCCM: ${newAgency.rccm}.`,
+        specialties: ['Résidentiel', 'Commercial', 'Conseil Juridique'],
+        languages: ['Français', 'Lingala', 'English'],
+        isVerified: false,
+        verificationStatus: 'pending',
+        identityDocType: managerIdType,
+        identityDocNumber: managerIdNumber,
+        rccmOrNif: newAgency.rccm,
+        subscriptionStatus: 'Active',
+        subscriptionExpiresAt: nextExpiry,
+      };
+
+      addAgent(chiefAgent);
+      saveAgentToFirestore(chiefAgent).catch((err) => console.error('Error saving chief agent to Firestore:', err));
+    } else if (userToSave.role === 'agent' || userToSave.role === 'owner' || userToSave.role === 'admin' || userToSave.agencyName) {
       saveAgentToFirestore({
         id: userToSave.agentId || userToSave.id,
         name: userToSave.name,
@@ -726,25 +795,180 @@ export const AuthModal: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setRole('agent')}
-                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all col-span-2 ${
+                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
                         role === 'agent'
                           ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold'
                           : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                       }`}
                     >
-                      <Building2 className="w-4 h-4 shrink-0" />
+                      <Building className="w-4 h-4 shrink-0" />
                       <div>
-                        <div className="text-[11px] font-bold">Agent Immobilière / Courtier Certifié</div>
-                        <div className="text-[9px] text-slate-500">Badge "Agent Vérifié Kinshasa +243"</div>
+                        <div className="text-[11px] font-bold">Agent Indépendant</div>
+                        <div className="text-[9px] text-slate-500">Courtier agréé RDC</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRole('agency')}
+                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                        role === 'agency'
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold shadow-md shadow-emerald-500/10'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <Building2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                      <div>
+                        <div className="text-[11px] font-bold flex items-center gap-1">
+                          <span>Agence Immobilière</span>
+                          <span className="text-[8px] bg-emerald-500/30 text-emerald-300 px-1 rounded font-black">PRO</span>
+                        </div>
+                        <div className="text-[9px] text-emerald-400">1er Mois Offert • SARL / Ets</div>
                       </div>
                     </button>
                   </div>
 
+                  {/* Agency Specific Registration Section */}
+                  {role === 'agency' && (
+                    <div className="p-3 bg-slate-950 rounded-2xl border border-emerald-500/30 space-y-3">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-emerald-400 flex items-center gap-1.5">
+                          <Building2 className="w-4 h-4" /> Détails de l'Agence Immobilière
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
+                          Offre 1 Mois Gratuit
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="sm:col-span-2">
+                          <label className="block text-[10px] font-bold text-slate-300 mb-1">
+                            Raison Sociale de l'Agence *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={agencyName}
+                            onChange={(e) => setAgencyName(e.target.value)}
+                            placeholder="Ex: Kinshasa Prestige Real Estate"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-300 mb-1">
+                            Forme Juridique
+                          </label>
+                          <select
+                            value={legalForm}
+                            onChange={(e) => setLegalForm(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                          >
+                            <option value="SARL">SARL</option>
+                            <option value="SAS">SAS</option>
+                            <option value="SPRL">SPRL</option>
+                            <option value="Cabinet">Cabinet</option>
+                            <option value="Ets">Ets</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-300 mb-1">
+                            Numéro RCCM (Guichet Unique RDC)
+                          </label>
+                          <input
+                            type="text"
+                            value={rccmOrNif}
+                            onChange={(e) => setRccmOrNif(e.target.value)}
+                            placeholder="CD/KIN/RCCM/26-B-08420"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-300 mb-1">
+                            Commune du Siège à Kinshasa
+                          </label>
+                          <select
+                            value={agencyCommune}
+                            onChange={(e) => setAgencyCommune(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                          >
+                            {['Gombe', 'Ngaliema', 'Limete', 'Kintambo', 'Bandalungwa', 'Lingwala', 'Kasa-Vubu', 'Mont-Ngafula', 'Lemba'].map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-300 mb-1">
+                          Adresse Physique du Siège à Kinshasa
+                        </label>
+                        <input
+                          type="text"
+                          value={agencyAddress}
+                          onChange={(e) => setAgencyAddress(e.target.value)}
+                          placeholder="Ex: 18 Avenue Batetela, Immeuble Crown Tower"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-300 mb-1">
+                            Pièce d'Identité du Représentant Légal *
+                          </label>
+                          <div className="grid grid-cols-2 gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setManagerIdType('passport')}
+                              className={`py-1.5 px-2 rounded-lg border text-center text-[10px] font-bold transition-all ${
+                                managerIdType === 'passport'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500'
+                                  : 'bg-slate-900 text-slate-400 border-slate-800'
+                              }`}
+                            >
+                              🛂 Passeport RDC
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setManagerIdType('voter_card')}
+                              className={`py-1.5 px-2 rounded-lg border text-center text-[10px] font-bold transition-all ${
+                                managerIdType === 'voter_card'
+                                  ? 'bg-amber-500/20 text-amber-400 border-amber-500'
+                                  : 'bg-slate-900 text-slate-400 border-slate-800'
+                              }`}
+                            >
+                              🗳️ Carte CENI
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-300 mb-1">
+                            Numéro de la Pièce {managerIdType === 'passport' ? '(Passeport)' : '(Carte CENI)'}
+                          </label>
+                          <input
+                            type="text"
+                            value={managerIdNumber}
+                            onChange={(e) => setManagerIdNumber(e.target.value)}
+                            placeholder={managerIdType === 'passport' ? 'OB-992140-CD' : '1029-4820-9182'}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Agent or Owner simple fields */}
                   {(role === 'agent' || role === 'owner') && (
                     <div className="grid grid-cols-1 gap-2 pt-1">
                       <div>
                         <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                          Nom de l'Agence Immobilière
+                          Nom de l'Agence Immobilière ou Affiliation
                         </label>
                         <input
                           type="text"

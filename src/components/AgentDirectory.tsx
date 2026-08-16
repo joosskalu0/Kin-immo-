@@ -1,16 +1,44 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Agent, Agency } from '../types';
-import { Search, Star, Phone, Mail, MessageSquare, Building2, ShieldCheck, Check, Trash2, Info, BadgeCheck, FileCheck, UserCheck, Award, X, Lock } from 'lucide-react';
+import { AgentVerificationSubmitModal } from './Dashboard/AgentVerificationSubmitModal';
+import { AgencyRegistrationModal } from './AgencyRegistrationModal';
+import {
+  Search,
+  Star,
+  Phone,
+  Mail,
+  MessageSquare,
+  Building2,
+  ShieldCheck,
+  ShieldAlert,
+  Check,
+  Trash2,
+  Info,
+  BadgeCheck,
+  FileCheck,
+  UserCheck,
+  Award,
+  X,
+  Lock,
+  Clock,
+  Sparkles,
+  PlusCircle,
+  FileText,
+  Filter,
+} from 'lucide-react';
 
 export const AgentDirectory: React.FC = () => {
   const { agents, agencies, properties, allUsers, deleteAgent, deleteAgency, user, requestConfirm, setActivePropertyModalId } = useApp();
   const [activeTab, setActiveTab] = useState<'agents' | 'agencies'>('agents');
+  const [verificationFilter, setVerificationFilter] = useState<'all' | 'verified_only' | 'pending_only'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [contactAgentModal, setContactAgentModal] = useState<Agent | null>(null);
   const [messageSent, setMessageSent] = useState(false);
   const [verificationModalAgent, setVerificationModalAgent] = useState<Agent | null>(null);
   const [showGeneralVerificationInfo, setShowGeneralVerificationInfo] = useState(false);
+  const [showSubmitVerificationModal, setShowSubmitVerificationModal] = useState(false);
+  const [showAgencyRegistrationModal, setShowAgencyRegistrationModal] = useState(false);
 
   // Combine explicitly saved agents with all registered users from Firestore who are agents/owners/admins
   const combinedAgentsList = React.useMemo(() => {
@@ -32,6 +60,7 @@ export const AgentDirectory: React.FC = () => {
         const existing = map.get(primaryKey) || (emailKey ? map.get(emailKey) : undefined);
 
         if (!existing) {
+          const isVer = u.isVerified || u.kinshasaBadgeVerified || false;
           const newAgentObj: Agent = {
             id: primaryKey,
             name: u.name || 'Agent Immobilier',
@@ -47,6 +76,11 @@ export const AgentDirectory: React.FC = () => {
             bio: `Agent / Membre partenaire certifié Immocraft Kinshasa. RCCM/NIF: ${u.rccmOrNif || 'CD/KIN/RCCM/20-B-04921'}.`,
             specialties: ['Résidentiel', 'Commercial', 'Conseil Immobilier'],
             languages: ['Français', 'Lingala'],
+            isVerified: isVer,
+            verificationStatus: (u.verificationStatus as any) || (isVer ? 'verified' : 'unverified'),
+            verificationDocuments: u.verificationDocuments || [],
+            rccmOrNif: u.rccmOrNif,
+            identityDocNumber: u.identityDocNumber,
           };
           map.set(primaryKey, newAgentObj);
           if (emailKey) map.set(emailKey, newAgentObj);
@@ -57,6 +91,10 @@ export const AgentDirectory: React.FC = () => {
           if (!existing.email && u.email) existing.email = u.email;
           if ((!existing.agencyName || existing.agencyName === 'Kinshasa Immobilier') && u.agencyName) {
             existing.agencyName = u.agencyName;
+          }
+          if (u.isVerified !== undefined) {
+            existing.isVerified = u.isVerified;
+            existing.verificationStatus = (u.verificationStatus as any) || (u.isVerified ? 'verified' : 'unverified');
           }
         }
       }
@@ -81,17 +119,29 @@ export const AgentDirectory: React.FC = () => {
     return Math.max(activeProps, agent.listingsCount || 0);
   };
 
-  const filteredAgents = combinedAgentsList.filter(
-    (a) =>
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (a.email && a.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      a.specialties.some((s) => s.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (a.agencyName && a.agencyName.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredAgents = combinedAgentsList.filter((a) => {
+    const isVer = a.isVerified === true || a.verificationStatus === 'verified';
+    if (verificationFilter === 'verified_only' && !isVer) return false;
+    if (verificationFilter === 'pending_only' && (isVer || a.verificationStatus !== 'pending')) return false;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchName = a.name.toLowerCase().includes(q);
+      const matchEmail = a.email && a.email.toLowerCase().includes(q);
+      const matchSpec = a.specialties.some((s) => s.toLowerCase().includes(q));
+      const matchAgency = a.agencyName && a.agencyName.toLowerCase().includes(q);
+      return matchName || matchEmail || matchSpec || matchAgency;
+    }
+    return true;
+  });
 
   const sortedAgents = [...filteredAgents].sort(
     (a, b) => getAgentListingsCount(b) - getAgentListingsCount(a)
   );
+
+  const verifiedAgentsCount = combinedAgentsList.filter(
+    (a) => a.isVerified === true || a.verificationStatus === 'verified'
+  ).length;
 
   const getAgencyListingsCount = (agency: Agency) => {
     const agencyAgents = combinedAgentsList.filter(
@@ -135,13 +185,13 @@ export const AgentDirectory: React.FC = () => {
       <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-8 text-slate-100 shadow-2xl relative overflow-hidden">
         <div className="max-w-2xl space-y-3 relative z-10">
           <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-wider">
-            Annuaire PRO Agents & Agences
+            Annuaire PRO Agents & Agences Kinshasa
           </span>
           <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-            Des Experts Immobiliers à votre Service
+            Des Experts Immobiliers & Foncier à votre Service
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-            Trouvez les meilleurs agents et agences spécialisés dans le résidentiel de prestige, l'investissement ou la vente de propriétés.
+            Consultez les profils des agents immobiliers de Kinshasa certifiés par la direction Immocraft (CNI, RCCM, NIF et audit de bureau).
           </p>
 
           {/* Search Bar & Verification Guarantee Banner */}
@@ -152,45 +202,125 @@ export const AgentDirectory: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Rechercher par nom, ville ou spécialité..."
+                placeholder="Rechercher par nom d'agent, commune ou spécialité..."
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
 
-            <button
-              onClick={() => setShowGeneralVerificationInfo(true)}
-              className="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-bold transition-all flex items-center gap-2 group cursor-pointer"
-            >
-              <ShieldCheck className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
-              <span>Garantie Agents 100% Vérifiés</span>
-              <Info className="w-3.5 h-3.5 opacity-70" />
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setShowAgencyRegistrationModal(true)}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-slate-950 font-black text-xs transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <Building2 className="w-4 h-4 text-slate-950" />
+                <span>Inscrire une Agence (1 Mois Offert)</span>
+              </button>
+
+              <button
+                onClick={() => setShowGeneralVerificationInfo(true)}
+                className="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-bold transition-all flex items-center gap-2 group cursor-pointer shrink-0"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                <span>Garantie « Vérifié »</span>
+                <Info className="w-3.5 h-3.5 opacity-70" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Tabs Switcher */}
-      <div className="flex border-b border-slate-800 gap-4 text-xs font-semibold">
-        <button
-          onClick={() => setActiveTab('agents')}
-          className={`py-3 px-4 border-b-2 transition-all ${
-            activeTab === 'agents'
-              ? 'border-emerald-500 text-emerald-400'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Agents Immobiliers ({sortedAgents.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('agencies')}
-          className={`py-3 px-4 border-b-2 transition-all ${
-            activeTab === 'agencies'
-              ? 'border-emerald-500 text-emerald-400'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Agences Partenaires ({sortedAgencies.length})
-        </button>
+      {/* Agent Call to Action: Submit ID for Verification */}
+      {user && (user.role === 'agent' || user.role === 'owner') && (
+        <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 bg-emerald-500/15 border border-emerald-500/30 rounded-2xl text-emerald-400 shrink-0">
+              <ShieldCheck className="w-7 h-7" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-white text-sm sm:text-base">Vous êtes agent immobilier ou propriétaire ?</h3>
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-black">
+                  Badge Officiel
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5 max-w-xl">
+                Faites vérifier votre identité (<strong>Passeport Biométrique RDC</strong> ou <strong>Carte d'Électeur CENI</strong> / RCCM) pour afficher le badge <strong>« Agent Vérifié »</strong> sur l'annuaire et booster vos demandes clients.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowSubmitVerificationModal(true)}
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-slate-950 font-black text-xs transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 shrink-0"
+          >
+            <ShieldCheck className="w-4 h-4 text-slate-950" />
+            <span>Faire Vérifier mon Compte</span>
+          </button>
+        </div>
+      )}
+
+      {/* Tabs Switcher & Verification Filters */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 gap-4">
+        <div className="flex gap-4 text-xs font-semibold">
+          <button
+            onClick={() => setActiveTab('agents')}
+            className={`py-3 px-4 border-b-2 transition-all ${
+              activeTab === 'agents'
+                ? 'border-emerald-500 text-emerald-400 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Agents Immobiliers ({sortedAgents.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('agencies')}
+            className={`py-3 px-4 border-b-2 transition-all ${
+              activeTab === 'agencies'
+                ? 'border-emerald-500 text-emerald-400 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Agences Partenaires ({sortedAgencies.length})
+          </button>
+        </div>
+
+        {/* Verification Filter Chips (for agents tab) */}
+        {activeTab === 'agents' && (
+          <div className="flex items-center gap-1.5 pb-2 sm:pb-0 text-xs font-bold">
+            <button
+              onClick={() => setVerificationFilter('all')}
+              className={`px-3 py-1.5 rounded-xl transition-all ${
+                verificationFilter === 'all'
+                  ? 'bg-slate-800 text-white border border-slate-700'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Tous
+            </button>
+            <button
+              onClick={() => setVerificationFilter('verified_only')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                verificationFilter === 'verified_only'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                  : 'text-slate-400 hover:text-emerald-400'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Agents Vérifiés ({verifiedAgentsCount})</span>
+            </button>
+            <button
+              onClick={() => setVerificationFilter('pending_only')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                verificationFilter === 'pending_only'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'text-slate-400 hover:text-amber-300'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>En Attente</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Agents Cards Grid */}
@@ -198,11 +328,20 @@ export const AgentDirectory: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {sortedAgents.map((agent) => {
             const agentListings = getAgentListingsCount(agent);
+            const isVerified = agent.isVerified === true || agent.verificationStatus === 'verified';
+            const isPending = !isVerified && agent.verificationStatus === 'pending';
+            const isRejected = agent.verificationStatus === 'rejected';
 
             return (
               <div
                 key={agent.id}
-                className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-3xl p-6 transition-all duration-300 hover:shadow-2xl flex flex-col justify-between space-y-4 relative"
+                className={`bg-slate-900 border rounded-3xl p-6 transition-all duration-300 hover:shadow-2xl flex flex-col justify-between space-y-4 relative ${
+                  isVerified
+                    ? 'border-slate-800 hover:border-emerald-500/50'
+                    : isPending
+                    ? 'border-amber-500/30'
+                    : 'border-slate-800/80'
+                }`}
               >
                 <div className="space-y-4">
                   {/* Top Profile */}
@@ -211,11 +350,30 @@ export const AgentDirectory: React.FC = () => {
                       <img
                         src={agent.avatar}
                         alt={agent.name}
-                        className="w-16 h-16 rounded-2xl object-cover ring-2 ring-emerald-500/40"
+                        className={`w-16 h-16 rounded-2xl object-cover ring-2 ${
+                          isVerified
+                            ? 'ring-emerald-500/60'
+                            : isPending
+                            ? 'ring-amber-500/50'
+                            : 'ring-slate-700'
+                        }`}
                       />
-                      <span className="absolute -bottom-1 -right-1 p-1 bg-slate-950 rounded-full border border-emerald-500/40 text-emerald-400 shadow-md" title="Agent Vérifié Immocraft">
-                        <ShieldCheck className="w-3.5 h-3.5 fill-emerald-500/20 text-emerald-400" />
-                      </span>
+                      {/* Avatar Shield Badge: Display ONLY if verified */}
+                      {isVerified ? (
+                        <span
+                          className="absolute -bottom-1 -right-1 p-1 bg-slate-950 rounded-full border border-emerald-500 text-emerald-400 shadow-md"
+                          title="Agent Vérifié Immocraft"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 fill-emerald-500/20 text-emerald-400" />
+                        </span>
+                      ) : isPending ? (
+                        <span
+                          className="absolute -bottom-1 -right-1 p-1 bg-slate-950 rounded-full border border-amber-500 text-amber-400 shadow-md"
+                          title="Dossier de vérification en cours d'audit"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="space-y-1 min-w-0 flex-1">
@@ -228,54 +386,69 @@ export const AgentDirectory: React.FC = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-bold text-white text-base truncate">{agent.name}</h3>
 
-                        {/* Verified Badge with Tooltip */}
-                        <div className="relative group inline-block">
-                          <button
-                            type="button"
-                            onClick={() => setVerificationModalAgent(agent)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold hover:bg-emerald-500/25 transition-all cursor-pointer shadow-sm"
-                          >
-                            <ShieldCheck className="w-3 h-3 text-emerald-400 shrink-0" />
-                            <span>Vérifié</span>
-                          </button>
+                        {/* Verified Badge: Rendered ONLY if isVerified is true */}
+                        {isVerified ? (
+                          <div className="relative group inline-block">
+                            <button
+                              type="button"
+                              onClick={() => setVerificationModalAgent(agent)}
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-black hover:bg-emerald-500/25 transition-all cursor-pointer shadow-sm"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>Agent Vérifié</span>
+                            </button>
 
-                          {/* Desktop Hover Tooltip */}
-                          <div className="absolute left-0 bottom-full mb-2 w-72 bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-slate-200 text-xs shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-30 pointer-events-none group-hover:pointer-events-auto">
-                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-                              <div className="flex items-center gap-1.5 font-bold text-emerald-400">
-                                <BadgeCheck className="w-4 h-4 text-emerald-400" />
-                                <span>Agent Vérifié & Certifié</span>
+                            {/* Desktop Hover Tooltip */}
+                            <div className="absolute left-0 bottom-full mb-2 w-72 bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-slate-200 text-xs shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-30 pointer-events-none group-hover:pointer-events-auto">
+                              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+                                <div className="flex items-center gap-1.5 font-bold text-emerald-400">
+                                  <BadgeCheck className="w-4 h-4 text-emerald-400" />
+                                  <span>Agent Vérifié & Conforme</span>
+                                </div>
+                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                                  Validé RDC
+                                </span>
                               </div>
-                              <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                                100% Conforme
-                              </span>
-                            </div>
-                            <ul className="space-y-1.5 text-[11px] text-slate-300">
-                              <li className="flex items-start gap-1.5">
-                                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                                <span><strong>Identité :</strong> CNI / Passeport officiel validé</span>
-                              </li>
-                              <li className="flex items-start gap-1.5">
-                                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                                <span><strong>Régulation RDC :</strong> Enregistrement RCCM & NIF fiscal</span>
-                              </li>
-                              <li className="flex items-start gap-1.5">
-                                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                                <span><strong>Adresse :</strong> Bureau professionnel audité à Kinshasa</span>
-                              </li>
-                            </ul>
-                            <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10px] text-emerald-400 font-semibold flex items-center justify-between">
-                              <span>Charte Éthique Zéro-Fraude</span>
-                              <span className="underline">Détails de certification &rarr;</span>
+                              <ul className="space-y-1.5 text-[11px] text-slate-300">
+                                <li className="flex items-start gap-1.5">
+                                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                  <span><strong>Pièce d'Identité :</strong> {agent.identityDocType === 'passport' ? 'Passeport' : 'CNI'} vérifié(e)</span>
+                                </li>
+                                <li className="flex items-start gap-1.5">
+                                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                  <span><strong>RCCM / NIF :</strong> {agent.rccmOrNif || 'Enregistré'}</span>
+                                </li>
+                                <li className="flex items-start gap-1.5">
+                                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                  <span><strong>Audit :</strong> Bureau & Titres fonciers audités</span>
+                                </li>
+                              </ul>
+                              <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10px] text-emerald-400 font-semibold flex items-center justify-between">
+                                <span>Contrôle Direction Immocraft</span>
+                                <span className="underline">Détails de l'audit &rarr;</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        ) : isPending ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold">
+                            <Clock className="w-3 h-3" />
+                            <span>Vérification en cours</span>
+                          </span>
+                        ) : isRejected ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-bold">
+                            <span>Dossier Incomplet</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[9px] font-semibold">
+                            Non vérifié
+                          </span>
+                        )}
                       </div>
 
                       <p className="text-xs text-emerald-400 font-medium">{agent.title}</p>
                       <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
                         <Building2 className="w-3 h-3 text-slate-500" />
-                        {agent.agencyName}
+                        {agent.agencyName || 'Indépendant Kinshasa'}
                       </p>
                     </div>
                   </div>
@@ -334,60 +507,103 @@ export const AgentDirectory: React.FC = () => {
         </div>
       )}
 
-      {/* Agencies Grid */}
+      {/* Agencies Tab */}
       {activeTab === 'agencies' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {sortedAgencies.map((agency) => {
-            const agencyListingsCount = getAgencyListingsCount(agency);
+        <div className="space-y-6">
+          {/* Agency Onboarding Banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-emerald-950/40 to-slate-900 border border-emerald-500/30 rounded-3xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3.5">
+              <div className="p-3.5 bg-emerald-500/20 border border-emerald-500/40 rounded-2xl text-emerald-400 shrink-0">
+                <Building2 className="w-8 h-8" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-black text-white text-base sm:text-lg">Vous dirigez une Agence ou un Cabinet Immobilier à Kinshasa ?</h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase">
+                    1er Mois Offert
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  Inscrivez votre cabinet (SARL/SAS/Ets), certifiez vos courtiers avec leurs documents officiels (RCCM & Passeport / Carte d'Électeur CENI) et recevez des leads qualifiés à Gombe, Ngaliema, Limete et partout en RDC.
+                </p>
+              </div>
+            </div>
 
-            return (
-              <div
-                key={agency.id}
-                className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col sm:flex-row gap-6 items-start relative group"
-              >
-                <img
-                  src={agency.logo}
-                  alt={agency.name}
-                  className="w-24 h-24 rounded-2xl object-cover ring-1 ring-slate-700 shrink-0"
-                />
-                <div className="space-y-2 text-xs flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-white text-base">{agency.name}</h3>
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
-                        Partenaire Certifié
+            <button
+              onClick={() => setShowAgencyRegistrationModal(true)}
+              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-slate-950 font-black text-xs transition-all shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 shrink-0"
+            >
+              <Building2 className="w-4 h-4 text-slate-950" />
+              <span>Inscrire mon Agence Immobilière</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {sortedAgencies.map((agency) => {
+              const agencyListingsCount = getAgencyListingsCount(agency);
+
+              return (
+                <div
+                  key={agency.id}
+                  className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col sm:flex-row gap-6 items-start relative group hover:border-slate-700 transition-all shadow-lg"
+                >
+                  <img
+                    src={agency.logo}
+                    alt={agency.name}
+                    className="w-24 h-24 rounded-2xl object-cover ring-1 ring-slate-700 shrink-0"
+                  />
+                  <div className="space-y-2 text-xs flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-white text-base">{agency.name}</h3>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                          Partenaire Certifié
+                        </span>
+                      </div>
+
+                      {user?.role === 'admin' && (
+                        <button
+                          onClick={() => {
+                            requestConfirm({
+                              title: "Suppression de l'agence / concessionnaire",
+                              message: `Voulez-vous vraiment supprimer définitivement l'agence / concessionnaire "${agency.name}" ?`,
+                              onConfirm: () => deleteAgency(agency.id)
+                            });
+                          }}
+                          className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all shrink-0"
+                          title="Supprimer cette agence / concessionnaire"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-slate-400">{agency.address}, {agency.city}</p>
+                    {agency.rccm && (
+                      <p className="text-[11px] font-mono text-emerald-400">RCCM: {agency.rccm}</p>
+                    )}
+                    <p className="text-slate-300 leading-relaxed">{agency.description}</p>
+                    <div className="pt-2 text-slate-400 flex flex-wrap items-center gap-3">
+                      <a href={`tel:${agency.phone}`} className="text-emerald-400 hover:underline">📞 {agency.phone}</a>
+                      {agency.whatsapp && (
+                        <a
+                          href={`https://wa.me/${agency.whatsapp.replace(/[^0-9]/g, '')}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-emerald-400 hover:underline"
+                        >
+                          💬 WhatsApp
+                        </a>
+                      )}
+                      <span>👥 {agency.agentsCount} agents</span>
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 font-semibold border border-slate-700">
+                        🏡 <strong className="text-white">{agencyListingsCount}</strong> annonces
                       </span>
                     </div>
-
-                    {user?.role === 'admin' && (
-                      <button
-                        onClick={() => {
-                          requestConfirm({
-                            title: "Suppression de l'agence / concessionnaire",
-                            message: `Voulez-vous vraiment supprimer définitivement l'agence / concessionnaire "${agency.name}" ?`,
-                            onConfirm: () => deleteAgency(agency.id)
-                          });
-                        }}
-                        className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all shrink-0"
-                        title="Supprimer cette agence / concessionnaire"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-slate-400">{agency.address}, {agency.city}</p>
-                  <p className="text-slate-300 leading-relaxed">{agency.description}</p>
-                  <div className="pt-2 text-slate-400 flex flex-wrap items-center gap-4">
-                    <span>📞 {agency.phone}</span>
-                    <span>👥 {agency.agentsCount} agents</span>
-                    <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 font-semibold border border-slate-700">
-                      🏡 <strong className="text-white">{agencyListingsCount}</strong> annonces
-                    </span>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -540,9 +756,9 @@ export const AgentDirectory: React.FC = () => {
                     <UserCheck className="w-4 h-4" />
                   </div>
                   <div>
-                    <h5 className="font-bold text-white text-xs">1. Audit d'Identité Biométrique & Officielle</h5>
+                    <h5 className="font-bold text-white text-xs">1. Audit d'Identité Biométrique (Passeport ou Carte d'Électeur)</h5>
                     <p className="text-slate-400 text-[11px] mt-0.5 leading-relaxed">
-                      Vérification manuelle des pièces d'identité officielles (CNI / Passeport) du gestionnaire ou de l'agent indépendant.
+                      Vérification manuelle des pièces d'identité officielles de la RD Congo (<strong>Passeport Biométrique</strong> ou <strong>Carte d'Électeur CENI</strong>) du gestionnaire ou de l'agent.
                     </p>
                   </div>
                 </div>
@@ -619,6 +835,17 @@ export const AgentDirectory: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Agent Verification Submission Modal */}
+      <AgentVerificationSubmitModal
+        isOpen={showSubmitVerificationModal}
+        onClose={() => setShowSubmitVerificationModal(false)}
+      />
+
+      {/* Agency Registration Modal */}
+      <AgencyRegistrationModal
+        isOpen={showAgencyRegistrationModal}
+        onClose={() => setShowAgencyRegistrationModal(false)}
+      />
     </div>
   );
 };

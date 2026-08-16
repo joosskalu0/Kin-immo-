@@ -91,7 +91,9 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({ properties, height = '
         <div style="min-width: 220px; font-family: sans-serif;">
           <img src="${property.images[0] || ''}" style="width: 100%; height: 110px; object-fit: cover; border-radius: 8px; margin-bottom: 8px;" />
           <div style="font-weight: bold; font-size: 13px; color: #0f172a; margin-bottom: 4px;">${property.title}</div>
-          <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">📍 ${property.city}, ${property.country}</div>
+          <div style="font-size: 11px; color: #475569; margin-bottom: 6px; font-weight: 500;">
+            📍 ${property.commune || property.city}${property.quartier ? ' - ' + property.quartier : ''}${property.avenue ? '<br/><span style="color:#059669; font-size:10px;">' + property.avenue + '</span>' : ''}
+          </div>
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-weight: bold; font-size: 14px; color: #10b981;">${formattedPrice}</span>
             <button id="view-prop-${property.id}" style="background: #10b981; color: #0f172a; font-weight: bold; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Voir Fiche</button>

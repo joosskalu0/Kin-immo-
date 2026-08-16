@@ -132,6 +132,7 @@ export const AdminBillingManager: React.FC = () => {
       avatar: u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       rccmOrNif: u.rccmOrNif || 'CD/KIN/RCCM/20-B-04921',
       planId: u.planId || 'pro',
+      subscriptionStatus: u.subscriptionStatus || 'Active',
       isNew: true,
     })),
     ...agents
@@ -146,6 +147,7 @@ export const AdminBillingManager: React.FC = () => {
         avatar: a.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80',
         rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
         planId: 'pro',
+        subscriptionStatus: a.subscriptionStatus || 'Active',
         isNew: false,
       })),
   ];

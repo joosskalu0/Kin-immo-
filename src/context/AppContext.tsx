@@ -32,6 +32,12 @@ import {
 import { translations, languages } from '../utils/i18n';
 import Papa from 'papaparse';
 import {
+  initGoogleAnalytics,
+  trackPropertyView,
+  trackContactClick,
+  DEFAULT_GA_ID
+} from '../utils/analytics';
+import {
   seedInitialFirestoreData,
   subscribeToProperties,
   subscribeToCustomFields,
@@ -84,6 +90,26 @@ interface AppContextType {
   addAgent: (agent: Agent) => void;
   updateAgent: (agent: Agent) => void;
   deleteAgent: (id: string) => void;
+  updateAgentVerification: (
+    agentId: string,
+    isVerified: boolean,
+    verificationStatus: 'unverified' | 'pending' | 'verified' | 'rejected',
+    rejectionReason?: string,
+    verifiedBy?: string
+  ) => void;
+  updateAgentVerificationDocument: (
+    agentId: string,
+    docId: string,
+    status: 'approved' | 'rejected',
+    rejectionNote?: string
+  ) => void;
+  submitAgentVerificationDocuments: (
+    agentId: string,
+    documents: import('../types').VerificationDocument[],
+    identityDocType?: any,
+    identityDocNumber?: string,
+    rccmOrNif?: string
+  ) => void;
 
   agencies: Agency[];
   addAgency: (agency: Agency) => void;
@@ -139,6 +165,12 @@ interface AppContextType {
 
   importCSV: (csvContent: string) => void;
   exportCSV: () => void;
+
+  // Google Analytics & Listing Views Tracking
+  googleAnalyticsId: string;
+  updateGoogleAnalyticsId: (newId: string) => void;
+  incrementPropertyViews: (propertyId: string) => void;
+  recordPropertyAction: (propertyId: string, action: 'whatsapp' | 'call' | 'lead' | 'share') => void;
 
   requestConfirm: (options: ConfirmOptions) => void;
 }
@@ -255,6 +287,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const requestConfirm = (options: ConfirmOptions) => {
     setConfirmState(options);
   };
+
+  // Google Analytics ID State
+  const [googleAnalyticsId, setGoogleAnalyticsIdState] = useState<string>(() => {
+    return localStorage.getItem('kin_google_analytics_id') || DEFAULT_GA_ID;
+  });
+
+  useEffect(() => {
+    initGoogleAnalytics(googleAnalyticsId);
+  }, [googleAnalyticsId]);
+
+  const updateGoogleAnalyticsId = (newId: string) => {
+    const cleanId = newId.trim() || DEFAULT_GA_ID;
+    setGoogleAnalyticsIdState(cleanId);
+    localStorage.setItem('kin_google_analytics_id', cleanId);
+    initGoogleAnalytics(cleanId);
+  };
+
   const [adminPin, setAdminPinState] = useState<string>(() => {
     return localStorage.getItem('kin_admin_secret_pin') || '2026';
   });
@@ -478,6 +527,246 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
     deleteAgentFromFirestore(id).catch((err) => console.error('Firestore delete agent error:', err));
+  };
+
+  // Agent Verification Management (Admin & Pro Agent)
+  const updateAgentVerification = (
+    agentId: string,
+    isVerified: boolean,
+    verificationStatus: 'unverified' | 'pending' | 'verified' | 'rejected',
+    rejectionReason?: string,
+    verifiedBy?: string
+  ) => {
+    const now = new Date().toISOString();
+    let updatedAgentObj: Agent | null = null;
+
+    setAgents((prev) => {
+      const updated = prev.map((a) => {
+        if (a.id === agentId || (a.email && a.email.toLowerCase() === agentId.toLowerCase())) {
+          const updatedDocList = (a.verificationDocuments || []).map((doc) => ({
+            ...doc,
+            status: verificationStatus === 'verified' ? ('approved' as const) : verificationStatus === 'rejected' ? ('rejected' as const) : doc.status,
+            verifiedAt: verificationStatus === 'verified' ? now : doc.verifiedAt,
+            verifiedBy: verificationStatus === 'verified' ? (verifiedBy || 'Admin Immocraft') : doc.verifiedBy,
+          }));
+
+          const updatedAgent: Agent = {
+            ...a,
+            isVerified,
+            verificationStatus,
+            verifiedAt: isVerified ? now : undefined,
+            verifiedBy: isVerified ? (verifiedBy || 'Direction Immocraft RDC (Admin Audit)') : undefined,
+            rejectionReason: verificationStatus === 'rejected' ? rejectionReason : undefined,
+            verificationDocuments: updatedDocList,
+          };
+          updatedAgentObj = updatedAgent;
+          return updatedAgent;
+        }
+        return a;
+      });
+
+      try {
+        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to update agents in localStorage:', e);
+      }
+      return updated;
+    });
+
+    if (updatedAgentObj) {
+      saveAgentToFirestore(updatedAgentObj).catch((err) => console.error('Firestore save agent verification error:', err));
+    }
+
+    // Sync with allUsers in case the agent is a registered user
+    setAllUsers((prevUsers) => {
+      const updatedUsers = prevUsers.map((u) => {
+        if (u.id === agentId || u.agentId === agentId || (u.email && u.email.toLowerCase() === agentId.toLowerCase())) {
+          const updatedUser: User = {
+            ...u,
+            isVerified,
+            verificationStatus,
+            verifiedAt: isVerified ? now : undefined,
+            verifiedBy: isVerified ? (verifiedBy || 'Direction Immocraft RDC') : undefined,
+            rejectionReason: verificationStatus === 'rejected' ? rejectionReason : undefined,
+            kinshasaBadgeVerified: isVerified,
+          };
+          saveUserToFirestore(updatedUser).catch((err) => console.error('Firestore save user verification error:', err));
+          return updatedUser;
+        }
+        return u;
+      });
+      try {
+        localStorage.setItem('estatik_registered_users', JSON.stringify(updatedUsers));
+      } catch (e) {
+        console.error('Failed to update registered users in localStorage:', e);
+      }
+      return updatedUsers;
+    });
+
+    // Update logged in user if matching
+    if (user && (user.id === agentId || user.agentId === agentId || (user.email && user.email.toLowerCase() === agentId.toLowerCase()))) {
+      setUser((prev) => prev ? ({
+        ...prev,
+        isVerified,
+        verificationStatus,
+        verifiedAt: isVerified ? now : undefined,
+        verifiedBy: isVerified ? (verifiedBy || 'Direction Immocraft RDC') : undefined,
+        rejectionReason: verificationStatus === 'rejected' ? rejectionReason : undefined,
+        kinshasaBadgeVerified: isVerified,
+      }) : null);
+    }
+  };
+
+  const updateAgentVerificationDocument = (
+    agentId: string,
+    docId: string,
+    status: 'approved' | 'rejected',
+    rejectionNote?: string
+  ) => {
+    const now = new Date().toISOString();
+    let updatedAgentObj: Agent | null = null;
+
+    setAgents((prev) => {
+      const updated = prev.map((a) => {
+        if (a.id === agentId || (a.email && a.email.toLowerCase() === agentId.toLowerCase())) {
+          const updatedDocs = (a.verificationDocuments || []).map((doc) => {
+            if (doc.id === docId) {
+              return {
+                ...doc,
+                status,
+                rejectionNote: status === 'rejected' ? rejectionNote : undefined,
+                verifiedAt: status === 'approved' ? now : undefined,
+                verifiedBy: status === 'approved' ? 'Admin Immocraft' : undefined,
+              };
+            }
+            return doc;
+          });
+
+          // Check if all documents are approved
+          const allApproved = updatedDocs.length > 0 && updatedDocs.every((d) => d.status === 'approved');
+          const hasRejected = updatedDocs.some((d) => d.status === 'rejected');
+
+          const newVerificationStatus: 'unverified' | 'pending' | 'verified' | 'rejected' = allApproved
+            ? 'verified'
+            : hasRejected
+            ? 'rejected'
+            : 'pending';
+
+          const updatedAgent: Agent = {
+            ...a,
+            verificationDocuments: updatedDocs,
+            isVerified: allApproved,
+            verificationStatus: newVerificationStatus,
+            verifiedAt: allApproved ? now : a.verifiedAt,
+            verifiedBy: allApproved ? 'Direction Immocraft RDC' : a.verifiedBy,
+          };
+          updatedAgentObj = updatedAgent;
+          return updatedAgent;
+        }
+        return a;
+      });
+
+      try {
+        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to update agent doc status in localStorage:', e);
+      }
+      return updated;
+    });
+
+    if (updatedAgentObj) {
+      saveAgentToFirestore(updatedAgentObj).catch((err) => console.error('Firestore save agent doc status error:', err));
+    }
+  };
+
+  const submitAgentVerificationDocuments = (
+    agentId: string,
+    documents: import('../types').VerificationDocument[],
+    identityDocType?: any,
+    identityDocNumber?: string,
+    rccmOrNif?: string
+  ) => {
+    const now = new Date().toISOString();
+    let updatedAgentObj: Agent | null = null;
+
+    setAgents((prev) => {
+      let found = false;
+      const updated = prev.map((a) => {
+        if (a.id === agentId || (a.email && a.email.toLowerCase() === agentId.toLowerCase())) {
+          found = true;
+          const mergedDocs = [...(a.verificationDocuments || []), ...documents];
+          const updatedAgent: Agent = {
+            ...a,
+            verificationStatus: 'pending',
+            isVerified: false,
+            verificationRequestedAt: now,
+            identityDocType: identityDocType || a.identityDocType,
+            identityDocNumber: identityDocNumber || a.identityDocNumber,
+            rccmOrNif: rccmOrNif || a.rccmOrNif,
+            verificationDocuments: mergedDocs,
+            rejectionReason: undefined,
+          };
+          updatedAgentObj = updatedAgent;
+          return updatedAgent;
+        }
+        return a;
+      });
+
+      if (!found && user) {
+        // Create new agent entry if it didn't exist
+        const newAgent: Agent = {
+          id: agentId,
+          name: user.name || 'Agent Immobilier',
+          title: 'Agent Immobilier Agréé',
+          email: user.email || '',
+          phone: user.phone || '+243 81 000 0000',
+          whatsapp: user.whatsapp || user.phone || '+243 81 000 0000',
+          avatar: user.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+          agencyName: user.agencyName || 'Indépendant Kinshasa',
+          rating: 5.0,
+          reviewCount: 1,
+          listingsCount: 0,
+          bio: 'Agent immobilier partenaire certifié Immocraft Kinshasa.',
+          specialties: ['Résidentiel', 'Commercial'],
+          languages: ['Français', 'Lingala'],
+          verificationStatus: 'pending',
+          isVerified: false,
+          verificationRequestedAt: now,
+          identityDocType,
+          identityDocNumber,
+          rccmOrNif,
+          verificationDocuments: documents,
+        };
+        updated.push(newAgent);
+        updatedAgentObj = newAgent;
+      }
+
+      try {
+        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save submitted docs in localStorage:', e);
+      }
+      return updated;
+    });
+
+    if (updatedAgentObj) {
+      saveAgentToFirestore(updatedAgentObj).catch((err) => console.error('Firestore save agent submitted docs error:', err));
+    }
+
+    // Sync logged in user
+    if (user && (user.id === agentId || user.agentId === agentId || (user.email && user.email.toLowerCase() === agentId.toLowerCase()))) {
+      setUser((prev) => prev ? ({
+        ...prev,
+        verificationStatus: 'pending',
+        isVerified: false,
+        verificationRequestedAt: now,
+        identityDocType,
+        identityDocNumber,
+        rccmOrNif,
+        verificationDocuments: documents,
+        rejectionReason: undefined,
+      }) : null);
+    }
   };
 
   // Agency (Concessionnaire) Actions
@@ -849,6 +1138,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Google Analytics & Property View Incrementing
+  const incrementPropertyViews = (propertyId: string) => {
+    setProperties((prev) => {
+      const updated = prev.map((p) => {
+        if (p.id === propertyId) {
+          const updatedProp: Property = {
+            ...p,
+            viewsCount: (p.viewsCount || 0) + 1,
+            lastViewedAt: new Date().toISOString()
+          };
+          trackPropertyView(updatedProp);
+          savePropertyToFirestore(updatedProp).catch((err) =>
+            console.error('Firestore increment views error:', err)
+          );
+          return updatedProp;
+        }
+        return p;
+      });
+      return updated;
+    });
+  };
+
+  const recordPropertyAction = (propertyId: string, action: 'whatsapp' | 'call' | 'lead' | 'share') => {
+    setProperties((prev) => {
+      const updated = prev.map((p) => {
+        if (p.id === propertyId) {
+          const updatedProp: Property = {
+            ...p,
+            whatsappClicks: action === 'whatsapp' ? (p.whatsappClicks || 0) + 1 : p.whatsappClicks,
+            phoneCalls: action === 'call' ? (p.phoneCalls || 0) + 1 : p.phoneCalls,
+            leadsCount: action === 'lead' ? (p.leadsCount || 0) + 1 : p.leadsCount,
+            sharesCount: action === 'share' ? (p.sharesCount || 0) + 1 : p.sharesCount
+          };
+          trackContactClick(action === 'whatsapp' ? 'whatsapp' : action === 'call' ? 'call' : 'email', updatedProp);
+          savePropertyToFirestore(updatedProp).catch((err) =>
+            console.error('Firestore record action error:', err)
+          );
+          return updatedProp;
+        }
+        return p;
+      });
+      return updated;
+    });
+  };
+
+  const handleSetActivePropertyModalId = (id: string | null) => {
+    setActivePropertyModalId(id);
+    if (id) {
+      incrementPropertyViews(id);
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -873,6 +1214,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAgent,
         updateAgent,
         deleteAgent,
+        updateAgentVerification,
+        updateAgentVerificationDocument,
+        submitAgentVerificationDocuments,
         agencies,
         addAgency,
         updateAgency,
@@ -902,7 +1246,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFilters,
         resetFilters,
         activePropertyModalId,
-        setActivePropertyModalId,
+        setActivePropertyModalId: handleSetActivePropertyModalId,
         isFieldsBuilderOpen,
         setIsFieldsBuilderOpen,
         isSubmitPropertyOpen,
@@ -917,6 +1261,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setEditingProperty,
         importCSV,
         exportCSV,
+        googleAnalyticsId,
+        updateGoogleAnalyticsId,
+        incrementPropertyViews,
+        recordPropertyAction,
         requestConfirm,
       }}
     >

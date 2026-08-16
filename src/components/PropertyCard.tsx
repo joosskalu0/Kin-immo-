@@ -15,6 +15,7 @@ import {
   Zap,
   Tag,
   ShieldAlert,
+  ShieldCheck,
   ChevronLeft,
   ChevronRight,
   Share2,
@@ -24,9 +25,10 @@ import {
 
 interface PropertyCardProps {
   property: Property;
+  onShare?: (propertyId: string) => void;
 }
 
-export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
+export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare }) => {
   const {
     currency,
     wishlist,
@@ -37,7 +39,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
     agents,
     customFields,
     user,
-    setIsSocialShareOpen,
+    recordPropertyAction,
   } = useApp();
 
   const [activeImgIndex, setActiveImgIndex] = useState(0);
@@ -190,7 +192,19 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setIsSocialShareOpen(true);
+              recordPropertyAction(property.id, 'share');
+              if (onShare) {
+                onShare(property.id);
+              } else if (navigator.share) {
+                navigator.share({
+                  title: property.title,
+                  text: `${property.title} à Kinshasa (${formattedPrice})`,
+                  url: window.location.href,
+                }).catch(() => {});
+              } else {
+                navigator.clipboard.writeText(window.location.href);
+                alert('Lien de l\'annonce copié dans le presse-papier !');
+              }
             }}
             title="Partager l'annonce"
             className="p-2.5 min-w-[42px] min-h-[42px] rounded-2xl bg-slate-950/70 hover:bg-slate-900 text-slate-200 backdrop-blur-md border border-white/10 flex items-center justify-center transition-all active:scale-90"
@@ -224,24 +238,33 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
       <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
         <div className="space-y-1.5">
           {/* Category & Location */}
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="font-bold text-emerald-400/90 flex items-center gap-1.5 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-              <Tag className="w-3 h-3" />
-              {property.category}
+          <div className="flex items-center justify-between text-xs text-slate-400 gap-2">
+            <span className="font-bold text-emerald-400/90 flex items-center gap-1.5 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 truncate max-w-[140px]">
+              <Tag className="w-3 h-3 shrink-0" />
+              <span className="truncate">{property.category}</span>
             </span>
-            <span className="flex items-center gap-1 text-slate-300 font-medium">
-              <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              {property.city}
+            <span className="flex items-center gap-1 text-slate-300 font-semibold text-xs shrink-0 bg-slate-950 px-2 py-0.5 rounded-md border border-slate-800">
+              <MapPin className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span>{property.commune || property.city}</span>
+              {property.quartier && <span className="text-slate-400 font-normal text-[11px] truncate max-w-[100px]">({property.quartier})</span>}
             </span>
           </div>
 
-          {/* Title */}
-          <h3
-            onClick={() => setActivePropertyModalId(property.id)}
-            className="text-base font-extrabold text-white hover:text-emerald-400 transition-colors line-clamp-2 cursor-pointer leading-snug pt-1"
-          >
-            {property.title}
-          </h3>
+          {/* Title & Avenue/Address info */}
+          <div>
+            <h3
+              onClick={() => setActivePropertyModalId(property.id)}
+              className="text-base font-extrabold text-white hover:text-emerald-400 transition-colors line-clamp-2 cursor-pointer leading-snug pt-1"
+            >
+              {property.title}
+            </h3>
+            {property.avenue && (
+              <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1 truncate">
+                <span className="text-emerald-400 font-medium">{property.avenue}</span>
+                {property.referencePoint && <span className="text-slate-500 italic truncate">• {property.referencePoint}</span>}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Specs Grid */}
@@ -290,14 +313,24 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
         {/* Footer: Agent & Action */}
         <div className="pt-2 flex items-center justify-between border-t border-slate-800/60 text-xs gap-2">
           {agent ? (
-            <div className="flex items-center gap-2 truncate">
-              <img
-                src={agent.avatar}
-                alt={agent.name}
-                className="w-6 h-6 rounded-full object-cover ring-1 ring-emerald-500/40 shrink-0"
-              />
-              <span className="text-slate-300 text-[11px] font-medium truncate max-w-[90px] sm:max-w-[110px]">
+            <div className="flex items-center gap-1.5 truncate">
+              <div className="relative shrink-0">
+                <img
+                  src={agent.avatar}
+                  alt={agent.name}
+                  className="w-6 h-6 rounded-full object-cover ring-1 ring-emerald-500/40"
+                />
+                {(agent.isVerified || agent.verificationStatus === 'verified') && (
+                  <ShieldCheck className="w-3 h-3 text-emerald-400 absolute -bottom-0.5 -right-0.5 bg-slate-950 rounded-full" />
+                )}
+              </div>
+              <span className="text-slate-300 text-[11px] font-medium truncate max-w-[90px] sm:max-w-[110px] flex items-center gap-1">
                 {agent.name}
+                {(agent.isVerified || agent.verificationStatus === 'verified') && (
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30 shrink-0">
+                    Vérifié
+                  </span>
+                )}
               </span>
             </div>
           ) : (
@@ -311,7 +344,10 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
                 href={`https://wa.me/${(agent.whatsapp || agent.phone || '+243810000000').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour ${agent.name}, je suis intéressé(e) par l'annonce "${property.title}" (${formattedPrice}) sur Kin Immobilier.`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  recordPropertyAction(property.id, 'whatsapp');
+                }}
                 className="px-2.5 py-1.5 min-h-[36px] rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/30 transition-all flex items-center gap-1.5 text-[11px] font-extrabold active:scale-95"
                 title="Contacter sur WhatsApp"
               >
@@ -324,7 +360,10 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
             {agent && (
               <a
                 href={`tel:${agent.phone}`}
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  recordPropertyAction(property.id, 'call');
+                }}
                 className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all flex items-center justify-center active:scale-95"
                 title={`Appeler ${agent.phone}`}
               >

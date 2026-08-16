@@ -43,9 +43,13 @@ export interface Property {
   labels: PropertyLabel[];
   category: string;
   
-  // Location
+  // Location Kinshasa
   address: string;
   city: string;
+  commune?: string;
+  quartier?: string;
+  avenue?: string;
+  referencePoint?: string;
   zipCode: string;
   country: string;
   lat: number;
@@ -86,9 +90,31 @@ export interface Property {
   createdAt: string;
   updatedAt: string;
   viewsCount: number;
+  sharesCount?: number;
+  whatsappClicks?: number;
+  phoneCalls?: number;
+  leadsCount?: number;
+  lastViewedAt?: string;
   featured: boolean;
   published: boolean;
 }
+
+export interface VerificationDocument {
+  id: string;
+  type: 'passport' | 'voter_card' | 'cni' | 'rccm' | 'professional_card' | 'proof_of_address' | 'other';
+  title: string;
+  documentNumber: string;
+  fileUrl: string;
+  fileName: string;
+  fileSize?: string;
+  uploadedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  rejectionNote?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+}
+
+export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
 
 export interface Agent {
   id: string;
@@ -108,6 +134,15 @@ export interface Agent {
   specialties: string[];
   languages: string[];
   isVerified?: boolean;
+  verificationStatus?: VerificationStatus;
+  verificationDocuments?: VerificationDocument[];
+  verificationRequestedAt?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  rejectionReason?: string;
+  identityDocType?: 'passport' | 'voter_card' | 'carte_electeur' | 'cni' | 'rccm' | 'professional_card' | 'national_id' | 'rccm_license';
+  identityDocNumber?: string;
+  rccmOrNif?: string;
   subscriptionStatus?: 'Active' | 'Expired';
   subscriptionExpiresAt?: string;
 }
@@ -118,16 +153,27 @@ export interface Agency {
   logo: string;
   address: string;
   city: string;
+  commune?: string;
   phone: string;
+  whatsapp?: string;
   email: string;
   website: string;
+  managerName?: string;
+  rccm?: string;
+  idNat?: string;
+  nif?: string;
   agentsCount: number;
   description: string;
+  specialties?: string[];
+  isVerified?: boolean;
+  verificationStatus?: VerificationStatus;
+  verificationDocuments?: VerificationDocument[];
   subscriptionStatus?: 'Active' | 'Expired';
   subscriptionExpiresAt?: string;
   planId?: string;
   lastPaymentDate?: string;
   unpaidInvoiceId?: string;
+  createdAt?: string;
 }
 
 export interface SavedSearch {
@@ -162,9 +208,10 @@ export interface User {
   email: string;
   phone?: string;
   whatsapp?: string;
-  role: 'admin' | 'agent' | 'user' | 'owner';
+  role: 'admin' | 'agent' | 'user' | 'owner' | 'agency';
   avatar: string;
   agentId?: string;
+  agencyId?: string;
   agencyName?: string;
   rccmOrNif?: string; // RCCM / NIF Impôts RDC
   planId: string; // 'starter' | 'pro' | 'agency'
@@ -173,12 +220,19 @@ export interface User {
   subscriptionExpiresAt?: string;
   provider?: 'google' | 'facebook' | 'email' | 'phone';
   isVerified?: boolean;
+  verificationStatus?: VerificationStatus;
+  verificationDocuments?: VerificationDocument[];
+  verificationRequestedAt?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  rejectionReason?: string;
   emailVerified?: boolean;
   phoneVerified?: boolean;
   twoFactorEnabled?: boolean;
   twoFactorMethod?: 'authenticator' | 'sms' | 'email';
   kinshasaBadgeVerified?: boolean;
-  identityDocType?: 'national_id' | 'passport' | 'rccm_license';
+  identityDocType?: 'passport' | 'voter_card' | 'carte_electeur' | 'cni' | 'national_id' | 'rccm' | 'rccm_license' | 'professional_card';
+  identityDocNumber?: string;
   createdAt?: string;
   lastLoginLocation?: string;
 }
@@ -186,6 +240,9 @@ export interface User {
 export interface PropertyFilters {
   searchQuery?: string;
   city?: string;
+  commune?: string;
+  quartier?: string;
+  avenue?: string;
   type?: PropertyType | 'all';
   status?: PropertyStatus | 'all';
   category?: string;
@@ -241,7 +298,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   invoiceNumber: string; // e.g. 'KIN-2026-001'
-  targetType: 'agent' | 'agency' | 'user';
+  targetType: 'agent' | 'agency' | 'user' | 'custom';
   targetId: string;
   targetName: string;
   targetEmail: string;
@@ -252,6 +309,7 @@ export interface Invoice {
   subtotalAmount: number;
   taxAmount: number; // e.g. TVA DGI RDC 16% or 0%
   totalAmount: number;
+  amount?: number; // convenience alias
   currency: 'USD' | 'CDF';
   status: 'paid' | 'pending' | 'overdue' | 'cancelled';
   paymentMethod?: 'mpesa' | 'orange_money' | 'airtel_money' | 'card' | 'bank_transfer' | 'cash';
@@ -262,3 +320,17 @@ export interface Invoice {
   periodStart?: string;
   periodEnd?: string;
 }
+
+export interface TrackingConfig {
+  gtmContainerId: string; // e.g. 'GTM-KINSHASA' or 'GTM-XXXXXXX'
+  googleAnalyticsId: string; // e.g. 'G-KINSHASA2026' or 'G-XXXXXXX'
+  metaPixelId: string; // e.g. '123456789012345'
+  tiktokPixelId: string; // e.g. 'C1234567890ABCDEF'
+  googleAdsId: string; // e.g. 'AW-123456789'
+  googleAdsConversionLabel: string; // e.g. 'AbC-dEfGhIjK'
+  isGtmEnabled: boolean;
+  isMetaPixelEnabled: boolean;
+  isTiktokPixelEnabled: boolean;
+  isGoogleAdsEnabled: boolean;
+}
+
