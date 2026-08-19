@@ -180,107 +180,141 @@ export const PropertyAnalyticsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner with GTM & Analytics Status */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+      {/* Top Banner: GTM & Pixels for Admin / Clean Statistics Hub for Agents */}
+      {isAdmin ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                <Layers className="w-5 h-5" />
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <h3 className="text-xl font-black text-white">Google Tag Manager & Balises Marketing (Admin)</h3>
               </div>
-              <h3 className="text-xl font-black text-white">Google Tag Manager & Performance Marketing</h3>
+              <p className="text-xs text-slate-400 max-w-2xl">
+                Hub centralisé administrateur : Google Tag Manager (GTM), Google Analytics 4, Meta Pixel (Facebook/Instagram), TikTok Pixel et Google Ads.
+              </p>
             </div>
-            <p className="text-xs text-slate-400 max-w-2xl">
-              Hub centralisé de données : Google Tag Manager (GTM), Google Analytics 4, Meta Pixel (Facebook/Instagram), TikTok Pixel et Google Ads.
-            </p>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* GTM Live Badge */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950 border border-emerald-500/30 text-xs font-mono text-emerald-400 shadow-inner">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span className="font-bold">GTM: {trackingStatus.gtmId}</span>
+              </div>
+
+              {/* GA4 Badge */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950 border border-slate-700 text-xs font-mono text-slate-300">
+                <span className="w-2 h-2 rounded-full bg-teal-400" />
+                <span className="font-bold">GA4: {trackingStatus.ga4Id}</span>
+              </div>
+
+              <button
+                onClick={() => setIsTagManagerModalOpen(true)}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-500/15"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Gérer GTM & Pixels Marketing</span>
+              </button>
+
+              <button
+                onClick={handleSendTestEvent}
+                className="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 font-bold text-xs border border-emerald-500/30 transition-all flex items-center gap-1.5"
+                title="Envoyer un test DataLayer GTM"
+              >
+                <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Tester Événement DataLayer</span>
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* GTM Live Badge */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950 border border-emerald-500/30 text-xs font-mono text-emerald-400 shadow-inner">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span className="font-bold">GTM: {trackingStatus.gtmId}</span>
+          {/* DataLayer Test Sent Banner */}
+          {gaTestSentMsg && (
+            <div className="mt-4 p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-xs text-emerald-300 flex items-center justify-between animate-in fade-in slide-in-from-top-1">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  <strong>Événement réel transmis au DataLayer GTM !</strong> L'événement <code className="bg-slate-900 px-1.5 py-0.5 rounded text-white font-mono">test_ping_dataLayer</code> a été dispatché vers GTM, GA4, Meta Pixel et TikTok Pixel.
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">window.dataLayer.push()</span>
+            </div>
+          )}
+
+          {/* Tracking Channels Strip */}
+          <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-400">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${trackingStatus.isGtmActive ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                <span className="text-slate-300 font-semibold">Google Tag Manager</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${trackingStatus.isGa4Active ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                <span className="text-slate-300 font-semibold">Google Analytics 4</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${trackingStatus.isMetaActive ? 'bg-blue-400' : 'bg-slate-600'}`} />
+                <span className="text-slate-300 font-semibold">Meta Pixel (FB/IG)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${trackingStatus.isTikTokActive ? 'bg-pink-400' : 'bg-slate-600'}`} />
+                <span className="text-slate-300 font-semibold">TikTok Pixel</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${trackingStatus.isGoogleAdsActive ? 'bg-amber-400' : 'bg-slate-600'}`} />
+                <span className="text-slate-300 font-semibold">Google Ads Conversion</span>
+              </div>
             </div>
 
-            {/* GA4 Badge */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950 border border-slate-700 text-xs font-mono text-slate-300">
-              <span className="w-2 h-2 rounded-full bg-teal-400" />
-              <span className="font-bold">GA4: {trackingStatus.ga4Id}</span>
+            <div className="flex items-center gap-2 font-mono text-[10px] text-slate-400">
+              <span>Buffer dataLayer : <strong className="text-emerald-400">{trackingStatus.dataLayerLength}</strong> événements</span>
             </div>
-
-            <button
-              onClick={() => setIsTagManagerModalOpen(true)}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-500/15"
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>Gérer GTM & Pixels Marketing</span>
-            </button>
-
-            <button
-              onClick={handleSendTestEvent}
-              className="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 font-bold text-xs border border-emerald-500/30 transition-all flex items-center gap-1.5"
-              title="Envoyer un test DataLayer GTM"
-            >
-              <Zap className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Tester Événement DataLayer</span>
-            </button>
           </div>
         </div>
+      ) : (
+        /* Pure Statistics Banner for Agents & Agencies */
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
-        {/* DataLayer Test Sent Banner */}
-        {gaTestSentMsg && (
-          <div className="mt-4 p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-xs text-emerald-300 flex items-center justify-between animate-in fade-in slide-in-from-top-1">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>
-                <strong>Événement réel transmis au DataLayer GTM !</strong> L'événement <code className="bg-slate-900 px-1.5 py-0.5 rounded text-white font-mono">test_ping_dataLayer</code> a été dispatché vers GTM, GA4, Meta Pixel et TikTok Pixel.
-              </span>
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <h3 className="text-xl font-black text-white">Statistiques & Performance de vos Annonces</h3>
+              </div>
+              <p className="text-xs text-slate-400 max-w-2xl">
+                Suivez en temps réel la visibilité de vos biens immobiliers, les clics WhatsApp générés, les appels téléphoniques et les demandes de visites des acheteurs.
+              </p>
             </div>
-            <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">window.dataLayer.push()</span>
-          </div>
-        )}
 
-        {/* Tracking Channels Strip */}
-        <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-400">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${trackingStatus.isGtmActive ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-              <span className="text-slate-300 font-semibold">Google Tag Manager</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-emerald-400" />
+                <span><strong>{filteredProperties.length}</strong> {filteredProperties.length > 1 ? 'annonces actives' : 'annonce active'}</span>
+              </div>
+              <div className="px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 flex items-center gap-2">
+                <Users className="w-4 h-4 text-amber-400" />
+                <span><strong>{filteredLeads.length}</strong> {filteredLeads.length > 1 ? 'leads reçus' : 'lead reçu'}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${trackingStatus.isGa4Active ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-              <span className="text-slate-300 font-semibold">Google Analytics 4</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${trackingStatus.isMetaActive ? 'bg-blue-400' : 'bg-slate-600'}`} />
-              <span className="text-slate-300 font-semibold">Meta Pixel (FB/IG)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${trackingStatus.isTikTokActive ? 'bg-pink-400' : 'bg-slate-600'}`} />
-              <span className="text-slate-300 font-semibold">TikTok Pixel</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${trackingStatus.isGoogleAdsActive ? 'bg-amber-400' : 'bg-slate-600'}`} />
-              <span className="text-slate-300 font-semibold">Google Ads Conversion</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 font-mono text-[10px] text-slate-400">
-            <span>Buffer dataLayer : <strong className="text-emerald-400">{trackingStatus.dataLayerLength}</strong> événements</span>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Modal GTM & Pixels */}
-      <TagManagerSettingsModal
-        isOpen={isTagManagerModalOpen}
-        onClose={() => {
-          setIsTagManagerModalOpen(false);
-          setTrackingStatus(checkAllTrackingStatus());
-        }}
-      />
+      {/* Modal GTM & Pixels (Strictly Admin) */}
+      {isAdmin && (
+        <TagManagerSettingsModal
+          isOpen={isTagManagerModalOpen}
+          onClose={() => {
+            setIsTagManagerModalOpen(false);
+            setTrackingStatus(checkAllTrackingStatus());
+          }}
+        />
+      )}
 
       {/* Filters Bar: Period & Agent Switcher */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
@@ -697,39 +731,88 @@ export const PropertyAnalyticsView: React.FC = () => {
         )}
       </div>
 
-      {/* Realtime GA4 Event Console */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-emerald-400" />
-            <h4 className="font-bold text-white text-sm">Console d'Événements Google Analytics 4 en Direct</h4>
-          </div>
-          <span className="text-[10px] text-slate-400 font-mono">Stream Actif ({liveLogs.length} événements)</span>
-        </div>
-
-        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 max-h-48 overflow-y-auto font-mono text-[11px] space-y-1.5 text-slate-300">
-          {liveLogs.length === 0 ? (
-            <div className="text-slate-500 py-4 text-center">
-              En attente d'événements... Naviguez sur une fiche d'annonce pour voir les déclenchements Google Analytics en direct.
+      {/* Live Activity Stream: Technical for Admin / Readable Visitor Stream for Agents */}
+      {isAdmin ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-400" />
+              <h4 className="font-bold text-white text-sm">Console d'Événements Google Analytics 4 en Direct (Admin)</h4>
             </div>
-          ) : (
-            liveLogs.map((log) => (
-              <div key={log.id} className="flex items-center justify-between border-b border-slate-800/60 pb-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">[{log.timestamp}]</span>
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px]">
-                    {log.eventName}
-                  </span>
-                  <span className="text-slate-400 truncate max-w-xs sm:max-w-md">
-                    {log.params.item_name || log.params.property_title || log.params.contact_method || JSON.stringify(log.params)}
-                  </span>
-                </div>
-                <span className="text-[10px] text-slate-500">GA4 OK ✓</span>
+            <span className="text-[10px] text-slate-400 font-mono">Stream Actif ({liveLogs.length} événements)</span>
+          </div>
+
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 max-h-48 overflow-y-auto font-mono text-[11px] space-y-1.5 text-slate-300">
+            {liveLogs.length === 0 ? (
+              <div className="text-slate-500 py-4 text-center">
+                En attente d'événements... Naviguez sur une fiche d'annonce pour voir les déclenchements Google Analytics en direct.
               </div>
-            ))
-          )}
+            ) : (
+              liveLogs.map((log) => (
+                <div key={log.id} className="flex items-center justify-between border-b border-slate-800/60 pb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-400 font-bold">[{log.timestamp}]</span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px]">
+                      {log.eventName}
+                    </span>
+                    <span className="text-slate-400 truncate max-w-xs sm:max-w-md">
+                      {log.params.item_name || log.params.property_title || log.params.contact_method || JSON.stringify(log.params)}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-500">GA4 OK ✓</span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-400" />
+              <h4 className="font-bold text-white text-sm">Flux d'Activité et Interactions des Visiteurs en Direct</h4>
+            </div>
+            <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+              ● En Direct
+            </span>
+          </div>
+
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 max-h-48 overflow-y-auto text-xs space-y-2 text-slate-300">
+            {liveLogs.length === 0 ? (
+              <div className="text-slate-500 py-3 text-center text-xs">
+                Aucune interaction récente enregistrée. Les consultations et prises de contact WhatsApp de vos annonces s'afficheront ici en direct.
+              </div>
+            ) : (
+              liveLogs.map((log) => {
+                const isWa = log.eventName.includes('whatsapp') || log.params.contact_method === 'whatsapp';
+                const isLead = log.eventName.includes('lead') || log.eventName.includes('contact');
+                const title = log.params.property_title || log.params.item_name || 'Annonce Immobilière';
+
+                return (
+                  <div key={log.id} className="flex items-center justify-between border-b border-slate-800/60 pb-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-[10px] font-mono text-slate-400">[{log.timestamp}]</span>
+                      <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                        isWa
+                          ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                          : isLead
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      }`}>
+                        {isWa ? '💬 Clic WhatsApp' : isLead ? '📩 Demande / Lead' : '👁️ Consultation'}
+                      </span>
+                      <span className="text-slate-300 font-medium truncate max-w-xs sm:max-w-md">
+                        {title}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-emerald-400 font-bold hidden sm:inline">Activité enregistrée</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
 
       {/* MODAL: SINGLE PROPERTY DEEP ANALYTICS */}
       {selectedPropertyModal && (

@@ -12,6 +12,7 @@ import {
   CurrencyCode,
   LanguageCode,
   Invoice,
+  SubscriptionPlan,
 } from '../types';
 
 export interface ConfirmOptions {
@@ -28,6 +29,7 @@ import {
   initialAgencies,
   initialLeads,
   initialInvoices,
+  initialSubscriptionPlans,
 } from '../data/mockData';
 import { translations, languages } from '../utils/i18n';
 import Papa from 'papaparse';
@@ -90,6 +92,7 @@ interface AppContextType {
   addAgent: (agent: Agent) => void;
   updateAgent: (agent: Agent) => void;
   deleteAgent: (id: string) => void;
+  toggleAgentVisibility: (agentId: string) => void;
   updateAgentVerification: (
     agentId: string,
     isVerified: boolean,
@@ -115,8 +118,19 @@ interface AppContextType {
   addAgency: (agency: Agency) => void;
   updateAgency: (agency: Agency) => void;
   deleteAgency: (id: string) => void;
+  toggleAgencyVisibility: (agencyId: string) => void;
   updateAgencySubscriptionStatus: (agencyId: string, status: 'Active' | 'Expired', expiresAt?: string) => void;
   updateUserSubscriptionStatus: (targetIdOrEmail: string, status: 'Active' | 'Expired', expiresAt?: string) => void;
+
+  // Subscription Plans & Pricing in Francs Congolais (CDF)
+  subscriptionPlans: SubscriptionPlan[];
+  updateSubscriptionPlan: (plan: SubscriptionPlan) => void;
+  addSubscriptionPlan: (plan: SubscriptionPlan) => void;
+  deleteSubscriptionPlan: (id: string) => void;
+  pricingDisplayCurrency: 'CDF' | 'USD' | 'BOTH';
+  setPricingDisplayCurrency: (mode: 'CDF' | 'USD' | 'BOTH') => void;
+  cdfExchangeRate: number;
+  setCdfExchangeRate: (rate: number) => void;
 
   wishlist: string[];
   toggleWishlist: (propertyId: string) => void;
@@ -193,26 +207,6 @@ const defaultFilters: PropertyFilters = {
   sortBy: 'newest',
 };
 
-const defaultUser: User = {
-  id: 'user_agent_kinshasa',
-  name: 'Jean-Luc Mpoy',
-  email: 'jeanluc.mpoy@kinshasa-prestige.cd',
-  phone: '+243 81 555 44 33',
-  role: 'agent',
-  avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
-  agentId: 'agent_1',
-  agencyName: 'Kinshasa Prestige Real Estate',
-  rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-  planId: 'pro',
-  isVerified: true,
-  emailVerified: true,
-  phoneVerified: true,
-  twoFactorEnabled: true,
-  twoFactorMethod: 'authenticator',
-  kinshasaBadgeVerified: true,
-  lastLoginLocation: 'Kinshasa (Gombe), RDC',
-};
-
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -220,8 +214,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currency, setCurrency] = useState<CurrencyCode>('USD');
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('estatik_kinshasa_user');
-    return saved ? JSON.parse(saved) : defaultUser;
+    try {
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
+
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('estatik_kinshasa_user');
+    }
+  }, [user]);
 
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>(() => {
     const saved = localStorage.getItem('immocraft_custom_fields');
@@ -230,7 +236,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [properties, setProperties] = useState<Property[]>(() => {
     const saved = localStorage.getItem('immocraft_properties');
-    return saved ? JSON.parse(saved) : initialProperties;
+    if (!saved) return initialProperties;
+    try {
+      const parsed: Property[] = JSON.parse(saved);
+      return parsed.map((p) => {
+        const initMatch = initialProperties.find((ip) => ip.id === p.id);
+        if (initMatch && !p.videoUrl && initMatch.videoUrl) {
+          return { ...p, videoUrl: initMatch.videoUrl };
+        }
+        return p;
+      });
+    } catch {
+      return initialProperties;
+    }
   });
 
   const [allUsers, setAllUsers] = useState<User[]>(() => {
@@ -246,6 +264,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [agencies, setAgencies] = useState<Agency[]>(() => {
     const saved = localStorage.getItem('immocraft_agencies');
     return saved ? JSON.parse(saved) : initialAgencies;
+  });
+
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(() => {
+    const saved = localStorage.getItem('immocraft_subscription_plans');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.error('Error parsing subscription plans from localStorage:', e);
+      }
+    }
+    return initialSubscriptionPlans;
+  });
+
+  const [pricingDisplayCurrency, setPricingDisplayCurrency] = useState<'CDF' | 'USD' | 'BOTH'>(() => {
+    return (localStorage.getItem('immocraft_pricing_display_currency') as any) || 'CDF';
+  });
+
+  const [cdfExchangeRate, setCdfExchangeRate] = useState<number>(() => {
+    const saved = localStorage.getItem('immocraft_cdf_exchange_rate');
+    return saved ? Number(saved) : 2800;
   });
 
   const [wishlist, setWishlist] = useState<string[]>(() => {
@@ -527,6 +567,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
     deleteAgentFromFirestore(id).catch((err) => console.error('Firestore delete agent error:', err));
+  };
+
+  const toggleAgentVisibility = (agentId: string) => {
+    let updatedAgentObj: Agent | null = null;
+    setAgents((prev) => {
+      const updated = prev.map((a) => {
+        if (a.id === agentId || (a.email && a.email.toLowerCase() === agentId.toLowerCase())) {
+          const updatedA = { ...a, isHidden: !a.isHidden };
+          updatedAgentObj = updatedA;
+          return updatedA;
+        }
+        return a;
+      });
+      try {
+        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to update agent visibility in localStorage:', e);
+      }
+      return updated;
+    });
+    if (updatedAgentObj) {
+      saveAgentToFirestore(updatedAgentObj).catch((err) => console.error('Firestore toggle agent visibility error:', err));
+    }
   };
 
   // Agent Verification Management (Admin & Pro Agent)
@@ -813,7 +876,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalAmount: 0,
       currency: 'USD',
       status: 'paid',
-      paymentMethod: 'mpesa',
+      paymentMethod: 'orange_money',
       dueDate: nextExpiry,
       createdAt: new Date().toISOString(),
       paidAt: new Date().toISOString(),
@@ -848,6 +911,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
     deleteAgencyFromFirestore(id).catch((err) => console.error('Firestore delete agency error:', err));
+  };
+
+  const toggleAgencyVisibility = (agencyId: string) => {
+    let updatedAgencyObj: Agency | null = null;
+    setAgencies((prev) => {
+      const updated = prev.map((ag) => {
+        if (ag.id === agencyId || ag.name.toLowerCase() === agencyId.toLowerCase()) {
+          const updatedAg = { ...ag, isHidden: !ag.isHidden };
+          updatedAgencyObj = updatedAg;
+          return updatedAg;
+        }
+        return ag;
+      });
+      try {
+        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to update agency visibility in localStorage:', e);
+      }
+      return updated;
+    });
+    if (updatedAgencyObj) {
+      saveAgencyToFirestore(updatedAgencyObj).catch((err) => console.error('Firestore toggle agency visibility error:', err));
+    }
+  };
+
+  // Subscription Plans Management (CDF & USD)
+  const updateSubscriptionPlan = (plan: SubscriptionPlan) => {
+    setSubscriptionPlans((prev) => {
+      const updated = prev.map((p) => (p.id === plan.id ? plan : p));
+      try {
+        localStorage.setItem('immocraft_subscription_plans', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save subscription plans in localStorage:', e);
+      }
+      return updated;
+    });
+  };
+
+  const addSubscriptionPlan = (plan: SubscriptionPlan) => {
+    setSubscriptionPlans((prev) => {
+      const updated = [...prev, plan];
+      try {
+        localStorage.setItem('immocraft_subscription_plans', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to add subscription plan to localStorage:', e);
+      }
+      return updated;
+    });
+  };
+
+  const deleteSubscriptionPlan = (id: string) => {
+    setSubscriptionPlans((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      try {
+        localStorage.setItem('immocraft_subscription_plans', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to delete subscription plan from localStorage:', e);
+      }
+      return updated;
+    });
   };
 
   const updateAgencySubscriptionStatus = (agencyId: string, status: 'Active' | 'Expired', expiresAt?: string) => {
@@ -1214,6 +1337,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAgent,
         updateAgent,
         deleteAgent,
+        toggleAgentVisibility,
         updateAgentVerification,
         updateAgentVerificationDocument,
         submitAgentVerificationDocuments,
@@ -1221,8 +1345,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAgency,
         updateAgency,
         deleteAgency,
+        toggleAgencyVisibility,
         updateAgencySubscriptionStatus,
         updateUserSubscriptionStatus,
+        subscriptionPlans,
+        updateSubscriptionPlan,
+        addSubscriptionPlan,
+        deleteSubscriptionPlan,
+        pricingDisplayCurrency,
+        setPricingDisplayCurrency,
+        cdfExchangeRate,
+        setCdfExchangeRate,
         wishlist,
         toggleWishlist,
         compareList,

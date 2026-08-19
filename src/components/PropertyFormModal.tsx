@@ -24,7 +24,16 @@ import {
   Upload,
   Compass,
   Navigation,
+  Play,
+  Film,
+  FileVideo,
+  VideoOff,
+  ExternalLink,
+  Loader2,
+  Check,
 } from 'lucide-react';
+import { SAMPLE_REAL_ESTATE_VIDEOS, detectVideoType } from '../utils/videoHelpers';
+import { PropertyVideoPlayer } from './PropertyVideoPlayer';
 
 export const PropertyFormModal: React.FC = () => {
   const {
@@ -86,6 +95,9 @@ export const PropertyFormModal: React.FC = () => {
   const [newImageUrl, setNewImageUrl] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [virtualTourUrl, setVirtualTourUrl] = useState('');
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
+  const [videoUploadSuccess, setVideoUploadSuccess] = useState<string | null>(null);
 
   // Dynamic Custom Fields State (mapped by field key)
   const [customFieldsState, setCustomFieldsState] = useState<Record<string, any>>({});
@@ -184,6 +196,53 @@ export const PropertyFormModal: React.FC = () => {
 
   const handleRemoveImage = (index: number) => {
     setImageUrls((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleVideoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check size limit: 50MB
+    const maxSizeBytes = 50 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      setVideoUploadError("Le fichier vidéo dépasse 50 Mo. Pour des visites plus longues ou en 4K, privilégiez un lien YouTube / Vimeo ou un fichier compressé.");
+      setVideoUploadSuccess(null);
+      return;
+    }
+
+    setVideoUploadError(null);
+    setVideoUploading(true);
+    setVideoUploadSuccess(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setVideoUrl(result);
+        setVideoUploading(false);
+        setVideoUploadSuccess(`Vidéo "${file.name}" importée avec succès !`);
+        setTimeout(() => setVideoUploadSuccess(null), 4000);
+      }
+    };
+    reader.onerror = () => {
+      setVideoUploadError("Une erreur est survenue lors de la lecture du fichier vidéo.");
+      setVideoUploading(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleRemoveVideo = () => {
+    setVideoUrl('');
+    setVideoUploadError(null);
+    setVideoUploadSuccess(null);
+  };
+
+  const handleSelectSampleVideo = (sampleUrl: string) => {
+    setVideoUrl(sampleUrl);
+    setVideoUploadError(null);
+    setVideoUploadSuccess("Visite vidéo d'exemple sélectionnée !");
+    setTimeout(() => setVideoUploadSuccess(null), 3000);
   };
 
   const toggleAmenity = (item: string) => {
@@ -286,7 +345,7 @@ export const PropertyFormModal: React.FC = () => {
             { num: 1, label: '1. Informations' },
             { num: 2, label: '2. Localisation' },
             { num: 3, label: '3. Specs & Fields Builder' },
-            { num: 4, label: '4. Équipements & Galerie' },
+            { num: 4, label: '4. Photos & Vidéo du Bien' },
             { num: 5, label: '5. Champs Privés' },
           ].map((s) => (
             <button
@@ -344,8 +403,11 @@ export const PropertyFormModal: React.FC = () => {
                   <input
                     type="number"
                     required
-                    value={price}
-                    onChange={(e) => setPrice(Number(e.target.value))}
+                    value={isNaN(price) ? '' : price}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setPrice(isNaN(val) ? 0 : val);
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -653,8 +715,11 @@ export const PropertyFormModal: React.FC = () => {
                   <input
                     type="number"
                     step="any"
-                    value={lat}
-                    onChange={(e) => setLat(Number(e.target.value))}
+                    value={isNaN(lat) ? '' : lat}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setLat(isNaN(val) ? -4.3224 : val);
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -665,8 +730,11 @@ export const PropertyFormModal: React.FC = () => {
                   <input
                     type="number"
                     step="any"
-                    value={lng}
-                    onChange={(e) => setLng(Number(e.target.value))}
+                    value={isNaN(lng) ? '' : lng}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setLng(isNaN(val) ? 15.3070 : val);
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -684,8 +752,11 @@ export const PropertyFormModal: React.FC = () => {
                     <label className="block font-semibold text-slate-300 mb-1">Chambres</label>
                     <input
                       type="number"
-                      value={bedrooms}
-                      onChange={(e) => setBedrooms(Number(e.target.value))}
+                      value={isNaN(bedrooms) ? '' : bedrooms}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setBedrooms(isNaN(val) ? 0 : val);
+                      }}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
@@ -693,8 +764,11 @@ export const PropertyFormModal: React.FC = () => {
                     <label className="block font-semibold text-slate-300 mb-1">Salles de bain</label>
                     <input
                       type="number"
-                      value={bathrooms}
-                      onChange={(e) => setBathrooms(Number(e.target.value))}
+                      value={isNaN(bathrooms) ? '' : bathrooms}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setBathrooms(isNaN(val) ? 0 : val);
+                      }}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
@@ -702,8 +776,11 @@ export const PropertyFormModal: React.FC = () => {
                     <label className="block font-semibold text-slate-300 mb-1">Surface (m²)</label>
                     <input
                       type="number"
-                      value={area}
-                      onChange={(e) => setArea(Number(e.target.value))}
+                      value={isNaN(area) ? '' : area}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setArea(isNaN(val) ? 0 : val);
+                      }}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
@@ -711,8 +788,11 @@ export const PropertyFormModal: React.FC = () => {
                     <label className="block font-semibold text-slate-300 mb-1">Garages</label>
                     <input
                       type="number"
-                      value={garages}
-                      onChange={(e) => setGarages(Number(e.target.value))}
+                      value={isNaN(garages) ? '' : garages}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setGarages(isNaN(val) ? 0 : val);
+                      }}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
@@ -763,13 +843,14 @@ export const PropertyFormModal: React.FC = () => {
                         ) : field.type === 'number' || field.type === 'area' ? (
                           <input
                             type="number"
-                            value={customFieldsState[field.key] || ''}
-                            onChange={(e) =>
+                            value={isNaN(customFieldsState[field.key]) ? '' : (customFieldsState[field.key] ?? '')}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
                               setCustomFieldsState((prev) => ({
                                 ...prev,
-                                [field.key]: Number(e.target.value),
-                              }))
-                            }
+                                [field.key]: isNaN(val) ? '' : val,
+                              }));
+                            }}
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                           />
                         ) : (
@@ -793,11 +874,15 @@ export const PropertyFormModal: React.FC = () => {
             </div>
           )}
 
-          {/* STEP 4: Amenities & Media */}
+          {/* STEP 4: Amenities & Media (Photos & Video) */}
           {step === 4 && (
             <div className="space-y-6">
+              {/* Amenities */}
               <div>
-                <h4 className="font-bold text-white mb-3 text-sm">Équipements & Prestations</h4>
+                <h4 className="font-bold text-white mb-3 text-sm flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  Équipements & Prestations du Bien
+                </h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {availableAmenities.map((item) => (
                     <label
@@ -821,8 +906,15 @@ export const PropertyFormModal: React.FC = () => {
                 </div>
               </div>
 
+              {/* Photos Section */}
               <div className="pt-4 border-t border-slate-800 space-y-4">
-                <h4 className="font-bold text-white text-sm">Galerie Photos & Vidéos</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-emerald-400" />
+                    Galerie Photos ({imageUrls.length})
+                  </h4>
+                  <span className="text-[11px] text-slate-400">Minimum 1 photo recommandée</span>
+                </div>
 
                 {/* Mobile Direct Photo Upload Controls */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -842,7 +934,7 @@ export const PropertyFormModal: React.FC = () => {
                   {/* Gallery file picker input for mobile & desktop */}
                   <label className="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm">
                     <Upload className="w-5 h-5 text-emerald-400" />
-                    <span>Importer depuis Téléphone / Galerie</span>
+                    <span>Importer depuis Galerie / PC</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -879,41 +971,200 @@ export const PropertyFormModal: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleRemoveImage(i)}
-                        className="absolute top-1.5 right-1.5 p-1.5 bg-rose-500 text-white rounded-lg opacity-90 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-1.5 right-1.5 p-1.5 bg-rose-500 text-white rounded-lg opacity-90 sm:opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
                         title="Supprimer la photo"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
+                      {i === 0 && (
+                        <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded bg-slate-950/80 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
+                          Photo Principale
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
+              </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      Lien Vidéo (YouTube / Vimeo)
-                    </label>
-                    <input
-                      type="url"
-                      value={videoUrl}
-                      onChange={(e) => setVideoUrl(e.target.value)}
-                      placeholder="https://www.youtube.com/watch?v=..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                    />
+              {/* DEDICATED HOUSE VIDEO PUBLISHING SECTION */}
+              <div className="pt-5 border-t border-slate-800 space-y-4">
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                        <Video className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                          Visite Vidéo de la Maison / Propriété
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold border border-emerald-500/30">
+                            Recommandé PRO
+                          </span>
+                        </h4>
+                        <p className="text-slate-400 text-xs mt-0.5">
+                          Publiez une vidéo réelle (walkthrough) de l'intérieur, du salon ou de la cour pour rassurer les clients et multiplier les prises de contact.
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      Lien Visite Virtuelle (Matterport)
+                  {/* Feedback Messages */}
+                  {videoUploadSuccess && (
+                    <div className="mt-3 p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                      <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                      {videoUploadSuccess}
+                    </div>
+                  )}
+
+                  {videoUploadError && (
+                    <div className="mt-3 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold flex items-center gap-2">
+                      <VideoOff className="w-4 h-4 text-rose-400 shrink-0" />
+                      {videoUploadError}
+                    </div>
+                  )}
+
+                  {/* Video Actions: 1) Camera Direct Recording, 2) File Upload, 3) URL */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                    {/* Record with phone camera */}
+                    <label className="p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm group">
+                      <Film className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                      <span>Filmer avec la Caméra Smartphone</span>
+                      <input
+                        type="file"
+                        accept="video/*"
+                        capture="environment"
+                        onChange={handleVideoFileUpload}
+                        className="hidden"
+                      />
                     </label>
-                    <input
-                      type="url"
-                      value={virtualTourUrl}
-                      onChange={(e) => setVirtualTourUrl(e.target.value)}
-                      placeholder="https://my.matterport.com/show/..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                    />
+
+                    {/* Import Video File */}
+                    <label className="p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm group">
+                      <FileVideo className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                      <span>Importer Vidéo (MP4, MOV, WebM)</span>
+                      <input
+                        type="file"
+                        accept="video/mp4,video/quicktime,video/webm,video/m4v,video/*"
+                        onChange={handleVideoFileUpload}
+                        className="hidden"
+                      />
+                    </label>
                   </div>
+
+                  {/* Video URL Input */}
+                  <div className="mt-3 space-y-1.5">
+                    <label className="block text-[11px] font-bold text-slate-300">
+                      Ou collez un lien vidéo (YouTube, Vimeo, Cloud Storage) :
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={videoUrl}
+                        onChange={(e) => {
+                          setVideoUrl(e.target.value);
+                          setVideoUploadError(null);
+                        }}
+                        placeholder="ex: https://www.youtube.com/watch?v=... ou lien MP4"
+                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      />
+                      {videoUrl && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveVideo}
+                          className="px-3 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-xs rounded-xl flex items-center gap-1 border border-rose-500/30 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Retirer
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sample Video Tours for quick test */}
+                  <div className="mt-3 pt-3 border-t border-slate-800/80">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-amber-400" />
+                        Visites vidéo d'exemple (cliquez pour tester) :
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {SAMPLE_REAL_ESTATE_VIDEOS.map((sample) => (
+                        <button
+                          key={sample.id}
+                          type="button"
+                          onClick={() => handleSelectSampleVideo(sample.url)}
+                          className={`p-2 rounded-xl border text-left flex items-center gap-2 transition-all text-xs ${
+                            videoUrl === sample.url
+                              ? 'bg-emerald-500/20 border-emerald-500 text-white font-bold'
+                              : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 text-slate-300'
+                          }`}
+                        >
+                          <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 relative bg-slate-800">
+                            <img src={sample.thumbnail} alt={sample.title} className="w-full h-full object-cover" />
+                            <Play className="w-3 h-3 text-white absolute inset-0 m-auto fill-white" />
+                          </div>
+                          <div className="overflow-hidden">
+                            <div className="truncate text-[11px] font-bold">{sample.title}</div>
+                            <div className="text-[10px] text-slate-500">{sample.duration} HD</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Live Video Preview in Modal */}
+                  {videoUploading ? (
+                    <div className="mt-4 p-8 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col items-center justify-center text-center">
+                      <Loader2 className="w-8 h-8 text-emerald-400 animate-spin mb-2" />
+                      <span className="text-xs font-bold text-slate-200">Traitement et chargement de votre vidéo...</span>
+                      <span className="text-[11px] text-slate-400 mt-0.5">Veuillez patienter quelques secondes.</span>
+                    </div>
+                  ) : videoUrl ? (
+                    <div className="mt-4 p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-xs font-bold text-emerald-400">
+                            Aperçu de la vidéo avant publication ({detectVideoType(videoUrl).toUpperCase()})
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleRemoveVideo}
+                          className="text-[11px] text-rose-400 hover:text-rose-300 font-semibold flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3 h-3" /> Supprimer la vidéo
+                        </button>
+                      </div>
+
+                      {/* Video Player */}
+                      <PropertyVideoPlayer
+                        videoUrl={videoUrl}
+                        title={`Visite vidéo : ${title || 'Propriété'}`}
+                        posterImage={imageUrls[0]}
+                        className="w-full max-h-[300px]"
+                      />
+
+                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 font-medium flex items-center justify-between">
+                        <span>✓ Cette vidéo sera affichée dans la fiche du bien et aura un badge sur l'annonce.</span>
+                        <span className="font-bold">Prête à publier</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Matterport 3D Tour Link */}
+                <div className="pt-2">
+                  <label className="block font-semibold text-slate-300 mb-1">
+                    Lien Visite Virtuelle 3D (Matterport / 360°)
+                  </label>
+                  <input
+                    type="url"
+                    value={virtualTourUrl}
+                    onChange={(e) => setVirtualTourUrl(e.target.value)}
+                    placeholder="https://my.matterport.com/show/..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  />
                 </div>
               </div>
             </div>
@@ -966,8 +1217,11 @@ export const PropertyFormModal: React.FC = () => {
                   <input
                     type="number"
                     step="0.1"
-                    value={commissionRate}
-                    onChange={(e) => setCommissionRate(Number(e.target.value))}
+                    value={isNaN(commissionRate) ? '' : commissionRate}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setCommissionRate(isNaN(val) ? 5 : val);
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Invoice, InvoiceItem, Agent, Agency, User } from '../../types';
 import { subscribeToUsers } from '../../lib/firebase';
+import { AdminPlansPricingManager } from './AdminPlansPricingManager';
 import {
   Receipt,
   CreditCard,
@@ -31,7 +32,8 @@ import {
   Zap,
   Globe,
   Edit3,
-  Gift
+  Gift,
+  Coins
 } from 'lucide-react';
 
 export const AdminBillingManager: React.FC = () => {
@@ -52,7 +54,7 @@ export const AdminBillingManager: React.FC = () => {
     user
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'invoices' | 'subscriptions' | 'settings'>('invoices');
+  const [activeTab, setActiveTab] = useState<'invoices' | 'subscriptions' | 'plans_pricing' | 'settings'>('invoices');
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'pending' | 'overdue'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -62,7 +64,7 @@ export const AdminBillingManager: React.FC = () => {
   const [markPaidModalInvoice, setMarkPaidModalInvoice] = useState<Invoice | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [paymentRefInput, setPaymentRefInput] = useState('');
-  const [paymentMethodSelect, setPaymentMethodSelect] = useState<Invoice['paymentMethod']>('mpesa');
+  const [paymentMethodSelect, setPaymentMethodSelect] = useState<Invoice['paymentMethod']>('orange_money');
 
   // New Invoice Form State
   const [targetType, setTargetType] = useState<'agency' | 'agent' | 'custom'>('agency');
@@ -86,7 +88,7 @@ export const AdminBillingManager: React.FC = () => {
       quantity: 1
     }
   ]);
-  const [notes, setNotes] = useState('Paiement par Mobile Money / WhatsApp: +243 84 529 46 16 (M-Pesa, Orange, Airtel)');
+  const [notes, setNotes] = useState('Paiement par Orange Money RDC : +243 84 529 4616 (Titulaire : IMMOCRAFT / KIN IMMOBILIER SARL)');
 
   // Registered Users state (Nouveaux venus & membres inscrits)
   const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
@@ -257,7 +259,7 @@ export const AdminBillingManager: React.FC = () => {
       totalAmount: 0,
       currency: 'USD',
       status: 'paid',
-      paymentMethod: 'mpesa',
+      paymentMethod: 'orange_money',
       dueDate: nextExpiry,
       createdAt: new Date().toISOString(),
       paidAt: new Date().toISOString(),
@@ -317,7 +319,7 @@ export const AdminBillingManager: React.FC = () => {
       totalAmount: subtotal,
       currency,
       status: 'pending',
-      paymentMethod: 'mpesa',
+      paymentMethod: 'orange_money',
       dueDate,
       createdAt: new Date().toISOString(),
       notes
@@ -345,10 +347,10 @@ export const AdminBillingManager: React.FC = () => {
       `📌 Service: ${inv.items.map(i => i.description).join(', ')}\n` +
       `💰 Montant Total: *${inv.totalAmount} ${inv.currency}*\n` +
       `📅 Date d'échéance: ${new Date(inv.dueDate).toLocaleDateString('fr-FR')}\n\n` +
-      `Mode de paiement rapide Mobile Money RDC:\n` +
-      `📱 Vodacom M-Pesa / Orange / Airtel: *+243 84 529 46 16*\n` +
-      `🏦 Equity BCDC: Compte USD 00018-992019-91\n\n` +
-      `Veuillez nous envoyer la référence du paiement. Merci pour votre confiance !`
+      `Mode de paiement exclusif Orange Money RDC:\n` +
+      `📱 Orange Money: *+243 84 529 4616*\n` +
+      `👤 Titulaire: IMMOCRAFT / KIN IMMOBILIER SARL\n\n` +
+      `Veuillez nous envoyer la référence du transfert. Merci pour votre confiance !`
     );
     const phone = inv.targetPhone ? inv.targetPhone.replace(/[^0-9]/g, '') : '243845294616';
     window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
@@ -404,7 +406,7 @@ export const AdminBillingManager: React.FC = () => {
               Facturation Agences & Agents Immobiliers
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
-              Émettez des factures d'abonnements mensuels (Pack Agent $35, Pack Agence $99), encaissez par Mobile Money (M-Pesa, Orange, Airtel) ou Banque, et relancez directement par WhatsApp.
+              Émettez des factures d'abonnements mensuels (Pack Agent $35, Pack Agence $99), encaissez par Orange Money RDC (+243 84 529 4616) et relancez directement par WhatsApp.
             </p>
           </div>
 
@@ -423,8 +425,8 @@ export const AdminBillingManager: React.FC = () => {
             <div>
               <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">MRR / Recettes Encaissées</div>
               <div className="text-2xl font-black text-emerald-400 mt-1">${totalRevenuePaid} <span className="text-xs text-slate-400">USD</span></div>
-              <div className="text-[10px] text-emerald-500 font-bold flex items-center gap-1 mt-0.5">
-                <Sparkles className="w-3 h-3" /> Payé via M-Pesa & Cartes
+              <div className="text-[10px] text-orange-400 font-bold flex items-center gap-1 mt-0.5">
+                <Sparkles className="w-3 h-3" /> Orange Money RDC
               </div>
             </div>
             <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
@@ -501,6 +503,18 @@ export const AdminBillingManager: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('plans_pricing')}
+            className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 ${
+              activeTab === 'plans_pricing'
+                ? 'bg-emerald-500 text-slate-950 font-bold shadow-lg shadow-emerald-500/20'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+            }`}
+          >
+            <Coins className="w-4 h-4" />
+            Tarifs & Formules (Franc Congolais)
+          </button>
+
+          <button
             onClick={() => setActiveTab('settings')}
             className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 ${
               activeTab === 'settings'
@@ -509,7 +523,7 @@ export const AdminBillingManager: React.FC = () => {
             }`}
           >
             <CreditCard className="w-4 h-4" />
-            Coordonnées M-Pesa & BCDC
+            Coordonnées Orange Money
           </button>
         </div>
       </div>
@@ -922,73 +936,86 @@ export const AdminBillingManager: React.FC = () => {
         </div>
       )}
 
+      {/* TAB: PLANS & PRICING MANAGEMENT (CDF & USD) */}
+      {activeTab === 'plans_pricing' && (
+        <AdminPlansPricingManager />
+      )}
+
       {/* TAB 3: PAYMENT GATEWAYS & SETTINGS */}
       {activeTab === 'settings' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
           <div>
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
               <CreditCard className="w-5 h-5 text-emerald-400" />
-              Paramètres des Encaissements Mobile Money & Comptes Bancaires (RDC)
+              Coordonnées de Facturation & Règlement Mobile Money (Orange Money RDC Exclusif)
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Ces numéros marchands et coordonnées bancaires apparaissent automatiquement sur les factures imprimables et liens de paiement transmis aux agences.
+              Ce numéro Orange Money apparaît automatiquement sur toutes les factures, fiches d'encaissement et liens de paiement transmis aux agences & agents.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-sm flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-rose-500"></span> Vodacom M-Pesa RDC
+          <div className="space-y-6">
+            {/* Unique Active Payment Method: Orange Money RDC */}
+            <div className="bg-gradient-to-r from-orange-950/40 via-slate-950 to-slate-950 border-2 border-orange-500/50 rounded-3xl p-6 space-y-4 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-orange-500 flex items-center justify-center text-slate-950 font-black text-sm shadow-lg shadow-orange-500/30">
+                    OM
+                  </div>
+                  <div>
+                    <span className="font-black text-white text-base flex items-center gap-2">
+                      Orange Money RDC
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    </span>
+                    <p className="text-xs text-orange-400 font-semibold">Moyen de Paiement Exclusif Activé</p>
+                  </div>
+                </div>
+                <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold self-start sm:self-center">
+                  Actif Principal (100%)
                 </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">Actif</span>
               </div>
-              <div className="text-xs space-y-1 text-slate-300">
-                <div>Code Marchand / N° Till: <span className="font-mono text-emerald-400 font-bold">112200</span></div>
-                <div>Téléphone Reste en Ligne: <span className="font-mono text-white">+243 81 555 0100</span></div>
-                <div>Titulaire du Compte: <span className="font-semibold text-slate-200">KIN IMMOBILIER RDC SARL</span></div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 text-xs">
+                <div className="bg-slate-900/90 border border-orange-500/30 p-4 rounded-2xl">
+                  <span className="text-slate-400 text-[11px] block font-medium">Numéro Orange Money de Facturation :</span>
+                  <span className="font-mono text-orange-400 font-black text-base mt-1 block">
+                    +243 84 529 4616
+                  </span>
+                  <span className="text-[10px] text-slate-400">RDC Kinshasa (+243)</span>
+                </div>
+
+                <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl">
+                  <span className="text-slate-400 text-[11px] block font-medium">Titulaire du Compte :</span>
+                  <span className="font-bold text-white text-sm mt-1 block">
+                    IMMOCRAFT / KIN IMMOBILIER SARL
+                  </span>
+                  <span className="text-[10px] text-slate-400">Compte vérifié professionnel</span>
+                </div>
+
+                <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl">
+                  <span className="text-slate-400 text-[11px] block font-medium">Réception & Confirmation :</span>
+                  <span className="font-bold text-emerald-400 text-sm mt-1 block">
+                    Validation Instantanée
+                  </span>
+                  <span className="text-[10px] text-slate-400">Notification WhatsApp automatique</span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-orange-500/10 border border-orange-500/20 text-xs text-orange-200/90 flex items-center gap-2">
+                <span className="font-bold">Information :</span>
+                <span>Tous les règlements de factures, d'abonnements agences et de vérifications foncières sont actuellement centralisés sur le numéro Orange Money <strong>+243 84 529 4616</strong>.</span>
               </div>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-sm flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-orange-500"></span> Orange Money RDC
-                </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">Actif</span>
+            {/* Inactive other methods notice */}
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 text-xs text-slate-400 flex items-center justify-between">
+              <div>
+                <span className="font-bold text-slate-300 block">Autres moyens de paiement (M-Pesa, Airtel Money, Virement bancaire)</span>
+                <span className="text-[11px] text-slate-400 mt-0.5 block">Désactivés temporairement selon la configuration active. Seul Orange Money est actif.</span>
               </div>
-              <div className="text-xs space-y-1 text-slate-300">
-                <div>Code Marchand Orange: <span className="font-mono text-emerald-400 font-bold">889900</span></div>
-                <div>Téléphone Reste en Ligne: <span className="font-mono text-white">+243 89 000 0000</span></div>
-                <div>Titulaire du Compte: <span className="font-semibold text-slate-200">KIN IMMOBILIER RDC SARL</span></div>
-              </div>
-            </div>
-
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-sm flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-rose-600"></span> Airtel Money RDC
-                </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">Actif</span>
-              </div>
-              <div className="text-xs space-y-1 text-slate-300">
-                <div>N° Airtel Money: <span className="font-mono text-emerald-400 font-bold">+243 99 000 0000</span></div>
-                <div>Titulaire du Compte: <span className="font-semibold text-slate-200">KIN IMMOBILIER RDC SARL</span></div>
-              </div>
-            </div>
-
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-sm flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-emerald-500"></span> Equity BCDC / Rawbank
-                </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">Virement Bancaire</span>
-              </div>
-              <div className="text-xs space-y-1 text-slate-300 font-mono">
-                <div>Equity BCDC: <span className="text-emerald-400 font-bold">00018-992019-91 USD</span></div>
-                <div>Rawbank Kinshasa: <span className="text-emerald-400 font-bold">05101-0029302-88 USD</span></div>
-                <div>Code SWIFT/BIC: <span className="text-white font-bold">EQRDCKKIN</span></div>
-              </div>
+              <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-400 font-bold text-[10px] shrink-0">
+                Désactivés
+              </span>
             </div>
           </div>
         </div>
@@ -1174,8 +1201,11 @@ export const AdminBillingManager: React.FC = () => {
                         <input
                           type="number"
                           placeholder="Prix $"
-                          value={item.amount}
-                          onChange={e => handleItemChange(item.id, 'amount', Number(e.target.value))}
+                          value={isNaN(item.amount) ? '' : item.amount}
+                          onChange={e => {
+                            const val = Number(e.target.value);
+                            handleItemChange(item.id, 'amount', isNaN(val) ? 0 : val);
+                          }}
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-right text-emerald-400 font-bold focus:outline-none"
                         />
                       </div>
@@ -1279,14 +1309,9 @@ export const AdminBillingManager: React.FC = () => {
                 <select
                   value={paymentMethodSelect}
                   onChange={e => setPaymentMethodSelect(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full bg-slate-950 border border-orange-500/50 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 >
-                  <option value="mpesa">Vodacom M-Pesa RDC</option>
-                  <option value="orange_money">Orange Money RDC</option>
-                  <option value="airtel_money">Airtel Money RDC</option>
-                  <option value="bank_transfer">Virement Bancaire (Equity BCDC / Rawbank)</option>
-                  <option value="card">Carte Bancaire (VISA / Mastercard)</option>
-                  <option value="cash">Espèces en Agence Gombe</option>
+                  <option value="orange_money">Orange Money RDC (+243 84 529 4616)</option>
                 </select>
               </div>
 
@@ -1437,11 +1462,16 @@ export const AdminBillingManager: React.FC = () => {
               </div>
 
               {/* Payment Instructions RDC */}
-              <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-600 space-y-2 bg-slate-50 p-4 rounded-xl">
-                <p className="font-bold text-slate-800">Instructions de Paiement Mobile Money & Virement Kinshasa:</p>
-                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
-                  <div>• Vodacom M-Pesa / Orange / Airtel: <span className="font-bold text-slate-900">+243 84 529 46 16</span></div>
-                  <div>• Equity BCDC USD: <span className="font-bold text-slate-900">00018-992019-91</span></div>
+              <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-600 space-y-2 bg-orange-50/50 p-4 rounded-xl border border-orange-200">
+                <p className="font-bold text-slate-900">Instructions de Paiement Mobile Money Officiel RDC :</p>
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-orange-600 font-mono">▶ Orange Money RDC :</span>
+                    <span className="font-mono font-black text-slate-950 text-sm bg-white px-2 py-0.5 rounded border border-orange-300">+243 84 529 4616</span>
+                  </div>
+                  <div className="text-[11px] text-slate-600">
+                    Titulaire : <strong>IMMOCRAFT / KIN IMMOBILIER SARL</strong> • Mentionnez le N° de facture <strong>{selectedInvoiceModal.invoiceNumber}</strong> en référence
+                  </div>
                 </div>
               </div>
             </div>
@@ -1562,9 +1592,10 @@ export const AdminBillingManager: React.FC = () => {
                     <div className="w-24">
                       <input
                         type="number"
-                        value={item.amount}
+                        value={isNaN(item.amount) ? '' : item.amount}
                         onChange={e => {
-                          const newAmt = Number(e.target.value);
+                          const val = Number(e.target.value);
+                          const newAmt = isNaN(val) ? 0 : val;
                           setEditingInvoice(prev => {
                             if (!prev) return null;
                             const newItems = [...prev.items];

@@ -9,14 +9,20 @@ interface MortgageCalculatorProps {
 
 export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ initialPrice = 500000 }) => {
   const { currency } = useApp();
-  const [propertyPrice, setPropertyPrice] = useState(initialPrice);
-  const [downPayment, setDownPayment] = useState(Math.round(initialPrice * 0.2));
+  const safeInitialPrice = typeof initialPrice === 'number' && !isNaN(initialPrice) && initialPrice > 0 ? initialPrice : 500000;
+  const [propertyPrice, setPropertyPrice] = useState(safeInitialPrice);
+  const [downPayment, setDownPayment] = useState(Math.round(safeInitialPrice * 0.2));
   const [interestRate, setInterestRate] = useState(3.4);
   const [loanTerm, setLoanTerm] = useState(20); // Years
 
-  const loanAmount = Math.max(0, propertyPrice - downPayment);
-  const monthlyRate = interestRate / 100 / 12;
-  const numberOfPayments = loanTerm * 12;
+  const safePropertyPrice = isNaN(propertyPrice) ? 500000 : propertyPrice;
+  const safeDownPayment = isNaN(downPayment) ? 0 : downPayment;
+  const safeInterestRate = isNaN(interestRate) ? 3.4 : interestRate;
+  const safeLoanTerm = isNaN(loanTerm) ? 20 : loanTerm;
+
+  const loanAmount = Math.max(0, safePropertyPrice - safeDownPayment);
+  const monthlyRate = safeInterestRate / 100 / 12;
+  const numberOfPayments = safeLoanTerm * 12;
 
   const monthlyPayment =
     loanAmount > 0 && monthlyRate > 0
@@ -46,18 +52,19 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ initialP
           <div>
             <div className="flex justify-between font-semibold mb-1">
               <span className="text-slate-300">Prix du Bien</span>
-              <span className="text-emerald-400 font-bold">{convertAndFormatPrice(propertyPrice, currency)}</span>
+              <span className="text-emerald-400 font-bold">{convertAndFormatPrice(safePropertyPrice, currency)}</span>
             </div>
             <input
               type="range"
               min={50000}
               max={5000000}
               step={10000}
-              value={propertyPrice}
+              value={safePropertyPrice}
               onChange={(e) => {
                 const val = Number(e.target.value);
-                setPropertyPrice(val);
-                setDownPayment(Math.round(val * 0.2));
+                const safeVal = isNaN(val) ? 500000 : val;
+                setPropertyPrice(safeVal);
+                setDownPayment(Math.round(safeVal * 0.2));
               }}
               className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
             />
@@ -67,15 +74,18 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ initialP
           <div>
             <div className="flex justify-between font-semibold mb-1">
               <span className="text-slate-300">Apport Personnel</span>
-              <span className="text-emerald-400 font-bold">{convertAndFormatPrice(downPayment, currency)}</span>
+              <span className="text-emerald-400 font-bold">{convertAndFormatPrice(safeDownPayment, currency)}</span>
             </div>
             <input
               type="range"
               min={0}
-              max={propertyPrice}
+              max={Math.max(safePropertyPrice, 50000)}
               step={5000}
-              value={downPayment}
-              onChange={(e) => setDownPayment(Number(e.target.value))}
+              value={safeDownPayment}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setDownPayment(isNaN(val) ? 0 : val);
+              }}
               className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
             />
           </div>
@@ -84,15 +94,18 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ initialP
           <div>
             <div className="flex justify-between font-semibold mb-1">
               <span className="text-slate-300">Taux d'Intérêt Annuel</span>
-              <span className="text-emerald-400 font-bold">{interestRate}%</span>
+              <span className="text-emerald-400 font-bold">{safeInterestRate}%</span>
             </div>
             <input
               type="range"
               min={0.5}
               max={10.0}
               step={0.1}
-              value={interestRate}
-              onChange={(e) => setInterestRate(Number(e.target.value))}
+              value={safeInterestRate}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setInterestRate(isNaN(val) ? 3.4 : val);
+              }}
               className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
             />
           </div>
@@ -101,15 +114,18 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ initialP
           <div>
             <div className="flex justify-between font-semibold mb-1">
               <span className="text-slate-300">Durée du Prêt</span>
-              <span className="text-emerald-400 font-bold">{loanTerm} ans</span>
+              <span className="text-emerald-400 font-bold">{safeLoanTerm} ans</span>
             </div>
             <input
               type="range"
               min={5}
               max={30}
               step={1}
-              value={loanTerm}
-              onChange={(e) => setLoanTerm(Number(e.target.value))}
+              value={safeLoanTerm}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setLoanTerm(isNaN(val) ? 20 : val);
+              }}
               className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
             />
           </div>

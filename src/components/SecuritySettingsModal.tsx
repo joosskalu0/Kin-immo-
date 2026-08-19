@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { verifyAdminPin } from '../lib/adminCredentials';
+import { updateAccountPassword } from '../lib/authStore';
 import {
   X,
   ShieldCheck,
@@ -122,13 +123,8 @@ export const SecuritySettingsModal: React.FC = () => {
     const nClean = newPwd.trim();
     const cfClean = confirmPwd.trim();
 
-    if (!verifyAdminPin(cClean)) {
-      setErrorMsg('Le mot de passe actuel est incorrect.');
-      return;
-    }
-
     if (nClean.length < 4) {
-      setErrorMsg('Le nouveau mot de passe secret doit contenir au moins 4 caractères.');
+      setErrorMsg('Le nouveau mot de passe doit contenir au moins 4 caractères.');
       return;
     }
 
@@ -139,8 +135,24 @@ export const SecuritySettingsModal: React.FC = () => {
 
     setPwdSubmitting(true);
     try {
-      await updateAdminPin(nClean);
-      setSuccessMsg('Nouveau mot de passe secret administrateur enregistré avec succès !');
+      if (user.role === 'admin') {
+        if (!verifyAdminPin(cClean)) {
+          setErrorMsg('Le mot de passe administrateur actuel est incorrect.');
+          setPwdSubmitting(false);
+          return;
+        }
+        await updateAdminPin(nClean);
+        setSuccessMsg('Nouveau mot de passe secret administrateur enregistré avec succès !');
+      } else {
+        const updateResult = updateAccountPassword(user.email || user.id, cClean, nClean);
+        if (!updateResult.success) {
+          setErrorMsg(updateResult.error || 'Le mot de passe actuel est incorrect.');
+          setPwdSubmitting(false);
+          return;
+        }
+        setSuccessMsg('Votre mot de passe a été mis à jour avec succès !');
+      }
+
       setCurrPwd('');
       setNewPwd('');
       setConfirmPwd('');
@@ -477,16 +489,21 @@ export const SecuritySettingsModal: React.FC = () => {
           </form>
         )}
 
-        {/* TAB 5: Admin Secret Password */}
+        {/* TAB 5: Password Management */}
         {activeTab === 'password' && (
           <form onSubmit={handleSavePassword} autoComplete="off" className="space-y-4">
             <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-3.5 text-xs">
               <div className="flex items-center gap-2 text-amber-400 font-bold">
-                <Lock className="w-4 h-4" /> Changement du Mot de Passe Administrateur
+                <Lock className="w-4 h-4" />{' '}
+                {user.role === 'admin'
+                  ? 'Changement du Mot de Passe Administrateur'
+                  : `Changement du Mot de Passe (${user.role === 'agency' ? 'Compte Agence' : 'Compte Agent'})`}
               </div>
 
               <p className="text-slate-400 text-[11px] leading-relaxed">
-                Ce mot de passe protège l'accès à la console de base de données Firestore et aux privilèges administrateur système. Il est strictement confidentiel.
+                {user.role === 'admin'
+                  ? 'Ce mot de passe protège l\'accès à la console de base de données Firestore et aux privilèges administrateur système. Il est strictement confidentiel.'
+                  : 'Ce mot de passe sécurise l\'accès à votre compte et à vos annonces. Il sera exigé lors de chacune de vos prochaines connexions.'}
               </p>
 
               <div>

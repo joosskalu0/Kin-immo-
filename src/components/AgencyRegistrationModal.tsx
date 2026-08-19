@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Agency, Agent, User, VerificationDocument } from '../types';
 import { saveAgencyToFirestore, saveAgentToFirestore, saveUserToFirestore } from '../lib/firebase';
+import { registerUserAccount } from '../lib/authStore';
 import {
   X,
   Building2,
@@ -265,10 +266,8 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
       saveAgentToFirestore(chiefAgent).catch((e) => console.error('Firestore save agent error:', e));
       saveUserToFirestore(agencyUser).catch((e) => console.error('Firestore save user error:', e));
 
-      // Save user to registered users list
-      const regUsers = JSON.parse(localStorage.getItem('estatik_registered_users') || '[]');
-      regUsers.push({ ...agencyUser, password });
-      localStorage.setItem('estatik_registered_users', JSON.stringify(regUsers));
+      // Save user & password to authStore
+      registerUserAccount(agencyUser, password);
 
       setIsLoading(false);
       setSuccess(true);
@@ -559,8 +558,11 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
                     type="number"
                     min="1"
                     max="100"
-                    value={agentsCount}
-                    onChange={(e) => setAgentsCount(parseInt(e.target.value) || 1)}
+                    value={isNaN(agentsCount) ? '' : agentsCount}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      setAgentsCount(isNaN(val) ? 1 : val);
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
                   />
                 </div>

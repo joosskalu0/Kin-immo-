@@ -279,39 +279,48 @@ export const SearchWidget: React.FC = () => {
           {/* Price & Specs Sliders */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-slate-400 mb-1 font-semibold">Prix Max: {(filters.maxPrice || 5000000).toLocaleString()} $</label>
+              <label className="block text-slate-400 mb-1 font-semibold">Prix Max: {(isNaN(filters.maxPrice as number) ? 5000000 : (filters.maxPrice || 5000000)).toLocaleString()} $</label>
               <input
                 type="range"
                 min={1000}
                 max={5000000}
                 step={25000}
-                value={filters.maxPrice || 5000000}
-                onChange={(e) => setFilters((prev) => ({ ...prev, maxPrice: Number(e.target.value) }))}
+                value={isNaN(filters.maxPrice as number) ? 5000000 : (filters.maxPrice || 5000000)}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setFilters((prev) => ({ ...prev, maxPrice: isNaN(val) ? 5000000 : val }));
+                }}
                 className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1 font-semibold">Min Chambres: {filters.minBedrooms || 0}</label>
+              <label className="block text-slate-400 mb-1 font-semibold">Min Chambres: {isNaN(filters.minBedrooms as number) ? 0 : (filters.minBedrooms || 0)}</label>
               <input
                 type="range"
                 min={0}
                 max={8}
-                value={filters.minBedrooms || 0}
-                onChange={(e) => setFilters((prev) => ({ ...prev, minBedrooms: Number(e.target.value) }))}
+                value={isNaN(filters.minBedrooms as number) ? 0 : (filters.minBedrooms || 0)}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setFilters((prev) => ({ ...prev, minBedrooms: isNaN(val) ? 0 : val }));
+                }}
                 className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1 font-semibold">Surface Min: {filters.minArea || 0} m²</label>
+              <label className="block text-slate-400 mb-1 font-semibold">Surface Min: {isNaN(filters.minArea as number) ? 0 : (filters.minArea || 0)} m²</label>
               <input
                 type="range"
                 min={0}
                 max={2500}
                 step={25}
-                value={filters.minArea || 0}
-                onChange={(e) => setFilters((prev) => ({ ...prev, minArea: Number(e.target.value) }))}
+                value={isNaN(filters.minArea as number) ? 0 : (filters.minArea || 0)}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setFilters((prev) => ({ ...prev, minArea: isNaN(val) ? 0 : val }));
+                }}
                 className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
               />
             </div>

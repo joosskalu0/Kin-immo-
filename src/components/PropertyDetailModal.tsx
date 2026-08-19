@@ -19,6 +19,7 @@ import {
   Sparkles,
   Zap,
   Play,
+  Video,
   MapPin,
   CheckCircle2,
   Calculator,
@@ -30,6 +31,8 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { MortgageCalculator } from './MortgageCalculator';
+import { PropertyVideoPlayer } from './PropertyVideoPlayer';
+import { SocialShareBar } from './SocialShareBar';
 
 interface PropertyDetailModalProps {
   onOpenShareModal: (propertyId: string) => void;
@@ -131,10 +134,11 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             {/* Share */}
             <button
               onClick={() => onOpenShareModal(property.id)}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors border border-slate-700"
-              title="Partager l'annonce"
+              className="px-3 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-sky-500/30"
+              title="Partager sur les réseaux sociaux"
             >
               <Share2 className="w-4 h-4 text-sky-400" />
+              <span className="hidden sm:inline">Partager</span>
             </button>
 
             {/* Wishlist */}
@@ -214,6 +218,17 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                     <span className="text-xl font-bold text-emerald-400">{formattedPrice}</span>
                     {property.period === 'month' && <span className="text-xs text-slate-400"> /mois</span>}
                   </div>
+
+                  {/* Floating Video Tour Button if video is published */}
+                  {property.videoUrl && (
+                    <button
+                      onClick={() => setActiveMediaTab('video')}
+                      className="absolute bottom-4 right-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2.5 rounded-2xl font-black text-xs flex items-center gap-2 shadow-2xl shadow-emerald-500/40 backdrop-blur-md transition-all transform hover:scale-105 active:scale-95 z-10"
+                    >
+                      <Play className="w-4 h-4 fill-slate-950 text-slate-950" />
+                      <span>Regarder la Visite Vidéo HD</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Thumbnails */}
@@ -236,13 +251,25 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             )}
 
             {activeMediaTab === 'video' && (
-              <div className="aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-800">
-                <iframe
-                  src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=0"
-                  title="Video Tour"
-                  className="w-full h-full border-none"
-                  allowFullScreen
+              <div className="space-y-3">
+                <PropertyVideoPlayer
+                  videoUrl={property.videoUrl || ''}
+                  title={`Visite vidéo HD : ${property.title}`}
+                  posterImage={property.images[0]}
+                  autoPlay={true}
                 />
+                <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+                  <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                    <Video className="w-4 h-4" />
+                    Visite immersive & guidée de la propriété
+                  </span>
+                  <button
+                    onClick={() => setActiveMediaTab('photos')}
+                    className="hover:text-white underline font-medium"
+                  >
+                    Retourner à la galerie photos ({property.images.length})
+                  </button>
+                </div>
               </div>
             )}
 
@@ -250,6 +277,12 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               <MortgageCalculator initialPrice={property.price} />
             )}
           </div>
+
+          {/* SOCIAL SHARING BAR */}
+          <SocialShareBar
+            property={property}
+            onOpenFullModal={() => onOpenShareModal(property.id)}
+          />
 
           {/* Grid Layout: Left Details, Right Lead Form */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4 border-t border-slate-800">

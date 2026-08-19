@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { User, Agency, Agent } from '../types';
 import { saveUserToFirestore, saveAgentToFirestore, saveAgencyToFirestore } from '../lib/firebase';
+import { authenticateUser, registerUserAccount, authenticateOrRegisterGoogleUser } from '../lib/authStore';
 
 export const AuthModal: React.FC = () => {
   const { isAuthModalOpen, setIsAuthModalOpen, setUser, addAgency, addAgent } = useApp();
@@ -37,8 +38,8 @@ export const AuthModal: React.FC = () => {
   const [method, setMethod] = useState<'email' | 'phone'>('email');
   
   // Steps in Auth Modal
-  // 'form' -> 'email_verify' or 'phone_verify' -> '2fa_challenge' -> '2fa_setup' -> 'admin_pin'
-  const [step, setStep] = useState<'form' | 'email_verify' | 'phone_verify' | '2fa_challenge' | '2fa_setup' | 'admin_pin'>('form');
+  // 'form' -> 'email_verify' or 'phone_verify' -> '2fa_challenge' -> '2fa_setup' -> 'admin_pin' -> 'google_prompt'
+  const [step, setStep] = useState<'form' | 'email_verify' | 'phone_verify' | '2fa_challenge' | '2fa_setup' | 'admin_pin' | 'google_prompt'>('form');
   const [adminPinInput, setAdminPinInput] = useState('');
   
   // Form fields
@@ -56,6 +57,10 @@ export const AuthModal: React.FC = () => {
   const [rccmOrNif, setRccmOrNif] = useState('');
   const [role, setRole] = useState<'user' | 'owner' | 'agent' | 'agency'>('user');
   const [enable2FAOnSignup, setEnable2FAOnSignup] = useState(true);
+
+  // Google OAuth specific prompt state
+  const [googleEmailInput, setGoogleEmailInput] = useState('');
+  const [googleNameInput, setGoogleNameInput] = useState('');
   
   // Verification codes
   const [verificationCode, setVerificationCode] = useState('');
@@ -88,40 +93,59 @@ export const AuthModal: React.FC = () => {
 
   const strength = getPasswordStrength();
 
-  // Social Sign-In
+  // Social Sign-In Prompt
   const handleSocialLogin = (provider: 'google' | 'facebook') => {
+    setError(null);
+    if (provider === 'google') {
+      const initialGoogleEmail = email.includes('@') ? email : '';
+      const initialGoogleName = name.trim() || (initialGoogleEmail ? initialGoogleEmail.split('@')[0] : '');
+      setGoogleEmailInput(initialGoogleEmail);
+      setGoogleNameInput(initialGoogleName);
+      setStep('google_prompt');
+    } else {
+      setIsLoading(true);
+      setTimeout(() => {
+        const fbEmail = email.includes('@') ? email : `user.facebook.${Date.now()}@gmail.com`;
+        const fbUser = authenticateOrRegisterGoogleUser(fbEmail, name || 'Utilisateur Facebook');
+        setUser(fbUser);
+        setIsLoading(false);
+        setSuccessMessage(`Bienvenue ${fbUser.name} ! Connexion réussie via Facebook.`);
+        setTimeout(() => {
+          setIsAuthModalOpen(false);
+          setSuccessMessage(null);
+          resetState();
+        }, 1200);
+      }, 700);
+    }
+  };
+
+  // Confirm Google Login with User's specific email and name
+  const handleConfirmGoogleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googleEmailInput.includes('@')) {
+      setError('Veuillez saisir une adresse compte Google valide (ex: votre-nom@gmail.com).');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
-    setTimeout(() => {
-      const newUser: User = {
-        id: `user_${provider}_${Date.now()}`,
-        name: provider === 'google' ? 'Serge Kasanda' : 'Nathalie Kabila',
-        email: `${provider.toLowerCase()}.${Date.now()}@gmail.com`,
-        phone: '+243 81 900 12 34',
-        role: 'user',
-        avatar: provider === 'google'
-          ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'
-          : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
-        planId: 'starter',
-        provider,
-        isVerified: true,
-        emailVerified: true,
-        phoneVerified: true,
-        twoFactorEnabled: false,
-        kinshasaBadgeVerified: true,
-        lastLoginLocation: 'Kinshasa (Gombe), RDC',
-        createdAt: new Date().toISOString(),
-      };
 
-      setUser(newUser);
+    setTimeout(() => {
+      const authedGoogleUser = authenticateOrRegisterGoogleUser(
+        googleEmailInput.trim(),
+        googleNameInput.trim()
+      );
+
+      setUser(authedGoogleUser);
       setIsLoading(false);
-      setSuccessMessage(`Bienvenue ${newUser.name} ! Connexion réussie via ${provider.toUpperCase()}.`);
+      setSuccessMessage(`Bienvenue ${authedGoogleUser.name} ! Connexion Google réussie.`);
+
       setTimeout(() => {
         setIsAuthModalOpen(false);
         setSuccessMessage(null);
         resetState();
-      }, 1200);
-    }, 800);
+      }, 1000);
+    }, 600);
   };
 
   // Direct Admin Login Helper
@@ -168,6 +192,8 @@ export const AuthModal: React.FC = () => {
     setVerificationCode('');
     setTwoFactorCode('');
     setPendingUser(null);
+    setGoogleEmailInput('');
+    setGoogleNameInput('');
   };
 
   // Step 1: Form Submit Handler
@@ -235,46 +261,23 @@ export const AuthModal: React.FC = () => {
           setStep('phone_verify');
         }
       } else {
-        // LOGIN MODE: Check existing user or simulate authentic 2FA trigger
-        const registeredUsers = JSON.parse(localStorage.getItem('estatik_registered_users') || '[]');
-        const existingUser: User | undefined = registeredUsers.find((u: any) =>
-          method === 'email' ? u.email === email : u.phone === phone
-        );
+        // STRICT LOGIN MODE: Must match account & exact password
+        const identifier = method === 'email' ? email : phone;
+        const authResult = authenticateUser(identifier, password, method);
 
-        const isAdminEmail = email.toLowerCase().includes('admin') || email.toLowerCase().includes('mukamba');
+        if (!authResult.success) {
+          setError(authResult.error || 'Mot de passe ou identifiant incorrect.');
+          return;
+        }
 
-        const targetUser: User = existingUser
-          ? { ...existingUser, role: isAdminEmail ? 'admin' : existingUser.role }
-          : {
-              id: isAdminEmail ? 'usr_admin_001' : `user_auth_${Date.now()}`,
-              name: name || (isAdminEmail ? 'Jean-Luc Mukamba (Admin)' : (method === 'email' ? email.split('@')[0] : 'Jean-Luc Kinshasa')),
-              email: method === 'email' ? email : `${phone.replace(/\s+/g, '')}@estatik.cd`,
-              phone: method === 'phone' ? phone : '+243 81 555 0100',
-              role: isAdminEmail ? 'admin' : 'agent',
-              agencyName: isAdminEmail ? 'Kin Immobilier RDC (Admin)' : 'Kinshasa Prestige Real Estate',
-              rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-              avatar: isAdminEmail
-                ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'
-                : 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
-              planId: 'pro',
-              provider: method,
-              isVerified: true,
-              emailVerified: true,
-              phoneVerified: true,
-              twoFactorEnabled: !isAdminEmail, // Bypass 2FA challenge for direct admin login if wanted
-              twoFactorMethod: 'authenticator',
-              kinshasaBadgeVerified: true,
-              lastLoginLocation: 'Kinshasa (Gombe), RDC',
-              createdAt: new Date().toISOString(),
-            };
-
+        const targetUser = authResult.user!;
         setPendingUser(targetUser);
 
         // If 2FA enabled, force 2FA Challenge step
         if (targetUser.twoFactorEnabled) {
           setStep('2fa_challenge');
         } else {
-          // Direct login
+          // Direct authenticated login
           completeAuthentication(targetUser, 'Connexion réussie !');
         }
       }
@@ -350,14 +353,9 @@ export const AuthModal: React.FC = () => {
 
   // Save finalized user and close modal
   const completeAuthentication = (userToSave: User, msg: string) => {
-    const registeredUsers = JSON.parse(localStorage.getItem('estatik_registered_users') || '[]');
-    const index = registeredUsers.findIndex((u: any) => u.id === userToSave.id);
-    if (index >= 0) {
-      registeredUsers[index] = { ...registeredUsers[index], ...userToSave };
-    } else {
-      registeredUsers.push({ ...userToSave, password });
-    }
-    localStorage.setItem('estatik_registered_users', JSON.stringify(registeredUsers));
+    // Save account with password to persistent authStore
+    const userPass = password || (userToSave as any).password || 'Kinshasa2026';
+    registerUserAccount(userToSave, userPass);
 
     saveUserToFirestore(userToSave).catch((err) => console.error('Error saving user to Firestore:', err));
 
@@ -1123,6 +1121,94 @@ export const AuthModal: React.FC = () => {
               >
                 <ShieldCheck className="w-4 h-4 text-slate-950" />
                 <span>Déverrouiller Admin</span>
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* GOOGLE DIRECT AUTHENTICATION STEP */}
+        {step === 'google_prompt' && (
+          <form onSubmit={handleConfirmGoogleLogin} className="space-y-4 py-2">
+            <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs flex items-start gap-3">
+              <svg className="w-5 h-5 shrink-0 mt-0.5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.15C3.26 21.3 7.31 24 12 24z" />
+                <path fill="#FBBC05" d="M5.28 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.61H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.39l3.99-3.15z" />
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.61l3.99 3.15c.95-2.85 3.6-4.96 6.72-4.96z" />
+              </svg>
+              <div>
+                <p className="font-bold text-white text-sm">Authentification avec votre Compte Google</p>
+                <p className="text-[11px] text-blue-200/80 mt-0.5">
+                  Connectez-vous directement avec votre adresse Google personnelle ou professionnelle pour accéder à vos favoris, recherches et alertes.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Adresse Google (@gmail.com ou Google Workspace) *
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                <input
+                  type="email"
+                  required
+                  value={googleEmailInput}
+                  onChange={(e) => {
+                    setGoogleEmailInput(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder="votre-adresse@gmail.com"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Nom & Prénom (affiché sur votre profil)
+              </label>
+              <div className="relative">
+                <UserIcon className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={googleNameInput}
+                  onChange={(e) => setGoogleNameInput(e.target.value)}
+                  placeholder="ex: Joos Kalu"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400">
+              🔒 Connexion sécurisée : Si vous êtes un utilisateur ou acquéreur, votre espace personnel sera automatiquement créé. Si vous êtes un agent déjà inscrit avec cet e-mail, vous serez directement connecté à vos annonces.
+            </div>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStep('form');
+                  setError(null);
+                }}
+                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-teal-500 hover:opacity-90 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 transition-all disabled:opacity-50"
+              >
+                {isLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <UserCheck className="w-4 h-4" />
+                    <span>Se Connecter avec Google</span>
+                  </>
+                )}
               </button>
             </div>
           </form>

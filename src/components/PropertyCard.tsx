@@ -21,6 +21,8 @@ import {
   Share2,
   Phone,
   MessageCircle,
+  Video,
+  Play,
 } from 'lucide-react';
 
 interface PropertyCardProps {
@@ -150,6 +152,13 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
             <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-500 text-white flex items-center gap-1 shadow-md">
               <Flame className="w-3 h-3 fill-white" />
               Hot Deal
+            </span>
+          )}
+
+          {property.videoUrl && (
+            <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/90 text-emerald-400 border border-emerald-500/40 backdrop-blur-md flex items-center gap-1 shadow-md">
+              <Video className="w-3 h-3 text-emerald-400" />
+              Vidéo HD
             </span>
           )}
         </div>

@@ -26,12 +26,29 @@ import {
   PlusCircle,
   FileText,
   Filter,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 export const AgentDirectory: React.FC = () => {
-  const { agents, agencies, properties, allUsers, deleteAgent, deleteAgency, user, requestConfirm, setActivePropertyModalId } = useApp();
+  const {
+    agents,
+    agencies,
+    properties,
+    allUsers,
+    deleteAgent,
+    deleteAgency,
+    toggleAgentVisibility,
+    toggleAgencyVisibility,
+    user,
+    requestConfirm,
+    setActivePropertyModalId
+  } = useApp();
+
+  const isAdmin = user?.role === 'admin' || user?.email === 'joosskalu72@gmail.com' || (user as any)?.isAdmin;
+
   const [activeTab, setActiveTab] = useState<'agents' | 'agencies'>('agents');
-  const [verificationFilter, setVerificationFilter] = useState<'all' | 'verified_only' | 'pending_only'>('all');
+  const [verificationFilter, setVerificationFilter] = useState<'all' | 'verified_only' | 'pending_only' | 'hidden_only'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [contactAgentModal, setContactAgentModal] = useState<Agent | null>(null);
   const [messageSent, setMessageSent] = useState(false);
@@ -120,6 +137,10 @@ export const AgentDirectory: React.FC = () => {
   };
 
   const filteredAgents = combinedAgentsList.filter((a) => {
+    // Regular users do not see hidden agents
+    if (!isAdmin && a.isHidden) return false;
+
+    if (verificationFilter === 'hidden_only' && !a.isHidden) return false;
     const isVer = a.isVerified === true || a.verificationStatus === 'verified';
     if (verificationFilter === 'verified_only' && !isVer) return false;
     if (verificationFilter === 'pending_only' && (isVer || a.verificationStatus !== 'pending')) return false;
@@ -143,6 +164,8 @@ export const AgentDirectory: React.FC = () => {
     (a) => a.isVerified === true || a.verificationStatus === 'verified'
   ).length;
 
+  const hiddenAgentsCount = combinedAgentsList.filter((a) => a.isHidden).length;
+
   const getAgencyListingsCount = (agency: Agency) => {
     const agencyAgents = combinedAgentsList.filter(
       (a) => a.agencyId === agency.id || (a.agencyName && a.agencyName.toLowerCase().includes(agency.name.toLowerCase()))
@@ -158,13 +181,22 @@ export const AgentDirectory: React.FC = () => {
     return activePropsCount;
   };
 
-  const filteredAgencies = agencies.filter(
-    (agency) =>
-      agency.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      agency.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      agency.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      agency.description.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredAgencies = agencies.filter((agency) => {
+    // Regular users do not see hidden agencies
+    if (!isAdmin && agency.isHidden) return false;
+    if (verificationFilter === 'hidden_only' && !agency.isHidden) return false;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      return (
+        agency.name.toLowerCase().includes(q) ||
+        agency.city.toLowerCase().includes(q) ||
+        agency.address.toLowerCase().includes(q) ||
+        agency.description.toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
 
   const sortedAgencies = [...filteredAgencies].sort(
     (a, b) => getAgencyListingsCount(b) - getAgencyListingsCount(a)
@@ -286,7 +318,7 @@ export const AgentDirectory: React.FC = () => {
 
         {/* Verification Filter Chips (for agents tab) */}
         {activeTab === 'agents' && (
-          <div className="flex items-center gap-1.5 pb-2 sm:pb-0 text-xs font-bold">
+          <div className="flex items-center gap-1.5 pb-2 sm:pb-0 text-xs font-bold flex-wrap">
             <button
               onClick={() => setVerificationFilter('all')}
               className={`px-3 py-1.5 rounded-xl transition-all ${
@@ -319,6 +351,21 @@ export const AgentDirectory: React.FC = () => {
               <Clock className="w-3.5 h-3.5" />
               <span>En Attente</span>
             </button>
+
+            {isAdmin && (
+              <button
+                onClick={() => setVerificationFilter(verificationFilter === 'hidden_only' ? 'all' : 'hidden_only')}
+                className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                  verificationFilter === 'hidden_only'
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                    : 'text-slate-400 hover:text-rose-300'
+                }`}
+                title="Afficher uniquement les agents masqués du public"
+              >
+                <EyeOff className="w-3.5 h-3.5" />
+                <span>Masqués ({hiddenAgentsCount})</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -385,6 +432,12 @@ export const AgentDirectory: React.FC = () => {
 
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-bold text-white text-base truncate">{agent.name}</h3>
+
+                        {agent.isHidden && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-black uppercase">
+                            <EyeOff className="w-3 h-3" /> Masqué du Public
+                          </span>
+                        )}
 
                         {/* Verified Badge: Rendered ONLY if isVerified is true */}
                         {isVerified ? (
@@ -477,6 +530,31 @@ export const AgentDirectory: React.FC = () => {
                   </span>
 
                   <div className="flex items-center gap-2">
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => toggleAgentVisibility(agent.id)}
+                        className={`p-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          agent.isHidden
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
+                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'
+                        }`}
+                        title={agent.isHidden ? "Rendre cet agent visible au public" : "Masquer cet agent du public"}
+                      >
+                        {agent.isHidden ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5 text-rose-400" />
+                            <span className="hidden sm:inline">Masqué</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="hidden sm:inline">Visible</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
                     {user?.role === 'admin' && (
                       <button
                         onClick={() => {
@@ -556,26 +634,49 @@ export const AgentDirectory: React.FC = () => {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-bold text-white text-base">{agency.name}</h3>
+                        {agency.isHidden && (
+                          <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-black uppercase flex items-center gap-1">
+                            <EyeOff className="w-3 h-3" /> Masquée du Public
+                          </span>
+                        )}
                         <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
                           Partenaire Certifié
                         </span>
                       </div>
 
-                      {user?.role === 'admin' && (
-                        <button
-                          onClick={() => {
-                            requestConfirm({
-                              title: "Suppression de l'agence / concessionnaire",
-                              message: `Voulez-vous vraiment supprimer définitivement l'agence / concessionnaire "${agency.name}" ?`,
-                              onConfirm: () => deleteAgency(agency.id)
-                            });
-                          }}
-                          className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all shrink-0"
-                          title="Supprimer cette agence / concessionnaire"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => toggleAgencyVisibility(agency.id)}
+                            className={`p-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1 ${
+                              agency.isHidden
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
+                                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                            }`}
+                            title={agency.isHidden ? "Rendre cette agence visible au public" : "Masquer cette agence du public"}
+                          >
+                            {agency.isHidden ? <EyeOff className="w-3.5 h-3.5 text-rose-400" /> : <Eye className="w-3.5 h-3.5 text-slate-400" />}
+                            <span className="text-[11px] hidden sm:inline">{agency.isHidden ? "Masquée" : "Visible"}</span>
+                          </button>
+                        )}
+
+                        {user?.role === 'admin' && (
+                          <button
+                            onClick={() => {
+                              requestConfirm({
+                                title: "Suppression de l'agence / concessionnaire",
+                                message: `Voulez-vous vraiment supprimer définitivement l'agence / concessionnaire "${agency.name}" ?`,
+                                onConfirm: () => deleteAgency(agency.id)
+                              });
+                            }}
+                            className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all"
+                            title="Supprimer cette agence / concessionnaire"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <p className="text-slate-400">{agency.address}, {agency.city}</p>
                     {agency.rccm && (

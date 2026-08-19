@@ -100,7 +100,7 @@ export const PaymentReminderBanner: React.FC<PaymentReminderBannerProps> = ({ on
               </span>
               <span>•</span>
               <span className="flex items-center gap-1 text-slate-300">
-                <CreditCard className="w-3.5 h-3.5 text-emerald-400" /> Payez par M-Pesa, Airtel Money, Orange Money ou Carte
+                <CreditCard className="w-3.5 h-3.5 text-orange-400" /> Payez par Orange Money (+243 84 529 4616)
               </span>
             </div>
           </div>
@@ -170,23 +170,20 @@ export const PaymentReminderBanner: React.FC<PaymentReminderBannerProps> = ({ on
             </div>
 
             <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Modes de Paiement Mobiles RDC:</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Mode de Paiement Exclusif RDC :</h4>
               
               <div className="grid grid-cols-1 gap-2.5 text-xs">
-                <div className="p-3.5 rounded-2xl bg-slate-950 border border-emerald-500/30 flex items-center justify-between">
+                <div className="p-4 rounded-2xl bg-orange-950/30 border border-orange-500/40 flex items-center justify-between">
                   <div>
-                    <p className="font-bold text-emerald-400">Vodacom M-Pesa / Airtel Money / Orange</p>
-                    <p className="text-[11px] text-slate-400">Numéro Marchand Mobile Money / WhatsApp: <strong className="text-white font-mono">+243 84 529 46 16</strong></p>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-orange-500 animate-pulse" />
+                      <p className="font-bold text-white text-sm">Orange Money RDC</p>
+                      <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 font-bold text-[10px]">Actif Exclusif</span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1.5">Numéro de Facturation : <strong className="text-orange-400 font-mono text-sm">+243 84 529 4616</strong></p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Titulaire : IMMOCRAFT / KIN IMMOBILIER SARL</p>
                   </div>
-                  <span className="px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px]">Instant</span>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-slate-200">Virement Bancaire (EquityBCDC / Rawbank)</p>
-                    <p className="text-[11px] text-slate-400">RIB: <strong className="text-white font-mono">00018-00001234567-89</strong></p>
-                  </div>
-                  <span className="px-2 py-1 rounded bg-slate-800 text-slate-300 text-[10px]">24h</span>
+                  <span className="px-3 py-1.5 rounded-xl bg-orange-500 text-slate-950 font-black text-xs">Instantané</span>
                 </div>
               </div>
             </div>

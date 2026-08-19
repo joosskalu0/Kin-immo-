@@ -145,6 +145,7 @@ export interface Agent {
   rccmOrNif?: string;
   subscriptionStatus?: 'Active' | 'Expired';
   subscriptionExpiresAt?: string;
+  isHidden?: boolean; // When true, hidden from public directory and visitors (Admin toggle)
 }
 
 export interface Agency {
@@ -174,6 +175,7 @@ export interface Agency {
   lastPaymentDate?: string;
   unpaidInvoiceId?: string;
   createdAt?: string;
+  isHidden?: boolean; // When true, hidden from public directory and visitors (Admin toggle)
 }
 
 export interface SavedSearch {
@@ -279,13 +281,16 @@ export interface Language {
 export interface SubscriptionPlan {
   id: string;
   name: string;
-  priceMonthly: number;
+  priceMonthly: number; // in USD
+  priceMonthlyCDF?: number; // in CDF (Francs Congolais)
   currency: string;
+  billingPeriod?: 'month' | 'year';
   maxListings: number;
   featuredListings: number;
   agentAccounts: number;
   features: string[];
   recommended?: boolean;
+  isActive?: boolean;
 }
 
 export interface InvoiceItem {

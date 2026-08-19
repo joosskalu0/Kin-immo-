@@ -403,6 +403,7 @@ export const initialProperties: Property[] = [
       'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?w=1200&auto=format&fit=crop&q=80',
       'https://images.unsplash.com/photo-1600585154526-990dced4db0d?w=1200&auto=format&fit=crop&q=80'
     ],
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-interior-of-a-modern-living-room-with-large-windows-41584-large.mp4',
     customFields: {
       titre_foncier: 'Certificat d\'Enregistrement (Titre Foncier Validé)',
       electricite_autonomie: 'Panneaux Solaires + Groupe Électrogène + SNEL',
@@ -463,6 +464,7 @@ export const initialProperties: Property[] = [
       'https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=1200&auto=format&fit=crop&q=80',
       'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80'
     ],
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-modern-luxury-house-patio-and-pool-walkthrough-40541-large.mp4',
     customFields: {
       titre_foncier: 'Certificat d\'Enregistrement (Titre Foncier Validé)',
       electricite_autonomie: 'Panneaux Solaires + Groupe Électrogène + SNEL',
@@ -693,10 +695,13 @@ export const initialSubscriptionPlans: SubscriptionPlan[] = [
     id: 'starter',
     name: 'Pack Particulier / Propriétaire',
     priceMonthly: 0,
-    currency: 'USD',
+    priceMonthlyCDF: 0,
+    currency: 'CDF',
+    billingPeriod: 'month',
     maxListings: 3,
     featuredListings: 0,
     agentAccounts: 1,
+    isActive: true,
     features: [
       'Jusqu\'à 3 annonces gratuites',
       'Fiche détaillée avec photos',
@@ -709,11 +714,14 @@ export const initialSubscriptionPlans: SubscriptionPlan[] = [
     id: 'pro',
     name: 'Pack Agent Pro Kinshasa',
     priceMonthly: 35,
-    currency: 'USD',
+    priceMonthlyCDF: 98000,
+    currency: 'CDF',
+    billingPeriod: 'month',
     maxListings: 25,
     featuredListings: 5,
     agentAccounts: 1,
     recommended: true,
+    isActive: true,
     features: [
       'Jusqu\'à 25 annonces actives',
       '5 Annonces En Vedette sur la Carte AJAX',
@@ -728,10 +736,13 @@ export const initialSubscriptionPlans: SubscriptionPlan[] = [
     id: 'agency',
     name: 'Pack Agence Immobilière Elite',
     priceMonthly: 99,
-    currency: 'USD',
+    priceMonthlyCDF: 280000,
+    currency: 'CDF',
+    billingPeriod: 'month',
     maxListings: 150,
     featuredListings: 20,
     agentAccounts: 8,
+    isActive: true,
     features: [
       'Jusqu\'à 150 annonces d\'agence',
       '20 Annonces En Vedette',
@@ -795,11 +806,11 @@ export const initialInvoices: Invoice[] = [
     totalAmount: 129,
     currency: 'USD',
     status: 'paid',
-    paymentMethod: 'mpesa',
+    paymentMethod: 'orange_money',
     dueDate: '2026-08-01',
     paidAt: '2026-08-01T10:15:00Z',
     createdAt: '2026-07-28T08:00:00Z',
-    notes: 'Paiement effectué via Vodacom M-Pesa RDC Ref: MP260801.1015'
+    notes: 'Paiement effectué via Orange Money RDC (+243 84 529 4616) Ref: OM260801.1015'
   },
   {
     id: 'inv_002',
@@ -822,7 +833,7 @@ export const initialInvoices: Invoice[] = [
     paymentMethod: 'orange_money',
     dueDate: '2026-08-15',
     createdAt: '2026-08-01T09:00:00Z',
-    notes: 'En attente de règlement Orange Money / Virement Equity BCDC'
+    notes: 'En attente de règlement Orange Money (+243 84 529 4616)'
   },
   {
     id: 'inv_003',
@@ -841,11 +852,11 @@ export const initialInvoices: Invoice[] = [
     totalAmount: 35,
     currency: 'USD',
     status: 'paid',
-    paymentMethod: 'airtel_money',
+    paymentMethod: 'orange_money',
     dueDate: '2026-08-05',
     paidAt: '2026-08-04T14:22:00Z',
     createdAt: '2026-07-30T10:00:00Z',
-    notes: 'Règlement Airtel Money RDC Ref: AM8820192'
+    notes: 'Règlement Orange Money RDC (+243 84 529 4616) Ref: OM8820192'
   },
   {
     id: 'inv_004',
@@ -865,9 +876,9 @@ export const initialInvoices: Invoice[] = [
     totalAmount: 60,
     currency: 'USD',
     status: 'overdue',
-    paymentMethod: 'mpesa',
+    paymentMethod: 'orange_money',
     dueDate: '2026-08-03',
     createdAt: '2026-07-25T11:00:00Z',
-    notes: 'Facture en retard - Relance transmise sur WhatsApp +243 90 123 45 67'
+    notes: 'Facture en retard - Relance transmise sur Orange Money & WhatsApp +243 84 529 4616'
   }
 ];
