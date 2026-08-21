@@ -327,7 +327,7 @@ export interface Invoice {
 }
 
 export interface TrackingConfig {
-  gtmContainerId: string; // e.g. 'GTM-KINSHASA' or 'GTM-XXXXXXX'
+  gtmContainerId: string; // e.g. 'GTM-MBV5CSQR' or 'GTM-XXXXXXX'
   googleAnalyticsId: string; // e.g. 'G-KINSHASA2026' or 'G-XXXXXXX'
   metaPixelId: string; // e.g. '123456789012345'
   tiktokPixelId: string; // e.g. 'C1234567890ABCDEF'

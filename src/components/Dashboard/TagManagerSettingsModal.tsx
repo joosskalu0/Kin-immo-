@@ -351,7 +351,7 @@ export const TagManagerSettingsModal: React.FC<TagManagerSettingsModalProps> = (
                     <span>GTM</span>
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                   </div>
-                  <div className="text-xs font-black text-white truncate">{config.gtmContainerId || 'GTM-KINSHASA'}</div>
+                  <div className="text-xs font-black text-white truncate">{config.gtmContainerId || 'GTM-MBV5CSQR'}</div>
                   <div className="text-[10px] text-emerald-400">Conteneur Actif</div>
                 </div>
 
@@ -408,7 +408,7 @@ export const TagManagerSettingsModal: React.FC<TagManagerSettingsModalProps> = (
                     required
                     value={config.gtmContainerId}
                     onChange={(e) => setConfig({ ...config, gtmContainerId: e.target.value.trim() })}
-                    placeholder="ex: GTM-XXXXXXX ou GTM-KINSHASA"
+                    placeholder="ex: GTM-MBV5CSQR"
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-emerald-500"
                   />
                   <p className="text-[11px] text-slate-400">
