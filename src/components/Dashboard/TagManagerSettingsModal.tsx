@@ -360,7 +360,7 @@ export const TagManagerSettingsModal: React.FC<TagManagerSettingsModalProps> = (
                     <span>Google Analytics</span>
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                   </div>
-                  <div className="text-xs font-black text-white truncate">{config.googleAnalyticsId || 'G-KINSHASA2026'}</div>
+                  <div className="text-xs font-black text-white truncate">{config.googleAnalyticsId || 'G-3FYYBC6QQG'}</div>
                   <div className="text-[10px] text-emerald-400">GA4 Connecté</div>
                 </div>
 
@@ -426,7 +426,7 @@ export const TagManagerSettingsModal: React.FC<TagManagerSettingsModalProps> = (
                     type="text"
                     value={config.googleAnalyticsId}
                     onChange={(e) => setConfig({ ...config, googleAnalyticsId: e.target.value.trim() })}
-                    placeholder="ex: G-XXXXXXXXXX ou G-KINSHASA2026"
+                    placeholder="ex: G-3FYYBC6QQG"
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-emerald-500"
                   />
                   <p className="text-[11px] text-slate-400">

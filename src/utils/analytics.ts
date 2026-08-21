@@ -25,7 +25,7 @@ declare global {
 }
 
 export const DEFAULT_GTM_ID = 'GTM-MBV5CSQR';
-export const DEFAULT_GA_ID = 'G-KINSHASA2026';
+export const DEFAULT_GA_ID = 'G-3FYYBC6QQG';
 export const DEFAULT_META_PIXEL_ID = '104829104829104';
 export const DEFAULT_TIKTOK_PIXEL_ID = 'CKINSHASA2026TT';
 export const DEFAULT_GOOGLE_ADS_ID = 'AW-1092849201';
@@ -84,9 +84,12 @@ export function getStoredTrackingConfig(): TrackingConfig {
     const saved = localStorage.getItem('kin_tracking_config');
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Migrate legacy placeholder ID to user's real container ID
+      // Migrate legacy placeholder ID to user's real container ID & GA4 ID
       if (parsed.gtmContainerId === 'GTM-KINSHASA' || !parsed.gtmContainerId) {
         parsed.gtmContainerId = DEFAULT_GTM_ID;
+      }
+      if (parsed.googleAnalyticsId === 'G-KINSHASA2026' || !parsed.googleAnalyticsId) {
+        parsed.googleAnalyticsId = DEFAULT_GA_ID;
       }
       return { ...DEFAULT_TRACKING_CONFIG, ...parsed };
     }
