@@ -53,6 +53,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
     addLeadRequest,
     recordPropertyAction,
     user,
+    updateProperty,
   } = useApp();
 
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'video' | 'calculator'>('photos');
@@ -115,6 +116,12 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 <MapPin className="w-3.5 h-3.5 text-slate-500" />
                 {property.address}, {property.city}
               </span>
+              {property.status === 'sold' && (
+                <span className="px-2 py-0.5 rounded-md bg-red-600 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                  <CheckCircle2 className="w-3 h-3 fill-white text-red-600" />
+                  VENDU
+                </span>
+              )}
             </div>
             <h2 className="text-base sm:text-xl font-bold text-white line-clamp-1 mt-0.5">
               {property.title}
@@ -122,6 +129,26 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Quick Toggle Sold Button for Admin / Agent / Owner */}
+            {(user?.role === 'admin' || user?.role === 'agent' || property.agentId === user?.id || property.agentId === user?.agentId) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const newStatus = property.status === 'sold' ? 'for-sale' : 'sold';
+                  updateProperty({ ...property, status: newStatus });
+                }}
+                className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
+                  property.status === 'sold'
+                    ? 'bg-red-600/20 text-red-300 border-red-500/40 hover:bg-red-600 hover:text-white'
+                    : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-red-600 hover:text-white hover:border-red-500'
+                }`}
+                title={property.status === 'sold' ? 'Remettre en vente' : 'Déclarer ce bien comme vendu'}
+              >
+                <CheckCircle2 className={`w-3.5 h-3.5 ${property.status === 'sold' ? 'text-red-400' : 'text-slate-400'}`} />
+                <span className="hidden sm:inline">{property.status === 'sold' ? 'Bien Vendu ✓' : 'Marquer Vendu'}</span>
+              </button>
+            )}
+
             {/* Download PDF */}
             <button
               onClick={handleDownloadPDF}
@@ -165,6 +192,23 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
 
         {/* Modal Scrollable Body */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-6">
+          {/* Sold Alert Banner */}
+          {property.status === 'sold' && (
+            <div className="p-4 bg-red-950/40 border border-red-500/40 rounded-2xl flex items-center justify-between gap-3 text-red-200 text-xs shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center text-white shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-black text-white text-sm">Ce bien immobilier a été VENDU</p>
+                  <p className="text-[11px] text-red-300">Transaction enregistrée avec succès. Vous pouvez contacter l'agent pour des biens similaires dans le secteur.</p>
+                </div>
+              </div>
+              <span className="px-3 py-1 rounded-xl bg-red-600 text-white font-black text-xs uppercase tracking-wider shrink-0">
+                Transaction Conclue
+              </span>
+            </div>
+          )}
           {/* Media Header / Lightbox */}
           <div className="space-y-3">
             <div className="flex border-b border-slate-800 text-xs">
@@ -214,9 +258,17 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                     alt={property.title}
                     className="w-full h-full object-cover"
                   />
-                  <div className="absolute top-4 left-4 bg-slate-950/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-slate-800">
-                    <span className="text-xl font-bold text-emerald-400">{formattedPrice}</span>
-                    {property.period === 'month' && <span className="text-xs text-slate-400"> /mois</span>}
+                  <div className="absolute top-4 left-4 flex items-center gap-2">
+                    <div className="bg-slate-950/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-slate-800">
+                      <span className="text-xl font-bold text-emerald-400">{formattedPrice}</span>
+                      {property.period === 'month' && <span className="text-xs text-slate-400"> /mois</span>}
+                    </div>
+                    {property.status === 'sold' && (
+                      <div className="bg-red-600/90 text-white font-black text-xs uppercase px-3 py-1.5 rounded-xl border border-red-400 shadow-lg flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 fill-white text-red-600" />
+                        VENDU
+                      </div>
+                    )}
                   </div>
 
                   {/* Floating Video Tour Button if video is published */}

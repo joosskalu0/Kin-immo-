@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Agency, Agent, User, VerificationDocument } from '../types';
 import { saveAgencyToFirestore, saveAgentToFirestore, saveUserToFirestore } from '../lib/firebase';
@@ -23,7 +23,11 @@ import {
   Lock,
   BadgeCheck,
   Building,
-  Info
+  Info,
+  Camera,
+  UploadCloud,
+  Trash2,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface AgencyRegistrationModalProps {
@@ -47,6 +51,9 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
   const [idNat, setIdNat] = useState('');
   const [commune, setCommune] = useState('Gombe');
   const [address, setAddress] = useState('');
+  const [agencyLogoUrl, setAgencyLogoUrl] = useState('');
+  const [agencyLogoFileName, setAgencyLogoFileName] = useState('');
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
   
   // Contacts & Team
   const [phone, setPhone] = useState('+243 ');
@@ -69,10 +76,49 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
   const [managerIdType, setManagerIdType] = useState<'passport' | 'voter_card' | 'cni'>('passport');
   const [managerIdNumber, setManagerIdNumber] = useState('');
   const [password, setPassword] = useState('');
+  const [managerAvatarUrl, setManagerAvatarUrl] = useState('');
+  const [managerAvatarFileName, setManagerAvatarFileName] = useState('');
+  const managerFileInputRef = useRef<HTMLInputElement>(null);
 
   // Sample Documents
   const [rccmDocUrl, setRccmDocUrl] = useState('https://images.unsplash.com/photo-1450133064473-71024230f91b?w=800&auto=format&fit=crop&q=80');
   const [managerIdDocUrl, setManagerIdDocUrl] = useState('https://images.unsplash.com/photo-1544717305-2782549b5136?w=800&auto=format&fit=crop&q=80');
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Veuillez sélectionner un logo image valide (PNG, JPG, WebP).');
+      return;
+    }
+    setAgencyLogoFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (typeof event.target?.result === 'string') {
+        setAgencyLogoUrl(event.target.result);
+        setError(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleManagerPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Veuillez sélectionner une photo valide (JPG, PNG, WebP).');
+      return;
+    }
+    setManagerAvatarFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (typeof event.target?.result === 'string') {
+        setManagerAvatarUrl(event.target.result);
+        setError(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   if (!isOpen) return null;
 
@@ -152,7 +198,7 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
       const newAgency: Agency = {
         id: agencyId,
         name: agencyName,
-        logo: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
+        logo: agencyLogoUrl || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
         address: `${address}, Commune de ${commune}`,
         city: 'Kinshasa',
         commune,
@@ -184,7 +230,7 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
         email: managerEmail || email,
         phone: managerPhone || phone,
         whatsapp: whatsapp || phone,
-        avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+        avatar: managerAvatarUrl || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
         agencyId: agencyId,
         agencyName: agencyName,
         agencyLogo: newAgency.logo,
@@ -337,6 +383,61 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
         {/* STEP 1: Agency Info */}
         {step === 1 && (
           <form onSubmit={handleNextStep1} className="space-y-4">
+            {/* Logo de l'Agence */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <input
+                  ref={logoFileInputRef}
+                  type="file"
+                  accept="image/png, image/jpeg, image/jpg, image/webp"
+                  className="hidden"
+                  onChange={handleLogoFileChange}
+                />
+                <img
+                  src={agencyLogoUrl || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80'}
+                  alt="Logo Agence"
+                  className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/30 bg-slate-900 shrink-0"
+                />
+                <div>
+                  <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
+                    Logo Officiel de l'Agence
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    {agencyLogoFileName ? (
+                      <span className="text-emerald-400 font-semibold">{agencyLogoFileName}</span>
+                    ) : (
+                      'Téléversez votre logo depuis votre galerie / ordinateur (PNG, JPG)'
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => logoFileInputRef.current?.click()}
+                  className="w-full sm:w-auto py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{agencyLogoUrl ? 'Modifier le logo' : 'Choisir depuis la galerie'}</span>
+                </button>
+                {agencyLogoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAgencyLogoUrl('');
+                      setAgencyLogoFileName('');
+                    }}
+                    className="p-2 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                    title="Retirer le logo"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="sm:col-span-2">
                 <label className="block text-xs font-bold text-slate-300 mb-1">
@@ -633,6 +734,61 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
               <span>
                 Conformément à la réglementation foncière en RD Congo, la pièce d'identité du représentant légal (<strong>Passeport Biométrique</strong> ou <strong>Carte d'Électeur CENI</strong>) ainsi que l'extrait RCCM sont requis pour la certification de l'agence.
               </span>
+            </div>
+
+            {/* Photo de Profil du Gérant */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <input
+                  ref={managerFileInputRef}
+                  type="file"
+                  accept="image/png, image/jpeg, image/jpg, image/webp"
+                  className="hidden"
+                  onChange={handleManagerPhotoChange}
+                />
+                <img
+                  src={managerAvatarUrl || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'}
+                  alt="Photo Gérant"
+                  className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/30 bg-slate-900 shrink-0"
+                />
+                <div>
+                  <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                    Photo de Profil du Gérant (Galerie)
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    {managerAvatarFileName ? (
+                      <span className="text-emerald-400 font-semibold">{managerAvatarFileName}</span>
+                    ) : (
+                      'Téléversez la photo du gérant depuis votre galerie / téléphone (JPG, PNG)'
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => managerFileInputRef.current?.click()}
+                  className="w-full sm:w-auto py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{managerAvatarUrl ? 'Modifier la photo' : 'Choisir depuis la galerie'}</span>
+                </button>
+                {managerAvatarUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManagerAvatarUrl('');
+                      setManagerAvatarFileName('');
+                    }}
+                    className="p-2 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                    title="Retirer la photo"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { getAdminCredentials, verifyAdminPin } from '../lib/adminCredentials';
 import {
@@ -25,7 +25,11 @@ import {
   Smartphone,
   RefreshCw,
   BadgeCheck,
-  Award
+  Award,
+  Camera,
+  Image as ImageIcon,
+  UploadCloud,
+  Trash2,
 } from 'lucide-react';
 import { User, Agency, Agent } from '../types';
 import { saveUserToFirestore, saveAgentToFirestore, saveAgencyToFirestore } from '../lib/firebase';
@@ -57,6 +61,46 @@ export const AuthModal: React.FC = () => {
   const [rccmOrNif, setRccmOrNif] = useState('');
   const [role, setRole] = useState<'user' | 'owner' | 'agent' | 'agency'>('user');
   const [enable2FAOnSignup, setEnable2FAOnSignup] = useState(true);
+
+  // Avatar / Profile photo state
+  const [avatarUrl, setAvatarUrl] = useState<string>('');
+  const [avatarFileName, setAvatarFileName] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Preset professional avatars
+  const presetAvatars = [
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=300&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&auto=format&fit=crop&q=80',
+  ];
+
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Veuillez sélectionner un fichier image valide (JPG, PNG, WebP).');
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      setError('La photo sélectionnée est trop volumineuse (max 8 Mo).');
+      return;
+    }
+
+    setAvatarFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (typeof event.target?.result === 'string') {
+        setAvatarUrl(event.target.result);
+        setError(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Google OAuth specific prompt state
   const [googleEmailInput, setGoogleEmailInput] = useState('');
@@ -194,6 +238,8 @@ export const AuthModal: React.FC = () => {
     setPendingUser(null);
     setGoogleEmailInput('');
     setGoogleNameInput('');
+    setAvatarUrl('');
+    setAvatarFileName('');
   };
 
   // Step 1: Form Submit Handler
@@ -232,9 +278,9 @@ export const AuthModal: React.FC = () => {
           role: role,
           agencyName: (role === 'agent' || role === 'owner' || role === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
           rccmOrNif: rccmOrNif || (role === 'agency' || role === 'agent' ? 'CD/KIN/RCCM/26-B-08420' : undefined),
-          avatar: role === 'agency' || role === 'agent'
+          avatar: avatarUrl || (role === 'agency' || role === 'agent'
             ? 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'
-            : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
+            : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80'),
           agentId: (role === 'agent' || role === 'agency') ? `agent_${Date.now()}` : undefined,
           planId: role === 'agency' ? 'agency' : role === 'agent' ? 'pro' : 'starter',
           subscriptionStatus: 'Active',
@@ -603,22 +649,133 @@ export const AuthModal: React.FC = () => {
 
             <form onSubmit={handleInitialSubmit} className="space-y-3.5">
               {mode === 'register' && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Nom Complet *
-                  </label>
-                  <div className="relative">
-                    <UserIcon className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                    <input
-                      type="text"
-                      required
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="ex: Jean-Luc Mpoy"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                    />
+                <>
+                  {/* Photo de Profil depuis la Galerie */}
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                        Photo de Profil (Votre Galerie)
+                      </label>
+                      {avatarUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAvatarUrl('');
+                            setAvatarFileName('');
+                          }}
+                          className="text-[10px] text-rose-400 hover:text-rose-300 flex items-center gap-1 font-semibold"
+                        >
+                          <Trash2 className="w-3 h-3" /> Retirer
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3.5">
+                      {/* Avatar Preview */}
+                      <div className="relative shrink-0">
+                        <img
+                          src={
+                            avatarUrl ||
+                            (role === 'agency' || role === 'agent'
+                              ? 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'
+                              : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80')
+                          }
+                          alt="Aperçu Photo"
+                          className="w-14 h-14 rounded-2xl object-cover ring-2 ring-emerald-500/40 shadow-lg bg-slate-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center shadow-md transition-transform active:scale-90"
+                          title="Importer depuis la galerie"
+                        >
+                          <Camera className="w-3.5 h-3.5 stroke-[2.5]" />
+                        </button>
+                      </div>
+
+                      {/* Upload Button */}
+                      <div className="flex-1 space-y-1.5">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/png, image/jpeg, image/jpg, image/webp"
+                          className="hidden"
+                          onChange={handleAvatarFileChange}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-700 hover:border-emerald-500/50 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm active:scale-98"
+                        >
+                          <UploadCloud className="w-4 h-4 text-emerald-400" />
+                          <span>{avatarUrl ? 'Modifier la photo' : 'Importer depuis votre galerie'}</span>
+                        </button>
+                        <p className="text-[10px] text-slate-400 leading-tight">
+                          {avatarFileName ? (
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1 truncate">
+                              <CheckCircle2 className="w-3 h-3 shrink-0" /> {avatarFileName}
+                            </span>
+                          ) : (
+                            'Sélectionnez une photo de votre smartphone ou ordinateur (JPG, PNG, WebP).'
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Quick Preset Avatars */}
+                    <div className="pt-2 border-t border-slate-900">
+                      <span className="text-[10px] text-slate-400 font-medium block mb-1.5">
+                        Ou choisissez un avatar rapide :
+                      </span>
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                        {presetAvatars.map((preset, index) => (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => {
+                              setAvatarUrl(preset);
+                              setAvatarFileName('');
+                            }}
+                            className={`relative rounded-xl overflow-hidden shrink-0 transition-all ${
+                              avatarUrl === preset
+                                ? 'ring-2 ring-emerald-500 scale-105 shadow-md'
+                                : 'opacity-70 hover:opacity-100'
+                            }`}
+                          >
+                            <img
+                              src={preset}
+                              alt={`Preset ${index + 1}`}
+                              className="w-8 h-8 object-cover rounded-xl"
+                            />
+                            {avatarUrl === preset && (
+                              <div className="absolute inset-0 bg-emerald-500/30 flex items-center justify-center">
+                                <Check className="w-3 h-3 text-white stroke-[3]" />
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      Nom Complet *
+                    </label>
+                    <div className="relative">
+                      <UserIcon className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        required
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="ex: Jean-Luc Mpoy"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+                </>
               )}
 
               {method === 'email' && (

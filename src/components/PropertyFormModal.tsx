@@ -423,8 +423,9 @@ export const PropertyFormModal: React.FC = () => {
                   >
                     <option value="for-sale">A Vendre</option>
                     <option value="for-rent">A Louer</option>
+                    <option value="sold">Vendu / Loué (Transaction conclue)</option>
                     <option value="open-house">Portes Ouvertes</option>
-                    <option value="pending">Sous Offre</option>
+                    <option value="pending">Sous Offre / Compromis</option>
                   </select>
                 </div>
 

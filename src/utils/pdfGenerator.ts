@@ -51,7 +51,8 @@ export function generatePropertyPDF(
   doc.rect(14, 57, 182, 8, 'F');
   doc.setTextColor(51, 65, 85);
   doc.setFontSize(9);
-  doc.text(`Statut: ${property.status.toUpperCase()}   |   Type: ${property.type.toUpperCase()}   |   Catégorie: ${property.category}`, 18, 62);
+  const statusFrench = property.status === 'sold' ? 'VENDU (TRANSACTION CONCLUE)' : property.status === 'for-sale' ? 'A VENDRE' : property.status === 'for-rent' ? 'A LOUER' : property.status;
+  doc.text(`Statut: ${statusFrench}   |   Type: ${property.type.toUpperCase()}   |   Catégorie: ${property.category}`, 18, 62);
 
   // Main Image placeholder frame
   doc.setDrawColor(203, 213, 225);

@@ -72,16 +72,19 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({ properties, height = '
 
       const formattedPrice = convertAndFormatPrice(property.price, currency);
 
+      const isSold = property.status === 'sold';
+
       // Create custom HTML price tag marker
       const priceIcon = L.divIcon({
         className: 'custom-leaflet-marker',
         html: `
-          <div class="px-2.5 py-1 rounded-xl bg-slate-900 border-2 border-emerald-500 text-emerald-400 font-bold text-xs shadow-xl flex items-center gap-1 transition-all hover:scale-110 cursor-pointer">
+          <div class="px-2.5 py-1 rounded-xl ${isSold ? 'bg-red-950 border-2 border-red-500 text-red-400' : 'bg-slate-900 border-2 border-emerald-500 text-emerald-400'} font-bold text-xs shadow-xl flex items-center gap-1 transition-all hover:scale-110 cursor-pointer">
+            ${isSold ? '<span class="bg-red-600 text-white text-[9px] px-1 rounded font-black">VENDU</span>' : ''}
             <span>${formattedPrice}</span>
           </div>
         `,
-        iconSize: [80, 30],
-        iconAnchor: [40, 15],
+        iconSize: [85, 30],
+        iconAnchor: [42, 15],
       });
 
       const marker = L.marker([property.lat, property.lng], { icon: priceIcon });
@@ -89,14 +92,17 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({ properties, height = '
       // Popup Content
       const popupHtml = `
         <div style="min-width: 220px; font-family: sans-serif;">
-          <img src="${property.images[0] || ''}" style="width: 100%; height: 110px; object-fit: cover; border-radius: 8px; margin-bottom: 8px;" />
+          <div style="position: relative;">
+            <img src="${property.images[0] || ''}" style="width: 100%; height: 110px; object-fit: cover; border-radius: 8px; margin-bottom: 8px;" />
+            ${isSold ? '<span style="position: absolute; top: 6px; left: 6px; background: #dc2626; color: white; font-weight: 900; font-size: 10px; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">VENDU</span>' : ''}
+          </div>
           <div style="font-weight: bold; font-size: 13px; color: #0f172a; margin-bottom: 4px;">${property.title}</div>
           <div style="font-size: 11px; color: #475569; margin-bottom: 6px; font-weight: 500;">
             📍 ${property.commune || property.city}${property.quartier ? ' - ' + property.quartier : ''}${property.avenue ? '<br/><span style="color:#059669; font-size:10px;">' + property.avenue + '</span>' : ''}
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: bold; font-size: 14px; color: #10b981;">${formattedPrice}</span>
-            <button id="view-prop-${property.id}" style="background: #10b981; color: #0f172a; font-weight: bold; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Voir Fiche</button>
+            <span style="font-weight: bold; font-size: 14px; color: ${isSold ? '#dc2626' : '#10b981'};">${formattedPrice}</span>
+            <button id="view-prop-${property.id}" style="background: ${isSold ? '#dc2626' : '#10b981'}; color: #ffffff; font-weight: bold; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Voir Fiche</button>
           </div>
         </div>
       `;

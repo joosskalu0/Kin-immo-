@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { initialSubscriptionPlans } from '../../data/mockData';
 import { Property, LeadRequest, User } from '../../types';
@@ -11,6 +11,7 @@ import { PaymentReminderBanner } from './PaymentReminderBanner';
 import { TagManagerSettingsModal } from './TagManagerSettingsModal';
 import { AdminPlansPricingManager } from './AdminPlansPricingManager';
 import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
+import { saveUserToFirestore } from '../../lib/firebase';
 import {
   Building2,
   Users,
@@ -42,7 +43,9 @@ import {
   Sliders,
   Layers,
   Coins,
-  Clock
+  Clock,
+  Camera,
+  UploadCloud,
 } from 'lucide-react';
 
 export const UserDashboard: React.FC = () => {
@@ -50,6 +53,7 @@ export const UserDashboard: React.FC = () => {
     user,
     setUser,
     properties,
+    updateProperty,
     deleteProperty,
     setEditingProperty,
     setIsSubmitPropertyOpen,
@@ -93,6 +97,41 @@ export const UserDashboard: React.FC = () => {
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
+
+  // Profile photo upload from gallery
+  const profilePhotoInputRef = useRef<HTMLInputElement>(null);
+  const [photoUploadSuccess, setPhotoUploadSuccess] = useState(false);
+
+  const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Veuillez sélectionner un fichier image valide (JPG, PNG, WebP).');
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      alert('La photo sélectionnée est trop volumineuse (max 8 Mo).');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (typeof event.target?.result === 'string') {
+        const updatedUser: User = {
+          ...user,
+          avatar: event.target.result,
+        };
+        setUser(updatedUser);
+        localStorage.setItem('estatik_kinshasa_user', JSON.stringify(updatedUser));
+        saveUserToFirestore(updatedUser).catch(console.error);
+        setPhotoUploadSuccess(true);
+        setTimeout(() => setPhotoUploadSuccess(false), 3000);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleVerifyAdminPin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,11 +321,29 @@ export const UserDashboard: React.FC = () => {
       {/* Dashboard Top Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-8 text-slate-100 shadow-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="flex items-center gap-4">
-          <img
-            src={user?.avatar || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80'}
-            alt={user?.name}
-            className="w-16 h-16 rounded-2xl object-cover ring-2 ring-emerald-500/40"
-          />
+          <div className="relative group">
+            <input
+              ref={profilePhotoInputRef}
+              type="file"
+              accept="image/png, image/jpeg, image/jpg, image/webp"
+              className="hidden"
+              onChange={handleProfilePhotoChange}
+            />
+            <img
+              src={user?.avatar || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80'}
+              alt={user?.name}
+              className="w-16 h-16 rounded-2xl object-cover ring-2 ring-emerald-500/40 cursor-pointer shadow-lg group-hover:opacity-90 transition-opacity"
+              onClick={() => profilePhotoInputRef.current?.click()}
+            />
+            <button
+              type="button"
+              onClick={() => profilePhotoInputRef.current?.click()}
+              className="absolute -bottom-1 -right-1 w-7 h-7 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center shadow-lg transition-transform active:scale-90"
+              title="Changer ma photo depuis la galerie"
+            >
+              <Camera className="w-3.5 h-3.5 stroke-[2.5]" />
+            </button>
+          </div>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl sm:text-2xl font-bold text-white">{user?.name}</h2>
@@ -294,7 +351,14 @@ export const UserDashboard: React.FC = () => {
                 <BadgeCheck className="w-3.5 h-3.5" /> Compte {user?.role} PRO
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">{user?.email} • Formule Pro Agent Active</p>
+            <div className="flex items-center gap-3 mt-0.5">
+              <p className="text-xs text-slate-400">{user?.email} • Formule Pro Agent Active</p>
+              {photoUploadSuccess && (
+                <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1 animate-fadeIn">
+                  <CheckCircle2 className="w-3 h-3" /> Photo mise à jour !
+                </span>
+              )}
+            </div>
             
             {/* 2FA & RCCM Status Badges */}
             <div className="flex flex-wrap items-center gap-2 pt-2">
@@ -524,13 +588,36 @@ export const UserDashboard: React.FC = () => {
                     className="w-20 h-16 rounded-xl object-cover shrink-0"
                   />
                   <div>
-                    <div className="font-bold text-white text-sm line-clamp-1">{prop.title}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold text-white text-sm line-clamp-1">{prop.title}</div>
+                      {prop.status === 'sold' && (
+                        <span className="px-2 py-0.5 rounded-md bg-red-600 text-white font-black text-[10px] uppercase tracking-wider shrink-0">
+                          Vendu
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-emerald-400 font-semibold">{prop.price} {prop.currency}</div>
                     <div className="text-[11px] text-slate-400">📍 {prop.city} • Views: {prop.viewsCount}</div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  {/* Bouton Vendu Toggle */}
+                  <button
+                    onClick={() => {
+                      const newStatus = prop.status === 'sold' ? 'for-sale' : 'sold';
+                      updateProperty({ ...prop, status: newStatus });
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
+                      prop.status === 'sold'
+                        ? 'bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border-red-500/40'
+                        : 'bg-slate-800 hover:bg-red-600/20 text-slate-300 hover:text-red-400 border-slate-700 hover:border-red-500/40'
+                    }`}
+                    title={prop.status === 'sold' ? 'Cliquer pour remettre en vente' : 'Cliquer pour marquer comme vendu'}
+                  >
+                    <CheckCircle2 className={`w-3.5 h-3.5 ${prop.status === 'sold' ? 'text-red-400' : 'text-slate-400'}`} />
+                    <span>{prop.status === 'sold' ? 'Vendu ✓' : 'Marquer Vendu'}</span>
+                  </button>
                   <button
                     onClick={() => setActivePropertyModalId(prop.id)}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"

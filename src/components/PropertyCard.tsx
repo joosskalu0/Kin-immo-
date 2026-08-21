@@ -23,6 +23,7 @@ import {
   MessageCircle,
   Video,
   Play,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface PropertyCardProps {
@@ -42,12 +43,14 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
     customFields,
     user,
     recordPropertyAction,
+    updateProperty,
   } = useApp();
 
   const [activeImgIndex, setActiveImgIndex] = useState(0);
 
   const isFavorite = wishlist.includes(property.id);
   const isCompared = compareList.includes(property.id);
+  const isSold = property.status === 'sold';
   const formattedPrice = convertAndFormatPrice(property.price, currency);
   const agent = agents.find((a) => a.id === property.agentId);
 
@@ -65,23 +68,42 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
     setActiveImgIndex((prev) => (prev - 1 + images.length) % images.length);
   };
 
+  const handleToggleSold = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newStatus = isSold ? 'for-sale' : 'sold';
+    updateProperty({
+      ...property,
+      status: newStatus,
+    });
+  };
+
   // Get key custom fields to display on card
   const cardCustomFields = customFields.filter((cf) => cf.showInSearch && !cf.isPrivate).slice(0, 2);
 
   return (
-    <div className="group bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-2xl hover:shadow-emerald-500/5 flex flex-col h-full relative">
+    <div className={`group bg-slate-900 border ${isSold ? 'border-red-900/60 ring-1 ring-red-500/20' : 'border-slate-800 hover:border-slate-700/80'} rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-2xl hover:shadow-emerald-500/5 flex flex-col h-full relative`}>
       {/* Image Banner Container */}
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-950">
         <img
           src={images[activeImgIndex]}
           alt={property.title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer"
+          className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer ${isSold ? 'grayscale-[35%] contrast-95' : ''}`}
           onClick={() => setActivePropertyModalId(property.id)}
           loading="lazy"
         />
 
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-black/30 pointer-events-none" />
+
+        {/* Sold Watermark Overlay */}
+        {isSold && (
+          <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[0.5px] flex items-center justify-center pointer-events-none z-10">
+            <div className="bg-red-600/95 text-white font-black text-xs sm:text-sm uppercase tracking-widest px-4 py-1.5 rounded-xl shadow-2xl border border-red-400 rotate-[-6deg] flex items-center gap-1.5 transform scale-105">
+              <CheckCircle2 className="w-4 h-4 fill-white text-red-600" />
+              VENDU
+            </div>
+          </div>
+        )}
 
         {/* Carousel Prev/Next Buttons */}
         {images.length > 1 && (
@@ -121,9 +143,12 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
 
         {/* Top Badges */}
         <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
+          {/* Main Status Badge - Red for 'sold' */}
           <span
-            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-md ${
-              property.status === 'for-sale'
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-md flex items-center gap-1 ${
+              isSold
+                ? 'bg-red-600 text-white border border-red-400 shadow-red-600/40'
+                : property.status === 'for-sale'
                 ? 'bg-emerald-500 text-slate-950'
                 : property.status === 'for-rent'
                 ? 'bg-sky-500 text-slate-950'
@@ -132,7 +157,10 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
                 : 'bg-amber-500 text-slate-950'
             }`}
           >
-            {property.status === 'for-sale'
+            {isSold && <CheckCircle2 className="w-3 h-3 fill-white text-red-600" />}
+            {isSold
+              ? 'Vendu'
+              : property.status === 'for-sale'
               ? 'A Vendre'
               : property.status === 'for-rent'
               ? 'A Louer'
@@ -378,6 +406,23 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
               >
                 <Phone className="w-3.5 h-3.5 text-emerald-400" />
               </a>
+            )}
+
+            {/* Quick Toggle Sold button for Admin / Agents / Owners */}
+            {(user?.role === 'admin' || user?.role === 'agent' || property.agentId === user?.id || property.agentId === user?.agentId) && (
+              <button
+                type="button"
+                onClick={handleToggleSold}
+                className={`px-2.5 py-1.5 min-h-[36px] rounded-xl font-bold text-xs flex items-center gap-1 transition-all border active:scale-95 ${
+                  isSold
+                    ? 'bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border-red-500/40'
+                    : 'bg-slate-800 hover:bg-red-600/20 text-slate-300 hover:text-red-400 border-slate-700 hover:border-red-500/40'
+                }`}
+                title={isSold ? 'Cliquer pour remettre en vente' : 'Cliquer pour marquer comme vendu'}
+              >
+                <CheckCircle2 className={`w-3.5 h-3.5 ${isSold ? 'text-red-400' : 'text-slate-400'}`} />
+                <span className="hidden sm:inline">{isSold ? 'Vendu' : 'Vendu ?'}</span>
+              </button>
             )}
 
             <button

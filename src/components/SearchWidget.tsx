@@ -69,6 +69,7 @@ export const SearchWidget: React.FC = () => {
           { id: 'all', label: 'Tous' },
           { id: 'for-sale', label: 'A Vendre' },
           { id: 'for-rent', label: 'A Louer' },
+          { id: 'sold', label: 'Biens Vendus' },
           { id: 'open-house', label: 'Portes Ouvertes' },
         ].map((tab) => (
           <button
