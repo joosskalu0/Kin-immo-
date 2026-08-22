@@ -44,6 +44,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
     user,
     recordPropertyAction,
     updateProperty,
+    requestConfirm,
   } = useApp();
 
   const [activeImgIndex, setActiveImgIndex] = useState(0);
@@ -70,10 +71,22 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
 
   const handleToggleSold = (e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     const newStatus = isSold ? 'for-sale' : 'sold';
-    updateProperty({
-      ...property,
-      status: newStatus,
+    const actionLabel = isSold
+      ? `remettre en vente l'annonce "${property.title}"`
+      : `déclarer l'annonce "${property.title}" comme VENDU (transaction conclue)`;
+
+    requestConfirm({
+      title: isSold ? "Remettre le bien en vente" : "Confirmation de Vente",
+      message: `Voulez-vous vraiment ${actionLabel} ?`,
+      confirmText: isSold ? "Oui, remettre en vente" : "Oui, marquer Vendu",
+      onConfirm: () => {
+        updateProperty({
+          ...property,
+          status: newStatus,
+        });
+      }
     });
   };
 

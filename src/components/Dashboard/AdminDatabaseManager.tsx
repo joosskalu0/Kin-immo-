@@ -40,6 +40,7 @@ import {
   saveUserToFirestore,
   deleteUserFromFirestore,
   seedInitialFirestoreData,
+  syncUsersOnlyToFirestore,
   subscribeToUsers,
   sanitizeForFirestore
 } from '../../lib/firebase';
@@ -551,6 +552,28 @@ export const AdminDatabaseManager: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {activeCollection === 'users' && (
+              <button
+                onClick={async () => {
+                  setLoading(true);
+                  setStatusMessage('Synchronisation et restauration des comptes utilisateurs...');
+                  try {
+                    await syncUsersOnlyToFirestore();
+                    setStatusMessage('Comptes utilisateurs synchronisés avec succès dans Firestore !');
+                  } catch (e: any) {
+                    setStatusMessage(`Erreur: ${e.message}`);
+                  } finally {
+                    setLoading(false);
+                    setTimeout(() => setStatusMessage(null), 3500);
+                  }
+                }}
+                disabled={loading}
+                className="px-3.5 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-bold border border-purple-500/40 transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-purple-400 ${loading ? 'animate-spin' : ''}`} />
+                <span>Restaurer / Synchroniser Utilisateurs</span>
+              </button>
+            )}
             <button
               onClick={handleExportJSON}
               className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors flex items-center gap-1.5"

@@ -54,6 +54,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
     recordPropertyAction,
     user,
     updateProperty,
+    requestConfirm,
   } = useApp();
 
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'video' | 'calculator'>('photos');
@@ -135,7 +136,18 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 type="button"
                 onClick={() => {
                   const newStatus = property.status === 'sold' ? 'for-sale' : 'sold';
-                  updateProperty({ ...property, status: newStatus });
+                  const actionLabel = property.status === 'sold'
+                    ? `remettre en vente le bien "${property.title}"`
+                    : `marquer le bien "${property.title}" comme VENDU / TRANSACTION CONCLUE`;
+
+                  requestConfirm({
+                    title: property.status === 'sold' ? "Remettre le bien en vente" : "Déclarer le bien comme Vendu",
+                    message: `Voulez-vous vraiment ${actionLabel} ?`,
+                    confirmText: property.status === 'sold' ? "Oui, remettre en vente" : "Oui, déclarer Vendu",
+                    onConfirm: () => {
+                      updateProperty({ ...property, status: newStatus });
+                    }
+                  });
                 }}
                 className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
                   property.status === 'sold'

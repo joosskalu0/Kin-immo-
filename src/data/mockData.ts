@@ -599,7 +599,7 @@ export const initialProperties: Property[] = [
     price: 680000,
     currency: 'USD',
     type: 'house',
-    status: 'sold',
+    status: 'for-sale',
     labels: ['new'],
     category: 'Maison Familiale Limete',
     commune: 'Limete',

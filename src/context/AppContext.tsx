@@ -39,6 +39,7 @@ import {
   trackContactClick,
   DEFAULT_GA_ID
 } from '../utils/analytics';
+import { getRegisteredAccounts, syncFirestoreUsersToAuthStore } from '../lib/authStore';
 import {
   seedInitialFirestoreData,
   subscribeToProperties,
@@ -235,25 +236,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [properties, setProperties] = useState<Property[]>(() => {
-    const saved = localStorage.getItem('immocraft_properties');
-    if (!saved) return initialProperties;
+    let deletedIds: string[] = [];
     try {
-      const parsed: Property[] = JSON.parse(saved);
-      return parsed.map((p) => {
-        const initMatch = initialProperties.find((ip) => ip.id === p.id);
-        if (initMatch && !p.videoUrl && initMatch.videoUrl) {
-          return { ...p, videoUrl: initMatch.videoUrl };
+      const deletedRaw = localStorage.getItem('immocraft_deleted_properties');
+      deletedIds = deletedRaw ? JSON.parse(deletedRaw) : [];
+    } catch {}
+
+    const saved = localStorage.getItem('immocraft_properties');
+    if (saved) {
+      try {
+        const parsed: Property[] = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((p) => !deletedIds.includes(p.id));
         }
-        return p;
-      });
-    } catch {
-      return initialProperties;
+      } catch {}
     }
+    return initialProperties.filter((p) => !deletedIds.includes(p.id));
   });
 
   const [allUsers, setAllUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem('estatik_registered_users');
-    return saved ? JSON.parse(saved) : [];
+    return getRegisteredAccounts();
   });
 
   const [agents, setAgents] = useState<Agent[]>(() => {
@@ -371,9 +373,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Subscribe to real-time updates from Firestore
     const unsubProperties = subscribeToProperties((firestoreProps) => {
       if (Array.isArray(firestoreProps)) {
-        setProperties(firestoreProps);
+        let deletedIds: string[] = [];
         try {
-          localStorage.setItem('immocraft_properties', JSON.stringify(firestoreProps));
+          const deletedRaw = localStorage.getItem('immocraft_deleted_properties');
+          deletedIds = deletedRaw ? JSON.parse(deletedRaw) : [];
+        } catch {}
+        const filtered = firestoreProps.filter((p) => !deletedIds.includes(p.id));
+        setProperties(filtered);
+        try {
+          localStorage.setItem('immocraft_properties', JSON.stringify(filtered));
         } catch (e) {
           console.error('Error saving properties to localStorage:', e);
         }
@@ -421,12 +429,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubUsers = subscribeToUsers((firestoreUsers) => {
-      if (Array.isArray(firestoreUsers)) {
+      if (Array.isArray(firestoreUsers) && firestoreUsers.length > 0) {
         setAllUsers(firestoreUsers);
         try {
-          localStorage.setItem('estatik_registered_users', JSON.stringify(firestoreUsers));
+          syncFirestoreUsersToAuthStore(firestoreUsers);
         } catch (e) {
-          console.error('Error saving users to localStorage:', e);
+          console.error('Error syncing firestore users to auth store:', e);
         }
       }
     });
@@ -521,6 +529,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const updated = prev.filter((p) => p.id !== id);
       try {
         localStorage.setItem('immocraft_properties', JSON.stringify(updated));
+        const deletedRaw = localStorage.getItem('immocraft_deleted_properties');
+        const deletedIds: string[] = deletedRaw ? JSON.parse(deletedRaw) : [];
+        if (!deletedIds.includes(id)) {
+          deletedIds.push(id);
+          localStorage.setItem('immocraft_deleted_properties', JSON.stringify(deletedIds));
+        }
       } catch (e) {
         console.error('Failed to delete property from localStorage:', e);
       }

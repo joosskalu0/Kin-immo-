@@ -604,9 +604,21 @@ export const UserDashboard: React.FC = () => {
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                   {/* Bouton Vendu Toggle */}
                   <button
+                    type="button"
                     onClick={() => {
                       const newStatus = prop.status === 'sold' ? 'for-sale' : 'sold';
-                      updateProperty({ ...prop, status: newStatus });
+                      const actionLabel = prop.status === 'sold'
+                        ? `remettre en vente le bien "${prop.title}"`
+                        : `déclarer le bien "${prop.title}" comme VENDU / TRANSACTION CONCLUE`;
+
+                      requestConfirm({
+                        title: prop.status === 'sold' ? "Remettre en vente" : "Confirmation de Vente",
+                        message: `Voulez-vous vraiment ${actionLabel} ?`,
+                        confirmText: prop.status === 'sold' ? "Oui, remettre en vente" : "Oui, déclarer Vendu",
+                        onConfirm: () => {
+                          updateProperty({ ...prop, status: newStatus });
+                        }
+                      });
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
                       prop.status === 'sold'

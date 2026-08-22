@@ -174,6 +174,49 @@ export const getRegisteredAccounts = (): StoredUserAccount[] => {
 };
 
 /**
+ * Safely merge incoming Firestore users into local auth store without losing passwords or existing custom accounts
+ */
+export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUserAccount[] => {
+  const currentAccounts = getRegisteredAccounts();
+  const accountsMap = new Map<string, StoredUserAccount>();
+
+  // 1. First load existing accounts (with passwords intact)
+  currentAccounts.forEach((acc) => {
+    if (acc.id) accountsMap.set(acc.id, acc);
+    if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
+  });
+
+  // 2. Merge Firestore users
+  firestoreUsers.forEach((fu) => {
+    if (!fu) return;
+    const existing = (fu.id ? accountsMap.get(fu.id) : undefined) || (fu.email ? accountsMap.get(fu.email.toLowerCase()) : undefined);
+    const merged: StoredUserAccount = {
+      ...existing,
+      ...fu,
+      password: existing?.password || DEFAULT_ACCOUNT_PASSWORD,
+    };
+    if (fu.id) accountsMap.set(fu.id, merged);
+    if (fu.email) accountsMap.set(fu.email.toLowerCase(), merged);
+  });
+
+  // 3. Re-inject initial seeds if any were dropped
+  const seeds = getInitialSeedAccounts();
+  seeds.forEach((s) => {
+    if (s.email && !accountsMap.has(s.email.toLowerCase())) {
+      accountsMap.set(s.email.toLowerCase(), s);
+    }
+  });
+
+  const mergedList = Array.from(new Set(Array.from(accountsMap.values())));
+  try {
+    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(mergedList));
+  } catch (e) {
+    console.error('Error saving merged accounts to localStorage:', e);
+  }
+  return mergedList;
+};
+
+/**
  * Register or update an account with its exact password
  */
 export const registerUserAccount = (user: User, password: string): StoredUserAccount => {
