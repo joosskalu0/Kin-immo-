@@ -87,6 +87,9 @@ export interface Property {
   // Metadata & Agent
   agentId: string;
   agencyId?: string;
+  agencyName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
   createdAt: string;
   updatedAt: string;
   viewsCount: number;

@@ -286,13 +286,20 @@ export const UserDashboard: React.FC = () => {
     );
   }
 
-  // Filter properties belonging to user/agent
+  // Filter properties belonging to user/agent/agency
   const myProperties = properties.filter(
     (p) =>
       user?.role === 'admin' ||
       p.agentId === user?.agentId ||
       p.agentId === user?.id ||
-      (user?.email && (p.agentId === user.email || p.privateFields?.ownerEmail === user.email))
+      p.agencyId === user?.agencyId ||
+      p.agencyId === user?.id ||
+      (user?.agencyName && p.agencyName?.toLowerCase() === user.agencyName.toLowerCase()) ||
+      (user?.email && (
+        p.agentId === user.email ||
+        p.contactEmail?.toLowerCase() === user.email.toLowerCase() ||
+        p.privateFields?.ownerEmail?.toLowerCase() === user.email.toLowerCase()
+      ))
   );
 
   const handleCsvUpload = (e: React.FormEvent) => {

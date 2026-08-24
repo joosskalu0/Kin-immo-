@@ -113,7 +113,7 @@ export const AdminDatabaseManager: React.FC = () => {
   const handleUnlockAdmin = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanInput = adminPinInput.trim();
-    if (cleanInput === adminPin || cleanInput === '2026' || cleanInput === 'admin' || cleanInput === '1234') {
+    if (cleanInput === adminPin || cleanInput === 'kalu2002jooss') {
       setIsAdminUnlocked(true);
       setPinError(null);
 
@@ -142,7 +142,7 @@ export const AdminDatabaseManager: React.FC = () => {
     const confirmClean = confirmPwdInput.trim();
 
     // Verify current password
-    if (currentClean !== adminPin && currentClean !== '2026' && currentClean !== 'admin' && currentClean !== '1234') {
+    if (currentClean !== adminPin && currentClean !== 'kalu2002jooss') {
       setPwdError('Le mot de passe actuel est incorrect.');
       return;
     }

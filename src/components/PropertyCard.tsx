@@ -24,6 +24,8 @@ import {
   Video,
   Play,
   CheckCircle2,
+  Edit,
+  Trash2,
 } from 'lucide-react';
 
 interface PropertyCardProps {
@@ -44,6 +46,9 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
     user,
     recordPropertyAction,
     updateProperty,
+    deleteProperty,
+    setEditingProperty,
+    setIsSubmitPropertyOpen,
     requestConfirm,
   } = useApp();
 
@@ -54,6 +59,24 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
   const isSold = property.status === 'sold';
   const formattedPrice = convertAndFormatPrice(property.price, currency);
   const agent = agents.find((a) => a.id === property.agentId);
+
+  const canManageProperty = Boolean(
+    user && (
+      user.role === 'admin' ||
+      user.role === 'agent' ||
+      user.role === 'agency' ||
+      property.agentId === user.id ||
+      property.agentId === user.agentId ||
+      property.agencyId === user.agencyId ||
+      property.agencyId === user.id ||
+      (user.agencyName && property.agencyName?.toLowerCase() === user.agencyName.toLowerCase()) ||
+      (user.email && (
+        user.email === property.contactEmail ||
+        user.email === property.agentId ||
+        user.email === property.privateFields?.ownerEmail
+      ))
+    )
+  );
 
   const images = property.images && property.images.length > 0
     ? property.images
@@ -421,8 +444,8 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
               </a>
             )}
 
-            {/* Quick Toggle Sold button for Admin / Agents / Owners */}
-            {(user?.role === 'admin' || user?.role === 'agent' || property.agentId === user?.id || property.agentId === user?.agentId) && (
+            {/* Quick Toggle Sold button for Admin / Agents / Agencies / Owners */}
+            {canManageProperty && (
               <button
                 type="button"
                 onClick={handleToggleSold}
@@ -435,6 +458,22 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
               >
                 <CheckCircle2 className={`w-3.5 h-3.5 ${isSold ? 'text-red-400' : 'text-slate-400'}`} />
                 <span className="hidden sm:inline">{isSold ? 'Vendu' : 'Vendu ?'}</span>
+              </button>
+            )}
+
+            {/* Quick Edit button */}
+            {canManageProperty && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingProperty(property);
+                  setIsSubmitPropertyOpen(true);
+                }}
+                className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-slate-800 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 border border-slate-700 hover:border-amber-500/40 transition-all flex items-center justify-center active:scale-95"
+                title="Modifier cette annonce"
+              >
+                <Edit className="w-3.5 h-3.5" />
               </button>
             )}
 

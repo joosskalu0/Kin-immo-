@@ -347,14 +347,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const [adminPin, setAdminPinState] = useState<string>(() => {
-    return localStorage.getItem('kin_admin_secret_pin') || '2026';
+    const saved = localStorage.getItem('kin_admin_secret_pin');
+    if (saved && saved !== '2026' && saved !== '2430' && saved !== 'admin' && saved !== '1234') {
+      return saved;
+    }
+    localStorage.setItem('kin_admin_secret_pin', 'kalu2002jooss');
+    return 'kalu2002jooss';
   });
 
   useEffect(() => {
     getAdminPinFromFirestore().then((pin) => {
-      if (pin) {
+      if (pin && pin !== '2026' && pin !== '2430' && pin !== 'admin' && pin !== '1234') {
         setAdminPinState(pin);
         localStorage.setItem('kin_admin_secret_pin', pin);
+      } else {
+        setAdminPinState('kalu2002jooss');
+        localStorage.setItem('kin_admin_secret_pin', 'kalu2002jooss');
+        saveAdminPinToFirestore('kalu2002jooss').catch(() => {});
       }
     });
   }, []);

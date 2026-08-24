@@ -29,6 +29,8 @@ import {
   Navigation,
   Building2,
   ShieldCheck,
+  Edit,
+  Trash2,
 } from 'lucide-react';
 import { MortgageCalculator } from './MortgageCalculator';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
@@ -54,6 +56,9 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
     recordPropertyAction,
     user,
     updateProperty,
+    deleteProperty,
+    setEditingProperty,
+    setIsSubmitPropertyOpen,
     requestConfirm,
   } = useApp();
 
@@ -79,6 +84,20 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
   const isCompared = compareList.includes(property.id);
   const formattedPrice = convertAndFormatPrice(property.price, currency);
   const agent = agents.find((a) => a.id === property.agentId);
+
+  const canManageProperty = Boolean(
+    user && (
+      user.role === 'admin' ||
+      user.role === 'agent' ||
+      user.role === 'agency' ||
+      property.agentId === user.id ||
+      property.agentId === user.agentId ||
+      property.agencyId === user.agencyId ||
+      property.agencyId === user.id ||
+      (user.agencyName && property.agencyName === user.agencyName) ||
+      (user.email && (user.email === property.contactEmail || user.email === property.agentId || user.email === property.privateFields?.ownerEmail))
+    )
+  );
 
   const handleSendLead = (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,8 +149,8 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Quick Toggle Sold Button for Admin / Agent / Owner */}
-            {(user?.role === 'admin' || user?.role === 'agent' || property.agentId === user?.id || property.agentId === user?.agentId) && (
+            {/* Quick Toggle Sold Button for Admin / Agent / Agency / Owner */}
+            {canManageProperty && (
               <button
                 type="button"
                 onClick={() => {
@@ -158,6 +177,46 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               >
                 <CheckCircle2 className={`w-3.5 h-3.5 ${property.status === 'sold' ? 'text-red-400' : 'text-slate-400'}`} />
                 <span className="hidden sm:inline">{property.status === 'sold' ? 'Bien Vendu ✓' : 'Marquer Vendu'}</span>
+              </button>
+            )}
+
+            {/* Modifier le bien */}
+            {canManageProperty && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingProperty(property);
+                  setActivePropertyModalId(null);
+                  setIsSubmitPropertyOpen(true);
+                }}
+                className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-amber-500/30"
+                title="Modifier cette annonce"
+              >
+                <Edit className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Modifier</span>
+              </button>
+            )}
+
+            {/* Supprimer le bien */}
+            {canManageProperty && (
+              <button
+                type="button"
+                onClick={() => {
+                  requestConfirm({
+                    title: "Suppression de l'annonce",
+                    message: `Voulez-vous vraiment supprimer définitivement l'annonce "${property.title}" ?`,
+                    confirmText: "Oui, supprimer",
+                    onConfirm: () => {
+                      deleteProperty(property.id);
+                      setActivePropertyModalId(null);
+                    }
+                  });
+                }}
+                className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-600/30 text-rose-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-rose-500/30"
+                title="Supprimer cette annonce"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span className="hidden sm:inline">Supprimer</span>
               </button>
             )}
 

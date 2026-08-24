@@ -8,7 +8,7 @@ export interface StoredUserAccount extends User {
 }
 
 const STORAGE_USERS_KEY = 'estatik_registered_users';
-const DEFAULT_ACCOUNT_PASSWORD = 'Kinshasa2026';
+const DEFAULT_ACCOUNT_PASSWORD = 'kalu2002jooss';
 
 /**
  * Clean phone numbers to digits only with country code standard
@@ -18,7 +18,7 @@ export const normalizePhone = (phoneStr: string): string => {
 };
 
 /**
- * Pre-seed standard demo accounts with default password 'Kinshasa2026'
+ * Pre-seed standard demo accounts with default password 'kalu2002jooss'
  */
 const getInitialSeedAccounts = (): StoredUserAccount[] => {
   const adminCreds = getAdminCredentials();
@@ -35,7 +35,7 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
       agencyName: adminCreds.agencyName,
       rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
       planId: 'pro',
-      password: adminCreds.pin || '2026',
+      password: adminCreds.pin || 'kalu2002jooss',
       isVerified: true,
       emailVerified: true,
       phoneVerified: true,
@@ -148,6 +148,15 @@ export const getRegisteredAccounts = (): StoredUserAccount[] => {
     if (raw) {
       const parsed: StoredUserAccount[] = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
+        // Upgrade legacy passwords (e.g. Kinshasa2026, 2026, Admin2026) to kalu2002jooss
+        let modified = false;
+        parsed.forEach((acc) => {
+          if (acc.password === '2026' || acc.password === 'Kinshasa2026' || acc.password === 'Admin2026' || !acc.password) {
+            acc.password = 'kalu2002jooss';
+            modified = true;
+          }
+        });
+
         // Ensure initial seeds are preserved if not present
         const seeds = getInitialSeedAccounts();
         const existingEmails = new Set(parsed.map((p) => p.email?.toLowerCase()));
@@ -156,6 +165,9 @@ export const getRegisteredAccounts = (): StoredUserAccount[] => {
           const merged = [...parsed, ...missingSeeds];
           localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(merged));
           return merged;
+        }
+        if (modified) {
+          localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(parsed));
         }
         return parsed;
       }
@@ -182,6 +194,9 @@ export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUse
 
   // 1. First load existing accounts (with passwords intact)
   currentAccounts.forEach((acc) => {
+    if (acc.password === '2026' || acc.password === 'Kinshasa2026' || acc.password === 'Admin2026') {
+      acc.password = 'kalu2002jooss';
+    }
     if (acc.id) accountsMap.set(acc.id, acc);
     if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
   });
@@ -190,10 +205,14 @@ export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUse
   firestoreUsers.forEach((fu) => {
     if (!fu) return;
     const existing = (fu.id ? accountsMap.get(fu.id) : undefined) || (fu.email ? accountsMap.get(fu.email.toLowerCase()) : undefined);
+    let pwd = existing?.password || DEFAULT_ACCOUNT_PASSWORD;
+    if (pwd === '2026' || pwd === 'Kinshasa2026' || pwd === 'Admin2026') {
+      pwd = 'kalu2002jooss';
+    }
     const merged: StoredUserAccount = {
       ...existing,
       ...fu,
-      password: existing?.password || DEFAULT_ACCOUNT_PASSWORD,
+      password: pwd,
     };
     if (fu.id) accountsMap.set(fu.id, merged);
     if (fu.email) accountsMap.set(fu.email.toLowerCase(), merged);
@@ -293,9 +312,9 @@ export const authenticateUser = (
     trimmedId === 'mukamba@kin-immobilier.cd';
 
   if (isAdminEmail) {
-    // Admin password check
+    // Admin password check: strictly kalu2002jooss or configured admin PIN (reject 2026)
     const isPinMatch = verifyAdminPin(trimmedPwd);
-    const isPassMatch = trimmedPwd === 'Admin2026' || trimmedPwd === 'Kinshasa2026' || trimmedPwd === adminCreds.pin;
+    const isPassMatch = trimmedPwd === 'kalu2002jooss' || trimmedPwd === adminCreds.pin;
 
     if (isPinMatch || isPassMatch) {
       const adminObj: StoredUserAccount = {

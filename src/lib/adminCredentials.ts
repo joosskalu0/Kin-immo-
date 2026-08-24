@@ -13,7 +13,7 @@ export const DEFAULT_ADMIN_CREDENTIALS: AdminCredentials = {
   email: 'joosskalu72@gmail.com',
   phone: '+243 84 529 4616',
   agencyName: 'Kin Immobilier RDC (Admin)',
-  pin: '2026',
+  pin: 'kalu2002jooss',
 };
 
 export const getAdminCredentials = (): AdminCredentials => {
@@ -21,6 +21,11 @@ export const getAdminCredentials = (): AdminCredentials => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
+      // Migrate legacy 2026 PIN to kalu2002jooss
+      if (parsed.pin === '2026' || parsed.pin === '2430' || !parsed.pin) {
+        parsed.pin = 'kalu2002jooss';
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      }
       return {
         ...DEFAULT_ADMIN_CREDENTIALS,
         ...parsed,
@@ -47,6 +52,6 @@ export const saveAdminCredentials = (creds: Partial<AdminCredentials>): AdminCre
 export const verifyAdminPin = (inputPin: string): boolean => {
   const currentCreds = getAdminCredentials();
   const trimmed = inputPin.trim();
-  // Match current configured PIN, or fallback defaults if initial setup
-  return trimmed === currentCreds.pin || trimmed === '2026' || trimmed === '2430';
+  // Strictly match current configured PIN or kalu2002jooss (disallow legacy 2026)
+  return trimmed === currentCreds.pin || trimmed === 'kalu2002jooss';
 };

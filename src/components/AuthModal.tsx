@@ -400,7 +400,7 @@ export const AuthModal: React.FC = () => {
   // Save finalized user and close modal
   const completeAuthentication = (userToSave: User, msg: string) => {
     // Save account with password to persistent authStore
-    const userPass = password || (userToSave as any).password || 'Kinshasa2026';
+    const userPass = password || (userToSave as any).password || 'kalu2002jooss';
     registerUserAccount(userToSave, userPass);
 
     saveUserToFirestore(userToSave).catch((err) => console.error('Error saving user to Firestore:', err));
