@@ -62,9 +62,9 @@ export const SearchWidget: React.FC = () => {
   ];
 
   return (
-    <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-slate-100 transition-all max-w-5xl mx-auto">
+    <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4 text-slate-800 transition-all max-w-5xl mx-auto">
       {/* Property Status Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
         {[
           { id: 'all', label: 'Tous' },
           { id: 'for-sale', label: 'A Vendre' },
@@ -77,8 +77,8 @@ export const SearchWidget: React.FC = () => {
             onClick={() => setFilters((prev) => ({ ...prev, status: tab.id as any }))}
             className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
               (filters.status || 'all') === tab.id
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
             }`}
           >
             {tab.label}
@@ -90,7 +90,7 @@ export const SearchWidget: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-stretch">
         {/* Commune de Kinshasa Picker */}
         <div className="sm:col-span-4 relative">
-          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-400 pointer-events-none">
+          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-600 pointer-events-none">
             <Compass className="w-4 h-4" />
           </div>
           <select
@@ -103,7 +103,7 @@ export const SearchWidget: React.FC = () => {
                 quartier: 'all', // Reset quartier when commune changes
               }));
             }}
-            className="w-full h-12 bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-4 py-3 text-xs text-white font-medium focus:outline-none focus:border-emerald-500 transition-colors"
+            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-xs text-slate-900 font-semibold focus:outline-none focus:border-emerald-600 transition-colors"
           >
             <option value="all">Toutes les Communes (24)</option>
             <optgroup label="Lukunga (Centre & Résidentiel)">
@@ -131,7 +131,7 @@ export const SearchWidget: React.FC = () => {
 
         {/* Keyword / Address / Avenue Input */}
         <div className="sm:col-span-5 relative">
-          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none">
+          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
             <Search className="w-4 h-4" />
           </div>
           <input
@@ -139,7 +139,7 @@ export const SearchWidget: React.FC = () => {
             value={filters.searchQuery || ''}
             onChange={(e) => setFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
             placeholder="Quartier, Avenue (ex: 30 Juin, Macampagne)..."
-            className="w-full h-12 bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-4 py-3 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 transition-colors"
           />
         </div>
 
@@ -148,7 +148,7 @@ export const SearchWidget: React.FC = () => {
           <select
             value={filters.type || 'all'}
             onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value as any }))}
-            className="w-full h-12 bg-slate-950 border border-slate-800 rounded-2xl px-3 py-3 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl px-3 py-3 text-xs text-slate-800 font-semibold focus:outline-none focus:border-emerald-600 transition-colors"
           >
             <option value="all">Type: Tous</option>
             <option value="apartment">Appartement</option>
@@ -163,7 +163,7 @@ export const SearchWidget: React.FC = () => {
         <div className="sm:col-span-1">
           <button
             onClick={() => {}}
-            className="w-full h-12 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center font-bold shadow-lg shadow-rose-500/25 transition-all hover:scale-105 active:scale-95"
+            className="w-full h-12 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center font-bold shadow-md shadow-rose-500/20 transition-all hover:scale-105 active:scale-95"
             title="Rechercher à Kinshasa"
           >
             <Search className="w-5 h-5 stroke-[2.5]" />
@@ -173,8 +173,8 @@ export const SearchWidget: React.FC = () => {
 
       {/* Quick Commune Chips */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
-        <span className="text-[11px] text-slate-400 font-medium shrink-0 flex items-center gap-1">
-          <MapPin className="w-3 h-3 text-emerald-400" /> Communes :
+        <span className="text-[11px] text-slate-500 font-semibold shrink-0 flex items-center gap-1">
+          <MapPin className="w-3 h-3 text-emerald-600" /> Communes :
         </span>
         {popularQuickCommunes.map((qc) => {
           const isSelected = (filters.commune || 'all') === qc.id;
@@ -190,8 +190,8 @@ export const SearchWidget: React.FC = () => {
               }
               className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                 isSelected
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
-                  : 'bg-slate-950/80 text-slate-400 hover:text-white border border-slate-800'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
               }`}
             >
               {qc.label}
@@ -204,14 +204,14 @@ export const SearchWidget: React.FC = () => {
       <div className="flex items-center justify-between pt-1">
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="text-xs font-bold text-slate-300 hover:text-emerald-400 flex items-center gap-1.5 transition-colors"
+          className="text-xs font-bold text-slate-700 hover:text-emerald-700 flex items-center gap-1.5 transition-colors"
         >
-          <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Filtres avancés (Quartier, Avenue, Prix, Champs Kinshasa) {showAdvanced ? '▲' : '▼'}</span>
+          <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Filtres avancés (Quartier, Avenue, Prix, Spécificités) {showAdvanced ? '▲' : '▼'}</span>
         </button>
 
         {filters.commune && filters.commune !== 'all' && (
-          <span className="text-[11px] text-emerald-400 font-medium">
+          <span className="text-[11px] text-emerald-700 font-bold">
             Filtre actif : {filters.commune} {filters.quartier && filters.quartier !== 'all' ? `› ${filters.quartier}` : ''}
           </span>
         )}
@@ -219,25 +219,25 @@ export const SearchWidget: React.FC = () => {
 
       {/* Advanced Filters Drawer */}
       {showAdvanced && (
-        <div className="pt-4 border-t border-slate-800 space-y-4 text-xs">
+        <div className="pt-4 border-t border-slate-200 space-y-4 text-xs">
           {/* Quartier & Avenue Deep Filters */}
-          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-            <div className="font-bold text-emerald-400 flex items-center gap-2">
-              <Navigation className="w-4 h-4 text-emerald-400" />
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="font-bold text-emerald-800 flex items-center gap-2">
+              <Navigation className="w-4 h-4 text-emerald-600" />
               Filtrer par Quartier & Avenue de Kinshasa
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Quartier dropdown or input */}
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">
+                <label className="block text-slate-600 mb-1 font-semibold">
                   Quartier {selectedCommune !== 'all' ? `(Commune de ${selectedCommune})` : ''}
                 </label>
                 {selectedCommune !== 'all' && availableQuartiers.length > 0 ? (
                   <select
                     value={filters.quartier || 'all'}
                     onChange={(e) => setFilters((prev) => ({ ...prev, quartier: e.target.value }))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-emerald-600"
                   >
                     <option value="all">Tous les quartiers de {selectedCommune}</option>
                     {availableQuartiers.map((q) => (
@@ -250,14 +250,14 @@ export const SearchWidget: React.FC = () => {
                     placeholder="Saisir un quartier (ex: Macampagne, Batetela...)"
                     value={filters.quartier && filters.quartier !== 'all' ? filters.quartier : ''}
                     onChange={(e) => setFilters((prev) => ({ ...prev, quartier: e.target.value }))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
                   />
                 )}
               </div>
 
               {/* Avenue input with suggestions */}
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">
+                <label className="block text-slate-600 mb-1 font-semibold">
                   Avenue / Boulevard
                 </label>
                 <input
@@ -266,7 +266,7 @@ export const SearchWidget: React.FC = () => {
                   placeholder="ex: Boulevard du 30 Juin, Av. des Écuries..."
                   value={filters.avenue || ''}
                   onChange={(e) => setFilters((prev) => ({ ...prev, avenue: e.target.value }))}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
                 />
                 <datalist id="search-avenue-datalist">
                   {popularAvenues.map((av) => (
@@ -280,7 +280,7 @@ export const SearchWidget: React.FC = () => {
           {/* Price & Specs Sliders */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-slate-400 mb-1 font-semibold">Prix Max: {(isNaN(filters.maxPrice as number) ? 5000000 : (filters.maxPrice || 5000000)).toLocaleString()} $</label>
+              <label className="block text-slate-700 mb-1 font-bold">Prix Max: {(isNaN(filters.maxPrice as number) ? 5000000 : (filters.maxPrice || 5000000)).toLocaleString()} $</label>
               <input
                 type="range"
                 min={1000}
@@ -291,12 +291,12 @@ export const SearchWidget: React.FC = () => {
                   const val = Number(e.target.value);
                   setFilters((prev) => ({ ...prev, maxPrice: isNaN(val) ? 5000000 : val }));
                 }}
-                className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
+                className="w-full accent-emerald-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1 font-semibold">Min Chambres: {isNaN(filters.minBedrooms as number) ? 0 : (filters.minBedrooms || 0)}</label>
+              <label className="block text-slate-700 mb-1 font-bold">Min Chambres: {isNaN(filters.minBedrooms as number) ? 0 : (filters.minBedrooms || 0)}</label>
               <input
                 type="range"
                 min={0}
@@ -306,12 +306,12 @@ export const SearchWidget: React.FC = () => {
                   const val = Number(e.target.value);
                   setFilters((prev) => ({ ...prev, minBedrooms: isNaN(val) ? 0 : val }));
                 }}
-                className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
+                className="w-full accent-emerald-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1 font-semibold">Surface Min: {isNaN(filters.minArea as number) ? 0 : (filters.minArea || 0)} m²</label>
+              <label className="block text-slate-700 mb-1 font-bold">Surface Min: {isNaN(filters.minArea as number) ? 0 : (filters.minArea || 0)} m²</label>
               <input
                 type="range"
                 min={0}
@@ -322,23 +322,23 @@ export const SearchWidget: React.FC = () => {
                   const val = Number(e.target.value);
                   setFilters((prev) => ({ ...prev, minArea: isNaN(val) ? 0 : val }));
                 }}
-                className="w-full accent-emerald-500 h-2 bg-slate-950 rounded-lg cursor-pointer"
+                className="w-full accent-emerald-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
               />
             </div>
           </div>
 
-          {/* DYNAMIC CUSTOM FIELDS SEARCH FILTER (FIELDS BUILDER) */}
+          {/* DYNAMIC CUSTOM FIELDS SEARCH FILTER */}
           {searchableCustomFields.length > 0 && (
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-              <div className="font-bold text-emerald-400 flex items-center gap-2">
-                <Zap className="w-4 h-4 text-emerald-400" />
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="font-bold text-emerald-800 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-emerald-600" />
                 Spécificités Kinshasa (Titre Foncier, Groupe Électrogène, Forage Eau)
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {searchableCustomFields.map((field) => (
                   <div key={field.id}>
-                    <label className="block text-slate-400 mb-1 font-medium">
+                    <label className="block text-slate-700 mb-1 font-semibold">
                       {field.label['fr'] || field.key}
                     </label>
 
@@ -346,7 +346,7 @@ export const SearchWidget: React.FC = () => {
                       <select
                         value={filters.customFields?.[field.key] || ''}
                         onChange={(e) => handleCustomFieldChange(field.key, e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-600"
                       >
                         <option value="">Tous</option>
                         {field.options?.map((opt) => (
@@ -361,7 +361,7 @@ export const SearchWidget: React.FC = () => {
                         placeholder="Rechercher..."
                         value={filters.customFields?.[field.key] || ''}
                         onChange={(e) => handleCustomFieldChange(field.key, e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-600"
                       />
                     )}
                   </div>
@@ -374,7 +374,7 @@ export const SearchWidget: React.FC = () => {
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
             <button
               onClick={resetFilters}
-              className="text-slate-400 hover:text-white font-semibold flex items-center gap-1 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800"
+              className="text-slate-700 hover:text-slate-900 font-semibold flex items-center gap-1 bg-white px-3 py-1.5 rounded-xl border border-slate-300 shadow-sm"
             >
               <RotateCcw className="w-3.5 h-3.5" /> Réinitialiser les filtres
             </button>
@@ -385,11 +385,11 @@ export const SearchWidget: React.FC = () => {
                 placeholder="Nom de l'alerte..."
                 value={saveSearchTitle}
                 onChange={(e) => setSaveSearchTitle(e.target.value)}
-                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                className="bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
               />
               <button
                 onClick={handleSaveSearchTrigger}
-                className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl shadow-md transition-all flex items-center gap-1"
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm transition-all flex items-center gap-1"
               >
                 <BookmarkCheck className="w-3.5 h-3.5" />
                 {savedSuccess ? '✓ Sauvegardé !' : 'Sauvegarder'}

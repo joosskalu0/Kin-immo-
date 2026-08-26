@@ -31,10 +31,13 @@ import {
   ShieldCheck,
   Edit,
   Trash2,
+  Eye,
+  Layers,
 } from 'lucide-react';
 import { MortgageCalculator } from './MortgageCalculator';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
 import { SocialShareBar } from './SocialShareBar';
+import { ScheduleVisitModal } from './ScheduleVisitModal';
 
 interface PropertyDetailModalProps {
   onOpenShareModal: (propertyId: string) => void;
@@ -62,8 +65,10 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
     requestConfirm,
   } = useApp();
 
-  const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'video' | 'calculator'>('photos');
+  const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'video' | 'virtual360' | 'calculator'>('photos');
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [activeVirtualRoom, setActiveVirtualRoom] = useState(0);
+  const [isScheduleVisitOpen, setIsScheduleVisitOpen] = useState(false);
 
   // Tour / Contact Form State
   const [requestType, setRequestType] = useState<'info' | 'tour'>('info');
@@ -220,6 +225,16 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               </button>
             )}
 
+            {/* Programmer une Visite */}
+            <button
+              onClick={() => setIsScheduleVisitOpen(true)}
+              className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/20 active:scale-95"
+              title="Programmer une visite sur place ou vidéo"
+            >
+              <Calendar className="w-3.5 h-3.5 text-slate-950" />
+              <span className="hidden sm:inline">Visiter ce bien</span>
+            </button>
+
             {/* Download PDF */}
             <button
               onClick={handleDownloadPDF}
@@ -309,6 +324,18 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               )}
 
               <button
+                onClick={() => setActiveMediaTab('virtual360')}
+                className={`py-2.5 px-4 font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                  activeMediaTab === 'virtual360'
+                    ? 'border-emerald-500 text-emerald-400'
+                    : 'border-transparent text-slate-400'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5 text-teal-400" />
+                Visite 360° Virtuelle
+              </button>
+
+              <button
                 onClick={() => setActiveMediaTab('calculator')}
                 className={`py-2.5 px-4 font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
                   activeMediaTab === 'calculator'
@@ -392,6 +419,87 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   >
                     Retourner à la galerie photos ({property.images.length})
                   </button>
+                </div>
+              </div>
+            )}
+
+            {activeMediaTab === 'virtual360' && (
+              <div className="space-y-4 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"></span>
+                    </span>
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">
+                      Simulateur de Visite Virtuelle 360°
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-teal-400 font-semibold bg-teal-500/10 px-2.5 py-1 rounded-full border border-teal-500/20">
+                    Mode Interactif
+                  </span>
+                </div>
+
+                {/* Virtual Room Selector Tabs */}
+                <div className="flex gap-2 overflow-x-auto pb-1 text-xs">
+                  {[
+                    { title: 'Grand Salon VIP', tag: 'Réception' },
+                    { title: 'Suite Parentale', tag: 'Chambre 1' },
+                    { title: 'Cuisine Équipée', tag: 'Moderne' },
+                    { title: 'Terrasse & Extérieur', tag: 'Piscine / Vue' },
+                  ].map((room, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveVirtualRoom(idx)}
+                      className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all border ${
+                        activeVirtualRoom === idx
+                          ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-md shadow-teal-500/20'
+                          : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+                      }`}
+                    >
+                      <span>{room.title}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Simulated 360 viewer canvas */}
+                <div className="relative aspect-video rounded-2xl overflow-hidden border border-slate-800 group select-none">
+                  <img
+                    src={
+                      property.images[activeVirtualRoom % property.images.length] ||
+                      property.images[0]
+                    }
+                    alt="Visite 360"
+                    className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
+                  />
+                  <div className="absolute inset-0 bg-slate-950/20 pointer-events-none" />
+
+                  {/* 360 Badge */}
+                  <div className="absolute top-3 left-3 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-teal-400 font-black text-xs flex items-center gap-1.5 shadow-lg">
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Vue 360° - Déplacez le curseur pour explorer</span>
+                  </div>
+
+                  {/* Hotspots */}
+                  <div className="absolute top-1/2 left-1/3 -translate-x-1/2 -translate-y-1/2 group-hover:scale-110 transition-transform">
+                    <button
+                      onClick={() => setIsScheduleVisitOpen(true)}
+                      className="bg-emerald-500/90 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-full shadow-xl flex items-center gap-1 hover:bg-emerald-400 border border-white/20 animate-bounce"
+                    >
+                      <Calendar className="w-3 h-3" />
+                      <span>Voir en vrai (Visite)</span>
+                    </button>
+                  </div>
+
+                  <div className="absolute bottom-4 right-4 flex items-center gap-2">
+                    <button
+                      onClick={() => setIsScheduleVisitOpen(true)}
+                      className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-lg transition-all"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Programmer la Visite Réelle</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -728,6 +836,13 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
           </div>
         </div>
       </div>
+
+      {/* Interactive Schedule Visit Modal */}
+      <ScheduleVisitModal
+        property={property}
+        isOpen={isScheduleVisitOpen}
+        onClose={() => setIsScheduleVisitOpen(false)}
+      />
     </div>
   );
 };

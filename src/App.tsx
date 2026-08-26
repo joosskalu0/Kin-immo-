@@ -17,6 +17,11 @@ import { CompareModal } from './components/CompareModal';
 import { AuthModal } from './components/AuthModal';
 import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 import { SocialShareModal } from './components/SocialShareModal';
+import { QuickInteractiveFilters } from './components/QuickInteractiveFilters';
+import { KinshasaNeighborhoodsRadar } from './components/KinshasaNeighborhoodsRadar';
+import { CompareDock } from './components/CompareDock';
+import { InteractiveAssistantModal } from './components/InteractiveAssistantModal';
+import { LiveActivityTicker } from './components/LiveActivityTicker';
 import {
   Building2,
   MapPin,
@@ -28,6 +33,8 @@ import {
   Flame,
   ArrowUpDown,
   Zap,
+  Bot,
+  MessageSquareCode,
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -36,6 +43,7 @@ const AppContent: React.FC = () => {
   const [currentTab, setCurrentTab] = useState('home'); // 'home' | 'map' | 'agents' | 'shortcodes' | 'dashboard' | 'wishlist'
   const [viewLayout, setViewLayout] = useState<'grid' | 'split'>('grid');
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
   useEffect(() => {
     initAllTracking();
@@ -152,61 +160,79 @@ const AppContent: React.FC = () => {
   const propertyToShare = properties.find((p) => p.id === sharePropertyId) || null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-      <Header currentTab={currentTab} setCurrentTab={setCurrentTab} />
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+      <Header
+        currentTab={currentTab}
+        setCurrentTab={setCurrentTab}
+        onOpenAssistant={() => setIsAssistantOpen(true)}
+      />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8 pb-20 lg:pb-8 space-y-6 sm:space-y-8">
         {/* TAB 1: HOME / PROPERTY LISTINGS */}
         {currentTab === 'home' && (
           <div className="space-y-6 sm:space-y-8">
             {/* Hero Section */}
-            <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 p-5 sm:p-12 shadow-2xl">
-              <div className="absolute top-0 right-0 w-1/2 h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-500/10 via-teal-500/5 to-transparent pointer-events-none" />
+            <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 border border-emerald-800/40 p-6 sm:p-12 shadow-xl text-white">
+              <div className="absolute top-0 right-0 w-1/2 h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-400/20 via-teal-400/10 to-transparent pointer-events-none" />
 
               <div className="max-w-2xl space-y-4 relative z-10">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold uppercase tracking-wider">
-                  <Sparkles className="w-3.5 h-3.5" /> KIN IMMOBILIER • Plateforme Officielle RDC
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-semibold uppercase tracking-wider">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-300" /> KIN IMMOBILIER • Plateforme Officielle RDC
                 </div>
 
                 <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
                   Trouvez Votre Bien d'Exception à Kinshasa
                 </h1>
 
-                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-normal">
                   Immobilier de luxe et opportunités uniques à Kinshasa (Gombe, Ngaliema, Macampagne, Limete, Kintambo). Filtrez par Titre Foncier, autonomie Solaire/Groupe, Forage d'eau et Sécurité avec carte interactive AJAX.
                 </p>
 
                 <div className="pt-2 flex flex-wrap gap-3">
                   <button
-                    onClick={() => setIsFieldsBuilderOpen(true)}
-                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2"
+                    onClick={() => setIsAssistantOpen(true)}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/30 transition-all flex items-center gap-2 active:scale-95"
                   >
-                    <SlidersHorizontal className="w-4 h-4" />
+                    <Bot className="w-4 h-4 text-slate-950" />
+                    <span>Conseiller IA & Recherche Magique</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsFieldsBuilderOpen(true)}
+                    className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 backdrop-blur-md transition-all flex items-center gap-2"
+                  >
+                    <SlidersHorizontal className="w-4 h-4 text-emerald-300" />
                     Open Fields Builder
                   </button>
 
                   <button
                     onClick={() => setCurrentTab('map')}
-                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition-all flex items-center gap-2"
+                    className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs border border-white/20 backdrop-blur-md transition-all flex items-center gap-2"
                   >
-                    <MapPin className="w-4 h-4 text-emerald-400" />
+                    <MapPin className="w-4 h-4 text-emerald-300" />
                     Map View (AJAX)
                   </button>
                 </div>
               </div>
             </div>
 
+            {/* Quick 1-Click Interactive Badges & Filters */}
+            <QuickInteractiveFilters />
+
             {/* Search Widget */}
             <SearchWidget />
+
+            {/* Interactive Radar of Kinshasa Communes */}
+            <KinshasaNeighborhoodsRadar onOpenMap={() => setCurrentTab('map')} />
 
             {/* Explore Popular Kinshasa Communes Section */}
             <div className="space-y-4 pt-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-white tracking-tight">
+                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">
                     Communes & Quartiers Prisés à Kinshasa
                   </h2>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500">
                     Découvrez les meilleures offres dans les zones les plus recherchées
                   </p>
                 </div>
@@ -242,22 +268,22 @@ const AppContent: React.FC = () => {
                   <div
                     key={loc.name}
                     onClick={() => setFilters((prev) => ({ ...prev, searchQuery: loc.name }))}
-                    className="group relative h-40 rounded-2xl overflow-hidden cursor-pointer border border-slate-800 hover:border-emerald-500/50 transition-all shadow-lg"
+                    className="group relative h-40 rounded-2xl overflow-hidden cursor-pointer border border-slate-200 hover:border-emerald-500 transition-all shadow-sm hover:shadow-md"
                   >
                     <img
                       src={loc.image}
                       alt={loc.name}
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/30 to-transparent" />
                     <div className="absolute bottom-3 left-3 right-3">
-                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-400 transition-colors">
+                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition-colors">
                         {loc.name}
                       </h3>
-                      <p className="text-[10px] text-slate-300 font-medium">
+                      <p className="text-[10px] text-slate-200 font-medium">
                         {loc.desc}
                       </p>
-                      <span className="text-[10px] text-emerald-400 font-bold block mt-0.5">
+                      <span className="text-[10px] text-emerald-300 font-bold block mt-0.5">
                         {loc.count} propriétés
                       </span>
                     </div>
@@ -267,19 +293,19 @@ const AppContent: React.FC = () => {
             </div>
 
             {/* Results Toolbar */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/60 p-4 rounded-2xl border border-slate-800 text-xs">
-              <div className="font-semibold text-slate-300">
-                <span className="text-emerald-400 font-bold text-sm">{sortedProperties.length}</span> propriétés disponibles
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-xs">
+              <div className="font-semibold text-slate-700">
+                <span className="text-emerald-600 font-bold text-sm">{sortedProperties.length}</span> propriétés disponibles
               </div>
 
               <div className="flex items-center gap-3 ms-auto">
                 {/* Sort dropdown */}
                 <div className="flex items-center gap-2">
-                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
                   <select
                     value={filters.sortBy || 'newest'}
                     onChange={(e) => setFilters((prev) => ({ ...prev, sortBy: e.target.value as any }))}
-                    className="bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-emerald-500"
+                    className="bg-slate-50 border border-slate-300 text-slate-800 rounded-xl px-3 py-1.5 focus:outline-none focus:border-emerald-600 text-xs font-medium"
                   >
                     <option value="newest">Plus récentes</option>
                     <option value="price-asc">Prix (Croissant)</option>
@@ -290,11 +316,11 @@ const AppContent: React.FC = () => {
                 </div>
 
                 {/* View Layout Switcher */}
-                <div className="flex bg-slate-950 rounded-xl p-1 border border-slate-800">
+                <div className="flex bg-slate-100 rounded-xl p-1 border border-slate-200">
                   <button
                     onClick={() => setViewLayout('grid')}
                     className={`p-1.5 rounded-lg transition-colors ${
-                      viewLayout === 'grid' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'
+                      viewLayout === 'grid' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
                     }`}
                     title="Vue Grille"
                   >
@@ -303,7 +329,7 @@ const AppContent: React.FC = () => {
                   <button
                     onClick={() => setViewLayout('split')}
                     className={`p-1.5 rounded-lg transition-colors ${
-                      viewLayout === 'split' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'
+                      viewLayout === 'split' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
                     }`}
                     title="Vue Mixte (Carte + Liste)"
                   >
@@ -334,12 +360,12 @@ const AppContent: React.FC = () => {
             )}
 
             {/* Meet Our Top-rated Kinshasa Agents Section */}
-            <div className="pt-10 space-y-6 border-t border-slate-800">
+            <div className="pt-10 space-y-6 border-t border-slate-200">
               <div className="text-center max-w-xl mx-auto space-y-2">
-                <h2 className="text-2xl font-extrabold text-white tracking-tight">
+                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
                   Nos Experts Immobiliers à Kinshasa
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500">
                   Travaillez avec des courtiers certifiés (+243) connaissant le marché foncier de Kinshasa
                 </p>
               </div>
@@ -381,9 +407,9 @@ const AppContent: React.FC = () => {
                 ].map((agentItem, idx) => (
                   <div
                     key={idx}
-                    className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-3 hover:border-emerald-500/50 transition-all group"
+                    className="bg-white border border-slate-200 rounded-3xl p-6 text-center space-y-3 hover:border-emerald-500 transition-all shadow-sm hover:shadow-md group"
                   >
-                    <div className="relative w-20 h-20 mx-auto rounded-full overflow-hidden ring-2 ring-emerald-500/40 group-hover:ring-emerald-400 group-hover:scale-105 transition-all">
+                    <div className="relative w-20 h-20 mx-auto rounded-full overflow-hidden ring-2 ring-emerald-500/30 group-hover:ring-emerald-500 group-hover:scale-105 transition-all">
                       <img
                         src={agentItem.avatar}
                         alt={agentItem.name}
@@ -391,21 +417,21 @@ const AppContent: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-400 transition-colors">
+                      <h3 className="text-sm font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">
                         {agentItem.name}
                       </h3>
-                      <p className="text-[11px] text-slate-400">{agentItem.role}</p>
-                      <p className="text-[10px] text-emerald-400 font-medium">{agentItem.agency}</p>
+                      <p className="text-[11px] text-slate-500">{agentItem.role}</p>
+                      <p className="text-[10px] text-emerald-600 font-semibold">{agentItem.agency}</p>
                     </div>
 
-                    <div className="flex items-center justify-center gap-1 text-xs text-amber-400">
+                    <div className="flex items-center justify-center gap-1 text-xs text-amber-500 font-bold">
                       <span>★ {agentItem.rating}</span>
-                      <span className="text-[10px] text-slate-500">({agentItem.reviews} avis)</span>
+                      <span className="text-[10px] text-slate-400 font-normal">({agentItem.reviews} avis)</span>
                     </div>
 
                     <button
                       onClick={() => setCurrentTab('agents')}
-                      className="text-[11px] font-semibold text-emerald-400 hover:underline pt-1 block mx-auto"
+                      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 hover:underline pt-1 block mx-auto"
                     >
                       Contacter l'agent →
                     </button>
@@ -416,7 +442,7 @@ const AppContent: React.FC = () => {
               <div className="text-center pt-2">
                 <button
                   onClick={() => setCurrentTab('agents')}
-                  className="px-6 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs border border-slate-800 hover:border-slate-700 transition-all inline-flex items-center gap-2"
+                  className="px-6 py-2.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs border border-slate-300 hover:border-slate-400 shadow-sm transition-all inline-flex items-center gap-2"
                 >
                   Trouver votre agent à Kinshasa →
                 </button>
@@ -445,7 +471,7 @@ const AppContent: React.FC = () => {
         {/* TAB 6: WISHLIST */}
         {currentTab === 'wishlist' && (
           <div className="space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 font-bold text-white text-lg">
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 font-bold text-slate-900 text-lg shadow-sm">
               Mes Favoris Enregistrés
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -458,6 +484,27 @@ const AppContent: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Global Floating Interactive Controls & Modals */}
+      <CompareDock />
+      <LiveActivityTicker />
+      <InteractiveAssistantModal isOpen={isAssistantOpen} onClose={() => setIsAssistantOpen(false)} />
+
+      {/* Floating Interactive AI Assistant Trigger Button */}
+      <button
+        onClick={() => setIsAssistantOpen(true)}
+        className="fixed bottom-6 right-6 z-40 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-3 rounded-2xl font-black text-xs shadow-xl shadow-emerald-600/30 flex items-center gap-2.5 hover:scale-105 active:scale-95 transition-all group border border-emerald-500"
+        title="Ouvrir le Conseiller Immobilier Interactif"
+      >
+        <div className="relative">
+          <Bot className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+          <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-200"></span>
+          </span>
+        </div>
+        <span className="hidden sm:inline">Assistant Interactif Kinshasa</span>
+      </button>
 
       {/* Global Modals */}
       <PropertyDetailModal onOpenShareModal={(id) => setSharePropertyId(id)} />
