@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { SubscriptionPlan } from '../../types';
 import {
@@ -42,6 +42,12 @@ export const AdminPlansPricingManager: React.FC = () => {
   const [newFeatureInput, setNewFeatureInput] = useState<string>('');
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (cdfExchangeRate && cdfExchangeRate > 0) {
+      setExchangeRateInput(cdfExchangeRate);
+    }
+  }, [cdfExchangeRate]);
 
   // New Plan State
   const [newPlan, setNewPlan] = useState<SubscriptionPlan>({

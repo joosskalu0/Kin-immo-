@@ -64,7 +64,9 @@ import {
   saveAgencyToFirestore,
   deleteAgencyFromFirestore,
   saveAdminPinToFirestore,
-  getAdminPinFromFirestore
+  getAdminPinFromFirestore,
+  subscribeToPricingConfig,
+  savePricingConfigToFirestore
 } from '../lib/firebase';
 
 interface AppContextType {
@@ -448,6 +450,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
+    const unsubPricing = subscribeToPricingConfig((firestorePricing) => {
+      if (firestorePricing) {
+        if (typeof firestorePricing.cdfExchangeRate === 'number' && firestorePricing.cdfExchangeRate > 0) {
+          setCdfExchangeRate(firestorePricing.cdfExchangeRate);
+          try {
+            localStorage.setItem('immocraft_cdf_exchange_rate', String(firestorePricing.cdfExchangeRate));
+          } catch {}
+        }
+        if (firestorePricing.pricingDisplayCurrency) {
+          setPricingDisplayCurrency(firestorePricing.pricingDisplayCurrency);
+          try {
+            localStorage.setItem('immocraft_pricing_display_currency', firestorePricing.pricingDisplayCurrency);
+          } catch {}
+        }
+        if (Array.isArray(firestorePricing.subscriptionPlans) && firestorePricing.subscriptionPlans.length > 0) {
+          setSubscriptionPlans(firestorePricing.subscriptionPlans);
+          try {
+            localStorage.setItem('immocraft_subscription_plans', JSON.stringify(firestorePricing.subscriptionPlans));
+          } catch {}
+        }
+      }
+    });
+
     return () => {
       unsubProperties();
       unsubFields();
@@ -456,6 +481,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubAgents();
       unsubAgencies();
       unsubUsers();
+      unsubPricing();
     };
   }, []);
 
@@ -968,6 +994,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (e) {
         console.error('Failed to save subscription plans in localStorage:', e);
       }
+      savePricingConfigToFirestore({
+        cdfExchangeRate,
+        pricingDisplayCurrency,
+        subscriptionPlans: updated,
+      }).catch(err => console.error('Firestore save pricing config error:', err));
       return updated;
     });
   };
@@ -980,6 +1011,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (e) {
         console.error('Failed to add subscription plan to localStorage:', e);
       }
+      savePricingConfigToFirestore({
+        cdfExchangeRate,
+        pricingDisplayCurrency,
+        subscriptionPlans: updated,
+      }).catch(err => console.error('Firestore add pricing config error:', err));
       return updated;
     });
   };
@@ -992,8 +1028,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (e) {
         console.error('Failed to delete subscription plan from localStorage:', e);
       }
+      savePricingConfigToFirestore({
+        cdfExchangeRate,
+        pricingDisplayCurrency,
+        subscriptionPlans: updated,
+      }).catch(err => console.error('Firestore delete pricing plan error:', err));
       return updated;
     });
+  };
+
+  const handleSetCdfExchangeRate = (rate: number) => {
+    if (typeof rate === 'number' && rate > 0) {
+      setCdfExchangeRate(rate);
+      try {
+        localStorage.setItem('immocraft_cdf_exchange_rate', String(rate));
+      } catch {}
+      savePricingConfigToFirestore({
+        cdfExchangeRate: rate,
+        pricingDisplayCurrency,
+        subscriptionPlans,
+      }).catch(err => console.error('Firestore save cdf exchange rate error:', err));
+    }
+  };
+
+  const handleSetPricingDisplayCurrency = (currency: 'CDF' | 'USD' | 'BOTH') => {
+    setPricingDisplayCurrency(currency);
+    try {
+      localStorage.setItem('immocraft_pricing_display_currency', currency);
+    } catch {}
+    savePricingConfigToFirestore({
+      cdfExchangeRate,
+      pricingDisplayCurrency: currency,
+      subscriptionPlans,
+    }).catch(err => console.error('Firestore save pricing display currency error:', err));
   };
 
   const updateAgencySubscriptionStatus = (agencyId: string, status: 'Active' | 'Expired', expiresAt?: string) => {
@@ -1376,9 +1443,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addSubscriptionPlan,
         deleteSubscriptionPlan,
         pricingDisplayCurrency,
-        setPricingDisplayCurrency,
+        setPricingDisplayCurrency: handleSetPricingDisplayCurrency,
         cdfExchangeRate,
-        setCdfExchangeRate,
+        setCdfExchangeRate: handleSetCdfExchangeRate,
         wishlist,
         toggleWishlist,
         compareList,

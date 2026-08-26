@@ -22,7 +22,8 @@ import {
   User,
   Agent,
   Agency,
-  Invoice
+  Invoice,
+  SubscriptionPlan
 } from '../types';
 import {
   initialProperties,
@@ -30,7 +31,8 @@ import {
   initialAgents,
   initialAgencies,
   initialLeads,
-  initialInvoices
+  initialInvoices,
+  initialSubscriptionPlans
 } from '../data/mockData';
 
 // Initialize Firebase App
@@ -301,6 +303,19 @@ export async function seedInitialFirestoreData() {
       });
       await batch.commit();
     }
+
+    // 8. Check & Seed Pricing Config in System Settings
+    const pricingConfigRef = doc(db, COLLECTIONS.SYSTEM_SETTINGS, 'pricingConfig');
+    const pricingSnap = await getDoc(pricingConfigRef);
+    if (!pricingSnap.exists()) {
+      console.log('Seeding initial pricing config to Firestore...');
+      await setDoc(pricingConfigRef, sanitizeForFirestore({
+        cdfExchangeRate: 2800,
+        pricingDisplayCurrency: 'CDF',
+        subscriptionPlans: initialSubscriptionPlans,
+        updatedAt: new Date().toISOString()
+      }));
+    }
   } catch (err) {
     console.error('Error seeding Firestore database:', err);
   }
@@ -403,7 +418,42 @@ export function subscribeToInvoices(callback: (invoices: Invoice[]) => void) {
   });
 }
 
+export function subscribeToPricingConfig(
+  callback: (config: {
+    cdfExchangeRate?: number;
+    pricingDisplayCurrency?: 'CDF' | 'USD' | 'BOTH';
+    subscriptionPlans?: SubscriptionPlan[];
+  } | null) => void
+) {
+  const ref = doc(db, COLLECTIONS.SYSTEM_SETTINGS, 'pricingConfig');
+  return onSnapshot(ref, (snap) => {
+    if (snap.exists()) {
+      callback(snap.data() as any);
+    } else {
+      callback(null);
+    }
+  }, (error) => {
+    console.error('Firestore pricingConfig subscription error:', error);
+  });
+}
+
 // --- Write Operations ---
+
+export async function savePricingConfigToFirestore(config: {
+  cdfExchangeRate: number;
+  pricingDisplayCurrency: 'CDF' | 'USD' | 'BOTH';
+  subscriptionPlans: SubscriptionPlan[];
+}) {
+  try {
+    const ref = doc(db, COLLECTIONS.SYSTEM_SETTINGS, 'pricingConfig');
+    await setDoc(ref, sanitizeForFirestore({
+      ...config,
+      updatedAt: new Date().toISOString()
+    }), { merge: true });
+  } catch (err) {
+    console.error('Error saving pricing config to Firestore:', err);
+  }
+}
 
 export async function savePropertyToFirestore(property: Property) {
   const ref = doc(db, COLLECTIONS.PROPERTIES, property.id);
