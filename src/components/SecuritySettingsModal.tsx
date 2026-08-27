@@ -502,7 +502,7 @@ export const SecuritySettingsModal: React.FC = () => {
 
               <p className="text-slate-400 text-[11px] leading-relaxed">
                 {user.role === 'admin'
-                  ? 'Ce mot de passe protège l\'accès à la console de base de données Firestore et aux privilèges administrateur système. Il est strictement confidentiel.'
+                  ? 'Ce mot de passe protège l\'accès à la console d\'administration, à la base de données sécurisée et aux privilèges administrateur système. Il est strictement confidentiel.'
                   : 'Ce mot de passe sécurise l\'accès à votre compte et à vos annonces. Il sera exigé lors de chacune de vos prochaines connexions.'}
               </p>
 

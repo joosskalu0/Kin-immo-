@@ -26,45 +26,45 @@ export const Footer: React.FC = () => {
             </div>
           </div>
           <p className="text-xs leading-relaxed text-slate-400">
-            La référence immobilière à Kinshasa et en République Démocratique du Congo. Recherche interactive sur carte, base de données Firestore sécurisée en temps réel et vérification des titres fonciers.
+            La référence immobilière à Kinshasa et en République Démocratique du Congo. Recherche interactive sur carte, plateforme sécurisée en temps réel et vérification certifiée des titres fonciers.
           </p>
-          <div className="flex items-center gap-2 pt-2 text-xs text-emerald-400">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            Sécurité 2FA & Badges de Vérification Kinshasa
+          <div className="flex items-center gap-2 pt-2 text-xs text-emerald-400 font-semibold">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            Sécurité Renforcée & Annonces Certifiées Kinshasa
           </div>
         </div>
 
         {/* Col 2: Quick Links */}
         <div>
-          <h4 className="text-white font-semibold text-sm mb-4">PRO Features</h4>
+          <h4 className="text-white font-semibold text-sm mb-4">Outils & Services Pro</h4>
           <ul className="space-y-2.5 text-xs">
             <li>
               <button
                 onClick={() => setIsFieldsBuilderOpen(true)}
-                className="hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+                className="hover:text-emerald-400 transition-colors flex items-center gap-1.5 text-left"
               >
-                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-                Fields Builder (Unlimited Custom Fields)
+                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                Filtres & Critères Personnalisés
               </button>
             </li>
             <li>
               <a href="#map" className="hover:text-emerald-400 transition-colors">
-                AJAX Map Search
+                Recherche Cartographique par Commune
               </a>
             </li>
             <li>
               <a href="#compare" className="hover:text-emerald-400 transition-colors">
-                Side-by-Side Property Comparison
+                Comparateur de Biens Détaillé
               </a>
             </li>
             <li>
               <a href="#agents" className="hover:text-emerald-400 transition-colors">
-                Agents & Agencies Directory (PRO)
+                Annuaire des Agents & Agences Agréés
               </a>
             </li>
             <li>
               <a href="#pdf" className="hover:text-emerald-400 transition-colors">
-                PDF Flyer Generator
+                Brochures & Fiches PDF Imprimables
               </a>
             </li>
           </ul>
@@ -75,34 +75,34 @@ export const Footer: React.FC = () => {
           <h4 className="text-white font-semibold text-sm mb-4">Contact & Siège Social</h4>
           <ul className="space-y-2.5 text-xs">
             <li className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-emerald-400" />
-              Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC
+              <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC</span>
             </li>
             <li className="flex items-center gap-2">
-              <Phone className="w-4 h-4 text-emerald-400" />
-              +243 84 529 4616
+              <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>+243 84 529 4616</span>
             </li>
             <li className="flex items-center gap-2">
-              <Mail className="w-4 h-4 text-emerald-400" />
-              joosskalu72@gmail.com
+              <Mail className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>joosskalu72@gmail.com</span>
             </li>
           </ul>
         </div>
 
         {/* Col 4: Newsletter */}
         <div className="space-y-3">
-          <h4 className="text-white font-semibold text-sm">Property Alerts</h4>
+          <h4 className="text-white font-semibold text-sm">Alertes Immobilières</h4>
           <p className="text-xs text-slate-400">
-            Subscribe to receive new listings matching your exact criteria in real-time.
+            Recevez directement par e-mail les nouvelles opportunités correspondant à vos critères à Kinshasa.
           </p>
           <div className="flex gap-2">
             <input
               type="email"
-              placeholder="Your email address..."
+              placeholder="Votre adresse e-mail..."
               className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 w-full"
             />
             <button className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold px-3 py-2 rounded-lg text-xs transition-colors shrink-0">
-              Subscribe
+              S'inscrire
             </button>
           </div>
         </div>

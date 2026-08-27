@@ -151,7 +151,7 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({ properties, height = '
       {/* Map Header Overlay */}
       <div className="absolute top-3 left-3 z-[400] bg-slate-900/90 backdrop-blur-md px-3.5 py-2 rounded-xl border border-slate-800 text-xs font-semibold text-slate-200 flex items-center gap-2 shadow-lg">
         <MapPin className="w-4 h-4 text-emerald-400" />
-        <span>Recherche Carte AJAX — {properties.length} résultats sur la carte</span>
+        <span>Carte Interactive — {properties.length} bien{properties.length > 1 ? 's' : ''} répertorié{properties.length > 1 ? 's' : ''}</span>
       </div>
     </div>
   );

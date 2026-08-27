@@ -31,7 +31,7 @@ export const CompareModal: React.FC = () => {
             </div>
             <div>
               <h3 className="text-lg font-bold text-white">
-                Comparateur de Propriétés Side-by-Side
+                Comparateur de Propriétés Détaillé
               </h3>
               <p className="text-xs text-slate-400">
                 Comparez les prix, caractéristiques et champs personnalisés jusqu'à 4 biens

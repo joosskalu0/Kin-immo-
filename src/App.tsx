@@ -185,7 +185,7 @@ const AppContent: React.FC = () => {
                 </h1>
 
                 <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-normal">
-                  Immobilier de luxe et opportunités uniques à Kinshasa (Gombe, Ngaliema, Macampagne, Limete, Kintambo). Filtrez par Titre Foncier, autonomie Solaire/Groupe, Forage d'eau et Sécurité avec carte interactive AJAX.
+                  Immobilier de luxe et opportunités uniques à Kinshasa (Gombe, Ngaliema, Macampagne, Limete, Kintambo). Filtrez par Titre Foncier, autonomie Solaire/Groupe, Forage d'eau et Sécurité avec carte interactive en direct.
                 </p>
 
                 <div className="pt-2 flex flex-wrap gap-3">
@@ -202,7 +202,7 @@ const AppContent: React.FC = () => {
                     className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 backdrop-blur-md transition-all flex items-center gap-2"
                   >
                     <SlidersHorizontal className="w-4 h-4 text-emerald-300" />
-                    Open Fields Builder
+                    Filtres & Critères
                   </button>
 
                   <button
@@ -210,7 +210,7 @@ const AppContent: React.FC = () => {
                     className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs border border-white/20 backdrop-blur-md transition-all flex items-center gap-2"
                   >
                     <MapPin className="w-4 h-4 text-emerald-300" />
-                    Map View (AJAX)
+                    Carte Interactive
                   </button>
                 </div>
               </div>

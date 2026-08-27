@@ -348,7 +348,7 @@ export const PropertyFormModal: React.FC = () => {
           {[
             { num: 1, label: '1. Informations' },
             { num: 2, label: '2. Localisation' },
-            { num: 3, label: '3. Specs & Fields Builder' },
+            { num: 3, label: '3. Critères & Équipements' },
             { num: 4, label: '4. Photos & Vidéo du Bien' },
             { num: 5, label: '5. Champs Privés' },
           ].map((s) => (
@@ -809,10 +809,10 @@ export const PropertyFormModal: React.FC = () => {
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-bold text-emerald-400 text-sm flex items-center gap-2">
                     <Zap className="w-4 h-4 text-emerald-400" />
-                    Champs Personnalisés (Fields Builder)
+                    Critères & Caractéristiques Complémentaires
                   </h4>
                   <span className="text-[11px] text-slate-400">
-                    Gérés via le constructeur de champs
+                    Spécifications détaillées du bien
                   </span>
                 </div>
 

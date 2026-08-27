@@ -602,7 +602,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               <div>
                 <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2">
                   <Zap className="w-4 h-4 text-emerald-400" />
-                  Champs Personnalisés (Fields Builder)
+                  Caractéristiques & Critères Complémentaires
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {customFields

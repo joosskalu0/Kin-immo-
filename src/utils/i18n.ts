@@ -16,9 +16,9 @@ export const translations: Record<LanguageCode, Record<string, string>> = {
     properties: 'Annonces',
     mapSearch: 'Carte Interactive',
     agents: 'Agents & Agences',
-    fieldsBuilder: 'Fields Builder',
+    fieldsBuilder: 'Filtres & Critères',
     compare: 'Comparateur',
-    shortcodes: 'Widgets & Shortcodes',
+    shortcodes: 'Outils & Services',
     myDashboard: 'Tableau de Bord',
     submitProperty: 'Publier une annonce',
     login: 'Se connecter',
@@ -28,8 +28,8 @@ export const translations: Record<LanguageCode, Record<string, string>> = {
 
     // Hero & Search
     heroTitle: 'Trouvez la propriété de vos rêves',
-    heroSubtitle: 'La plateforme immobilière nouvelle génération avec champs personnalisés illimités',
-    searchPlaceholder: 'Ville, quartier, code postal ou mot-clé...',
+    heroSubtitle: 'La plateforme immobilière de référence à Kinshasa et en RDC',
+    searchPlaceholder: 'Commune, quartier (Gombe, Ngaliema, Limete...) ou référence...',
     searchButton: 'Rechercher',
     advancedSearch: 'Filtres avancés',
     allTypes: 'Tous les types',
@@ -44,7 +44,7 @@ export const translations: Record<LanguageCode, Record<string, string>> = {
     propertyCategory: 'Catégorie',
     propertyLabels: 'Labels',
     amenities: 'Équipements',
-    customFieldsFilters: 'Filtres Personnalisés (Fields Builder)',
+    customFieldsFilters: 'Critères & Filtres Complémentaires',
     clearFilters: 'Réinitialiser',
     resultsCount: 'propriétés trouvées',
 
@@ -66,7 +66,7 @@ export const translations: Record<LanguageCode, Record<string, string>> = {
     viewDetails: 'Voir détails',
     requestInfo: 'Contacter l\'agent',
     scheduleTour: 'Planifier une visite',
-    downloadPdf: 'Télécharger Flyer PDF',
+    downloadPdf: 'Fiche PDF du Bien',
     share: 'Partager',
     addToCompare: 'Comparer',
     removeFromCompare: 'Retirer du comparateur',
@@ -77,8 +77,8 @@ export const translations: Record<LanguageCode, Record<string, string>> = {
     internalNotes: 'Notes internes agent',
 
     // Fields Builder
-    fieldsBuilderTitle: 'Fields Builder (Constructeur de Champs Personnalisés)',
-    fieldsBuilderDesc: 'Créez un nombre illimité de champs personnalisés de tout type (texte, nombre, surface, fichiers, contact, zone privée).',
+    fieldsBuilderTitle: 'Configuration des Critères & Spécifications',
+    fieldsBuilderDesc: 'Personnalisez les critères de recherche et les spécifications détaillées (titre foncier, énergie, forage, groupe électrogène, etc.).',
     addField: 'Ajouter un champ',
     fieldKey: 'Clé du champ (ex: classe_energie)',
     fieldLabelFr: 'Libellé (Français)',

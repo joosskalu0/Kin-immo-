@@ -82,11 +82,11 @@ export function generatePropertyPDF(
   doc.setFontSize(9);
   doc.text(`Année de constr.: ${property.yearBuilt || 'N/C'}`, 20, 164);
 
-  // Custom Fields (Fields Builder Section)
+  // Custom Fields
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text('Champs Personnalisés (Fields Builder)', 14, 180);
+  doc.text('Caractéristiques & Critères Complémentaires', 14, 180);
 
   let currentY = 188;
   const publicCustomFields = customFieldDefs.filter(f => !f.isPrivate);

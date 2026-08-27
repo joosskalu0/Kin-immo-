@@ -63,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
               </span>
               <span className="hidden sm:inline text-slate-300">|</span>
               <span className="hidden sm:inline text-[11px] text-slate-600">
-                Base de Données Firestore Temps Réel & Recherche Carte
+                Plateforme Immobilière Certifiée • Annonces Vérifiées & Carte Interactive
               </span>
             </div>
 
@@ -492,7 +492,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                   className="w-full py-3 rounded-2xl bg-slate-100 border border-slate-200 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 active:scale-98 transition-all"
                 >
                   <SlidersHorizontal className="w-4 h-4" />
-                  <span>Fields Builder (Champs Custom)</span>
+                  <span>Filtres & Critères Personnalisés</span>
                 </button>
               </div>
             </div>

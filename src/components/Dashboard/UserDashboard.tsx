@@ -184,7 +184,7 @@ export const UserDashboard: React.FC = () => {
           </span>
           <h3 className="text-2xl font-black text-white">Connectez-vous à votre Espace Administrateur</h3>
           <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-            Accédez à la gestion des annonces, demandes de clients, facturation globale et console de base de données Firestore.
+            Accédez à la gestion des annonces, demandes de clients, facturation globale et outils d'administration centralisés.
           </p>
         </div>
 
@@ -519,7 +519,7 @@ export const UserDashboard: React.FC = () => {
             ? [{ id: 'billing', label: 'Facturation & Encaissements Admin', icon: Receipt }]
             : []),
           ...(isAdmin || activeTab === 'database'
-            ? [{ id: 'database', label: 'Base de Données Firestore Admin', icon: Database }]
+            ? [{ id: 'database', label: 'Base de Données Sécurisée (Admin)', icon: Database }]
             : []),
           ...(isAdmin
             ? [{ id: 'gtm_manager', label: '🏷️ Google Tag Manager & Pixels (Admin)', icon: Layers }]

@@ -189,7 +189,7 @@ export const AdminDatabaseManager: React.FC = () => {
           </span>
           <h3 className="text-xl font-black text-white">Espace Base de Données Sécurisé</h3>
           <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-            La console Firestore brute est exclusivement réservée à l'administrateur système.
+            La console d'administration des données est exclusivement réservée à l'administrateur système.
           </p>
         </div>
 
@@ -387,7 +387,7 @@ export const AdminDatabaseManager: React.FC = () => {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
-                <Server className="w-3.5 h-3.5" /> Serveur Firestore Connecté
+                <Server className="w-3.5 h-3.5" /> Serveur Cloud Sécurisé Connecté
               </span>
               <span className="text-xs text-slate-400 font-mono">
                 Project ID: turnkey-physics-n9v0l
@@ -395,10 +395,10 @@ export const AdminDatabaseManager: React.FC = () => {
             </div>
             <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
               <Database className="w-6 h-6 text-emerald-400" />
-              Gestionnaire de Base de Données Firestore Admin
+              Gestionnaire de Base de Données Centralisée
             </h2>
             <p className="text-xs text-slate-400 max-w-2xl">
-              Accès administrateur direct à la base de données Firebase en temps réel. Inspectez, modifiez, créez et gérez tous les documents et collections.
+              Accès administrateur direct aux données en temps réel. Inspectez, modifiez, créez et gérez tous les documents et collections de la plateforme.
             </p>
           </div>
 
@@ -604,7 +604,7 @@ export const AdminDatabaseManager: React.FC = () => {
                 <th className="p-3.5">ID Document</th>
                 <th className="p-3.5">Libellé / Info Principale</th>
                 <th className="p-3.5">Détails / Statut</th>
-                <th className="p-3.5 text-right">Actions Firestore</th>
+                <th className="p-3.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 text-slate-200">
@@ -677,7 +677,7 @@ export const AdminDatabaseManager: React.FC = () => {
                         <button
                           onClick={() => handleDeleteDoc(item.id)}
                           className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
-                          title="Supprimer définitivement de Firestore"
+                          title="Supprimer définitivement"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -706,7 +706,7 @@ export const AdminDatabaseManager: React.FC = () => {
               <FileCode className="w-6 h-6 text-emerald-400" />
               <div>
                 <h3 className="text-base font-bold text-white">
-                  Inspecteur Firestore : <span className="font-mono text-emerald-400">{selectedDoc.id}</span>
+                  Inspecteur de Données : <span className="font-mono text-emerald-400">{selectedDoc.id}</span>
                 </h3>
                 <p className="text-xs text-slate-400">Collection: {activeCollection}</p>
               </div>
@@ -779,7 +779,7 @@ export const AdminDatabaseManager: React.FC = () => {
             <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-800">
               <Plus className="w-6 h-6 text-emerald-400" />
               <div>
-                <h3 className="text-base font-bold text-white">Insérer un Document dans Firestore</h3>
+                <h3 className="text-base font-bold text-white">Insérer un Enregistrement</h3>
                 <p className="text-xs text-slate-400">Création manuelle de document JSON</p>
               </div>
             </div>
@@ -821,7 +821,7 @@ export const AdminDatabaseManager: React.FC = () => {
                   disabled={loading}
                   className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black shadow-md"
                 >
-                  Insérer dans Firestore
+                  Enregistrer dans la Base
                 </button>
               </div>
             </div>
