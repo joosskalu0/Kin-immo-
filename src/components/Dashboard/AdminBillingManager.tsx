@@ -122,23 +122,44 @@ export const AdminBillingManager: React.FC = () => {
     return () => unsub();
   }, [user]);
 
-  // Combined targets: registered users (nouveaux venus) + demo agents
+  // Combined targets: registered users (nouveaux venus) + demo agents (excluding administrators)
+  const isAdministrator = (email?: string, name?: string, role?: string, id?: string) => {
+    const emailLower = (email || '').toLowerCase();
+    const nameLower = (name || '').toLowerCase();
+    const roleLower = (role || '').toLowerCase();
+    const idLower = (id || '').toLowerCase();
+    return (
+      roleLower === 'admin' ||
+      emailLower === 'joosskalu72@gmail.com' ||
+      emailLower === 'admin@immocraft.cd' ||
+      emailLower === 'admin@estatik.com' ||
+      idLower === 'usr_admin_001' ||
+      idLower === 'user_admin' ||
+      idLower === 'admin' ||
+      nameLower.includes('administrateur') ||
+      nameLower === 'admin' ||
+      nameLower === 'admin immocraft'
+    );
+  };
+
   const combinedAgentTargets = [
-    ...registeredUsers.map((u) => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      phone: u.phone || '+243 84 529 4616',
-      role: u.role || 'agent',
-      agencyName: u.agencyName || (u.role === 'agent' ? 'Agent Indépendant Inscrit' : 'Membre Inscrit'),
-      avatar: u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      rccmOrNif: u.rccmOrNif || 'CD/KIN/RCCM/20-B-04921',
-      planId: u.planId || 'pro',
-      subscriptionStatus: u.subscriptionStatus || 'Active',
-      isNew: true,
-    })),
+    ...registeredUsers
+      .filter((u) => !isAdministrator(u.email, u.name, u.role, u.id) && !(u as any).isAdmin)
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone || '+243 84 529 4616',
+        role: u.role || 'agent',
+        agencyName: u.agencyName || (u.role === 'agent' ? 'Agent Indépendant Inscrit' : 'Membre Inscrit'),
+        avatar: u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        rccmOrNif: u.rccmOrNif || 'CD/KIN/RCCM/20-B-04921',
+        planId: u.planId || 'pro',
+        subscriptionStatus: u.subscriptionStatus || 'Active',
+        isNew: true,
+      })),
     ...agents
-      .filter((a) => !registeredUsers.some((u) => u.email?.toLowerCase() === a.email.toLowerCase()))
+      .filter((a) => !isAdministrator(a.email, a.name, (a as any).role, a.id) && !registeredUsers.some((u) => u.email?.toLowerCase() === a.email.toLowerCase()))
       .map((a) => ({
         id: a.id,
         name: a.name,

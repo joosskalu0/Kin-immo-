@@ -57,19 +57,44 @@ export const AgentDirectory: React.FC = () => {
   const [showSubmitVerificationModal, setShowSubmitVerificationModal] = useState(false);
   const [showAgencyRegistrationModal, setShowAgencyRegistrationModal] = useState(false);
 
-  // Combine explicitly saved agents with all registered users from Firestore who are agents/owners/admins
+  // Combine explicitly saved agents with all registered users from Firestore who are agents/owners (strictly excluding administrators)
   const combinedAgentsList = React.useMemo(() => {
     const map = new Map<string, Agent>();
 
-    // 1. Add explicitly created agents
+    const isAdministrator = (email?: string, name?: string, role?: string, id?: string) => {
+      const emailLower = (email || '').toLowerCase();
+      const nameLower = (name || '').toLowerCase();
+      const roleLower = (role || '').toLowerCase();
+      const idLower = (id || '').toLowerCase();
+      return (
+        roleLower === 'admin' ||
+        emailLower === 'joosskalu72@gmail.com' ||
+        emailLower === 'admin@immocraft.cd' ||
+        emailLower === 'admin@estatik.com' ||
+        idLower === 'usr_admin_001' ||
+        idLower === 'user_admin' ||
+        idLower === 'admin' ||
+        nameLower.includes('administrateur') ||
+        nameLower === 'admin' ||
+        nameLower === 'admin immocraft'
+      );
+    };
+
+    // 1. Add explicitly created agents (excluding any admin)
     agents.forEach((a) => {
+      if (isAdministrator(a.email, a.name, (a as any).role, a.id)) {
+        return;
+      }
       map.set(a.id, a);
       if (a.email) map.set(a.email.toLowerCase(), a);
     });
 
-    // 2. Add registered users from database
+    // 2. Add registered users from database (strictly excluding administrators)
     (allUsers || []).forEach((u) => {
-      const isAgentOrOwner = u.role === 'agent' || u.role === 'owner' || u.role === 'admin' || !!u.agencyName || !!u.agentId;
+      if (isAdministrator(u.email, u.name, u.role, u.id) || (u as any).isAdmin) {
+        return;
+      }
+      const isAgentOrOwner = u.role === 'agent' || u.role === 'owner' || !!u.agencyName || !!u.agentId;
       if (isAgentOrOwner) {
         const primaryKey = u.agentId || u.id;
         const emailKey = u.email ? u.email.toLowerCase() : '';
@@ -81,7 +106,7 @@ export const AgentDirectory: React.FC = () => {
           const newAgentObj: Agent = {
             id: primaryKey,
             name: u.name || 'Agent Immobilier',
-            title: u.role === 'admin' ? 'Administrateur Immobilier' : u.role === 'owner' ? 'Propriétaire Vendeur' : 'Agent Immobilier Agréé',
+            title: u.role === 'owner' ? 'Propriétaire Vendeur' : 'Agent Immobilier Agréé',
             email: u.email || '',
             phone: u.phone || '+243 81 000 0000',
             whatsapp: u.whatsapp || u.phone || '+243 81 000 0000',
@@ -117,11 +142,11 @@ export const AgentDirectory: React.FC = () => {
       }
     });
 
-    // Return unique values
+    // Return unique values (strictly omitting any administrator)
     const uniqueList: Agent[] = [];
     const seenIds = new Set<string>();
     for (const item of map.values()) {
-      if (!seenIds.has(item.id)) {
+      if (!isAdministrator(item.email, item.name, (item as any).role, item.id) && !seenIds.has(item.id)) {
         seenIds.add(item.id);
         uniqueList.push(item);
       }

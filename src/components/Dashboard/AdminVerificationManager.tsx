@@ -65,18 +65,43 @@ export const AdminVerificationManager: React.FC = () => {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // Combine agents with any registered agent users
+  // Combine agents with any registered agent users (excluding administrators)
   const allAgentsList = React.useMemo(() => {
     const map = new Map<string, Agent>();
 
-    // Add agents from state
+    const isAdministrator = (email?: string, name?: string, role?: string, id?: string) => {
+      const emailLower = (email || '').toLowerCase();
+      const nameLower = (name || '').toLowerCase();
+      const roleLower = (role || '').toLowerCase();
+      const idLower = (id || '').toLowerCase();
+      return (
+        roleLower === 'admin' ||
+        emailLower === 'joosskalu72@gmail.com' ||
+        emailLower === 'admin@immocraft.cd' ||
+        emailLower === 'admin@estatik.com' ||
+        idLower === 'usr_admin_001' ||
+        idLower === 'user_admin' ||
+        idLower === 'admin' ||
+        nameLower.includes('administrateur') ||
+        nameLower === 'admin' ||
+        nameLower === 'admin immocraft'
+      );
+    };
+
+    // Add agents from state (excluding any admin)
     agents.forEach((a) => {
+      if (isAdministrator(a.email, a.name, (a as any).role, a.id)) {
+        return;
+      }
       map.set(a.id, a);
       if (a.email) map.set(a.email.toLowerCase(), a);
     });
 
-    // Add users from allUsers if they act as agent
+    // Add users from allUsers if they act as agent (strictly exclude admin)
     (allUsers || []).forEach((u) => {
+      if (isAdministrator(u.email, u.name, u.role, u.id) || (u as any).isAdmin) {
+        return;
+      }
       const isAgentOrOwner = u.role === 'agent' || u.role === 'owner' || !!u.agentId;
       if (isAgentOrOwner) {
         const id = u.agentId || u.id;
@@ -115,7 +140,7 @@ export const AdminVerificationManager: React.FC = () => {
     const unique: Agent[] = [];
     const seen = new Set<string>();
     for (const a of map.values()) {
-      if (!seen.has(a.id)) {
+      if (!isAdministrator(a.email, a.name, (a as any).role, a.id) && !seen.has(a.id)) {
         seen.add(a.id);
         unique.push(a);
       }
