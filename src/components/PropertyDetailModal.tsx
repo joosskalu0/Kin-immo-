@@ -177,46 +177,46 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-5xl my-auto overflow-hidden shadow-2xl text-slate-100 flex flex-col max-h-[95vh]">
         {/* Top Sticky Header Bar */}
-        <div className="p-4 sm:p-6 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
+        <div className="p-4 sm:p-5 bg-slate-950 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
               <button
                 type="button"
                 onClick={() => setActivePropertyModalId(null)}
-                className="hover:text-emerald-400 font-bold flex items-center gap-1 text-slate-300 transition-colors"
+                className="hover:text-emerald-400 font-bold flex items-center gap-1 text-slate-300 transition-colors shrink-0 cursor-pointer"
                 title="Retourner à l'accueil"
               >
                 <Home className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Accueil</span>
               </button>
-              <span>›</span>
-              <span className="text-emerald-400 font-semibold">{property.category}</span>
-              <span>•</span>
-              <span className="flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 text-slate-500" />
-                {property.address}, {property.city}
+              <span className="text-slate-600">›</span>
+              <span className="text-emerald-400 font-semibold shrink-0">{property.category}</span>
+              <span className="text-slate-600">•</span>
+              <span className="flex items-center gap-1 text-slate-300 truncate max-w-[200px] sm:max-w-xs md:max-w-sm" title={`${property.address}, ${property.city}`}>
+                <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span className="truncate">{property.address}, {property.city}</span>
               </span>
               {property.status === 'sold' && (
-                <span className="px-2 py-0.5 rounded-md bg-red-600 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm">
-                  <CheckCircle2 className="w-3 h-3 fill-white text-red-600" />
+                <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm shrink-0">
+                  <CheckCircle2 className="w-3 h-3 fill-white text-rose-600" />
                   VENDU
                 </span>
               )}
             </div>
-            <h2 className="text-base sm:text-xl font-bold text-white line-clamp-1 mt-0.5">
+            <h2 className="text-base sm:text-xl font-bold text-white truncate mt-1" title={property.title}>
               {property.title}
             </h2>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Direct Home Return Button */}
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+            {/* Direct Home Return Button - Refined Distinct Style */}
             <button
               type="button"
               onClick={() => setActivePropertyModalId(null)}
-              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 active:scale-95 shrink-0"
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs flex items-center gap-1.5 transition-all border border-slate-700 shadow-sm active:scale-95 shrink-0 cursor-pointer"
               title="Retourner à l'accueil et fermer cette fiche"
             >
-              <Home className="w-4 h-4" />
+              <Home className="w-4 h-4 text-emerald-400" />
               <span>Accueil</span>
             </button>
             {/* Quick Toggle Sold Button for Admin / Agent / Agency / Owner */}
@@ -238,15 +238,15 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                     }
                   });
                 }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
+                className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border shrink-0 ${
                   property.status === 'sold'
-                    ? 'bg-red-600/20 text-red-300 border-red-500/40 hover:bg-red-600 hover:text-white'
-                    : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-red-600 hover:text-white hover:border-red-500'
+                    ? 'bg-rose-600/20 text-rose-300 border-rose-500/40 hover:bg-rose-600 hover:text-white'
+                    : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-rose-600 hover:text-white hover:border-rose-500'
                 }`}
                 title={property.status === 'sold' ? 'Remettre en vente' : 'Déclarer ce bien comme vendu'}
               >
-                <CheckCircle2 className={`w-3.5 h-3.5 ${property.status === 'sold' ? 'text-red-400' : 'text-slate-400'}`} />
-                <span className="hidden sm:inline">{property.status === 'sold' ? 'Bien Vendu ✓' : 'Marquer Vendu'}</span>
+                <CheckCircle2 className={`w-3.5 h-3.5 ${property.status === 'sold' ? 'text-rose-400' : 'text-slate-400'}`} />
+                <span className="hidden md:inline">{property.status === 'sold' ? 'Bien Vendu ✓' : 'Marquer Vendu'}</span>
               </button>
             )}
 
@@ -259,11 +259,11 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   setActivePropertyModalId(null);
                   setIsSubmitPropertyOpen(true);
                 }}
-                className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-amber-500/30"
+                className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-amber-500/30 shrink-0"
                 title="Modifier cette annonce"
               >
                 <Edit className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">Modifier</span>
+                <span className="hidden md:inline">Modifier</span>
               </button>
             )}
 
@@ -282,51 +282,53 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                     }
                   });
                 }}
-                className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-600/30 text-rose-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-rose-500/30"
+                className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-600/30 text-rose-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-rose-500/30 shrink-0"
                 title="Supprimer cette annonce"
               >
                 <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                <span className="hidden sm:inline">Supprimer</span>
+                <span className="hidden md:inline">Supprimer</span>
               </button>
             )}
 
-            {/* Programmer une Visite */}
+            {/* Programmer une Visite - Primary Highlight CTA */}
             <button
               onClick={() => setIsScheduleVisitOpen(true)}
-              className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/20 active:scale-95"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-emerald-500/25 active:scale-95 shrink-0 cursor-pointer"
               title="Programmer une visite sur place ou vidéo"
             >
               <Calendar className="w-3.5 h-3.5 text-slate-950" />
-              <span className="hidden sm:inline">Visiter ce bien</span>
+              <span>Visiter ce bien</span>
             </button>
 
             {/* Download PDF */}
             <button
               onClick={handleDownloadPDF}
-              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700 shrink-0 cursor-pointer"
+              title="Télécharger la fiche PDF de ce bien"
             >
               <FileDown className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">PDF Flyer</span>
+              <span className="hidden md:inline">PDF Flyer</span>
             </button>
 
             {/* Share */}
             <button
               onClick={() => onOpenShareModal(property.id)}
-              className="px-3 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-sky-500/30"
-              title="Partager sur les réseaux sociaux"
+              className="px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-sky-500/30 shrink-0 cursor-pointer"
+              title="Partager sur les réseaux sociaux (WhatsApp, Facebook, etc.)"
             >
               <Share2 className="w-4 h-4 text-sky-400" />
-              <span className="hidden sm:inline">Partager</span>
+              <span className="hidden md:inline">Partager</span>
             </button>
 
             {/* Wishlist */}
             <button
               onClick={() => toggleWishlist(property.id)}
-              className={`p-2 rounded-xl transition-all ${
+              className={`p-2 rounded-xl transition-all shrink-0 cursor-pointer ${
                 isFavorite
                   ? 'bg-rose-500 text-white shadow-md shadow-rose-500/20'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
               }`}
+              title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
             >
               <Heart className={`w-4 h-4 ${isFavorite ? 'fill-white' : ''}`} />
             </button>
@@ -334,7 +336,8 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             {/* Close */}
             <button
               onClick={() => setActivePropertyModalId(null)}
-              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+              title="Fermer cette fiche"
             >
               <X className="w-5 h-5" />
             </button>

@@ -500,20 +500,49 @@ export const AuthModal: React.FC = () => {
     setTimeout(() => setCopiedBackup(false), 2000);
   };
 
+  const handleReturnHome = () => {
+    setIsAuthModalOpen(false);
+    resetState();
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('tab');
+        url.searchParams.delete('property');
+        window.history.pushState({}, '', url.pathname + (url.search ? url.search : ''));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch {}
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 relative shadow-2xl text-slate-100 my-8">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-5 sm:p-6 relative shadow-2xl text-slate-100 my-8">
         
-        {/* Close Button */}
-        <button
-          onClick={() => {
-            setIsAuthModalOpen(false);
-            resetState();
-          }}
-          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {/* Top Header Bar with Accueil & Close Buttons */}
+        <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-800/80">
+          <button
+            type="button"
+            onClick={handleReturnHome}
+            className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
+            title="Quitter et retourner à la page d'accueil"
+          >
+            <Home className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Accueil</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsAuthModalOpen(false);
+              resetState();
+            }}
+            className="px-2.5 py-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-1 text-xs cursor-pointer"
+            title="Fermer la fenêtre"
+          >
+            <span className="text-[11px] font-medium hidden sm:inline">Fermer</span>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
 
         {/* Header Branding & Security Icon */}
         <div className="text-center mb-5">
@@ -563,20 +592,21 @@ export const AuthModal: React.FC = () => {
         {step === 'form' && (
           <>
             {/* Mode Switcher Tabs */}
-            <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-2xl border border-slate-800 mb-5">
+            <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-5 shadow-inner">
               <button
                 type="button"
                 onClick={() => {
                   setMode('login');
                   setError(null);
                 }}
-                className={`py-2 text-xs font-bold rounded-xl transition-all ${
+                className={`py-2.5 px-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                   mode === 'login'
-                    ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-md shadow-emerald-500/20'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
                 }`}
               >
-                Se Connecter
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Se Connecter</span>
               </button>
               <button
                 type="button"
@@ -584,13 +614,14 @@ export const AuthModal: React.FC = () => {
                   setMode('register');
                   setError(null);
                 }}
-                className={`py-2 text-xs font-bold rounded-xl transition-all ${
+                className={`py-2.5 px-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                   mode === 'register'
-                    ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-md shadow-emerald-500/20'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
                 }`}
               >
-                S'Inscrire (Compte Vérifié)
+                <BadgeCheck className="w-3.5 h-3.5" />
+                <span>S'Inscrire (Compte Vérifié)</span>
               </button>
             </div>
 
@@ -600,7 +631,7 @@ export const AuthModal: React.FC = () => {
                 type="button"
                 onClick={() => handleSocialLogin('google')}
                 disabled={isLoading}
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700/90 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all disabled:opacity-50"
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 hover:text-white flex items-center justify-center gap-2.5 transition-all disabled:opacity-50 shadow-sm cursor-pointer"
               >
                 <svg className="w-4 h-4" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
@@ -608,7 +639,7 @@ export const AuthModal: React.FC = () => {
                   <path fill="#FBBC05" d="M5.28 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.61H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.39l3.99-3.15z" />
                   <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.61l3.99 3.15c.95-2.85 3.6-4.96 6.72-4.96z" />
                 </svg>
-                Google (Authentification Directe)
+                <span>Continuer avec Google (Accès Rapide)</span>
               </button>
             </div>
 
@@ -620,30 +651,32 @@ export const AuthModal: React.FC = () => {
               <div className="flex-grow border-t border-slate-800"></div>
             </div>
 
-            {/* Email / Phone Toggle */}
-            <div className="flex justify-center gap-4 mb-4 text-xs font-semibold">
+            {/* Email / Phone Segmented Control */}
+            <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 mb-4 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setMethod('email')}
-                className={`flex items-center gap-1.5 pb-1 border-b-2 transition-all ${
+                className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer ${
                   method === 'email'
-                    ? 'border-emerald-500 text-emerald-400'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                    ? 'bg-slate-800 text-emerald-400 font-bold shadow-sm border border-slate-700'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Mail className="w-3.5 h-3.5" /> E-mail avec Code de Vérification
+                <Mail className="w-3.5 h-3.5 text-emerald-400" />
+                <span>E-mail & Code</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setMethod('phone')}
-                className={`flex items-center gap-1.5 pb-1 border-b-2 transition-all ${
+                className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer ${
                   method === 'phone'
-                    ? 'border-emerald-500 text-emerald-400'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                    ? 'bg-slate-800 text-emerald-400 font-bold shadow-sm border border-slate-700'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Phone className="w-3.5 h-3.5" /> SMS / WhatsApp (+243)
+                <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                <span>SMS / WhatsApp (+243)</span>
               </button>
             </div>
 
@@ -911,74 +944,74 @@ export const AuthModal: React.FC = () => {
               {/* Role Selection & Kinshasa Legitimacy Data */}
               {mode === 'register' && (
                 <div className="space-y-2 pt-1">
-                  <label className="block text-xs font-medium text-slate-300">
+                  <label className="block text-xs font-semibold text-slate-300">
                     Statut du Compte à Kinshasa *
                   </label>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <button
                       type="button"
                       onClick={() => setRole('user')}
-                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                      className={`p-3 rounded-2xl border text-left flex items-start gap-2.5 transition-all cursor-pointer ${
                         role === 'user'
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          ? 'bg-emerald-500/15 border-emerald-500 ring-2 ring-emerald-500/30 text-emerald-300 shadow-md shadow-emerald-500/10'
+                          : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                       }`}
                     >
-                      <UserCheck className="w-4 h-4 shrink-0" />
+                      <UserCheck className={`w-4 h-4 shrink-0 mt-0.5 ${role === 'user' ? 'text-emerald-400' : 'text-slate-400'}`} />
                       <div>
-                        <div className="text-[11px] font-bold">Acheteur / Locataire</div>
-                        <div className="text-[9px] text-slate-500">Profil particulier</div>
+                        <div className="text-xs font-bold text-white">Acheteur / Locataire</div>
+                        <div className="text-[10px] text-slate-400">Profil particulier</div>
                       </div>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setRole('owner')}
-                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                      className={`p-3 rounded-2xl border text-left flex items-start gap-2.5 transition-all cursor-pointer ${
                         role === 'owner'
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          ? 'bg-emerald-500/15 border-emerald-500 ring-2 ring-emerald-500/30 text-emerald-300 shadow-md shadow-emerald-500/10'
+                          : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                       }`}
                     >
-                      <Home className="w-4 h-4 shrink-0" />
+                      <Home className={`w-4 h-4 shrink-0 mt-0.5 ${role === 'owner' ? 'text-emerald-400' : 'text-slate-400'}`} />
                       <div>
-                        <div className="text-[11px] font-bold">Propriétaire</div>
-                        <div className="text-[9px] text-slate-500">Annonces directes</div>
+                        <div className="text-xs font-bold text-white">Propriétaire</div>
+                        <div className="text-[10px] text-slate-400">Annonces directes</div>
                       </div>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setRole('agent')}
-                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                      className={`p-3 rounded-2xl border text-left flex items-start gap-2.5 transition-all cursor-pointer ${
                         role === 'agent'
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          ? 'bg-emerald-500/15 border-emerald-500 ring-2 ring-emerald-500/30 text-emerald-300 shadow-md shadow-emerald-500/10'
+                          : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                       }`}
                     >
-                      <Building className="w-4 h-4 shrink-0" />
+                      <Building className={`w-4 h-4 shrink-0 mt-0.5 ${role === 'agent' ? 'text-emerald-400' : 'text-slate-400'}`} />
                       <div>
-                        <div className="text-[11px] font-bold">Agent Indépendant</div>
-                        <div className="text-[9px] text-slate-500">Courtier agréé RDC</div>
+                        <div className="text-xs font-bold text-white">Agent Indépendant</div>
+                        <div className="text-[10px] text-slate-400">Courtier agréé RDC</div>
                       </div>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setRole('agency')}
-                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                      className={`p-3 rounded-2xl border text-left flex items-start gap-2.5 transition-all cursor-pointer ${
                         role === 'agency'
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold shadow-md shadow-emerald-500/10'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          ? 'bg-emerald-500/15 border-emerald-500 ring-2 ring-emerald-500/30 text-emerald-300 shadow-md shadow-emerald-500/10'
+                          : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                       }`}
                     >
-                      <Building2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                      <Building2 className={`w-4 h-4 shrink-0 mt-0.5 ${role === 'agency' ? 'text-emerald-400' : 'text-slate-400'}`} />
                       <div>
-                        <div className="text-[11px] font-bold flex items-center gap-1">
-                          <span>Agence Immobilière</span>
-                          <span className="text-[8px] bg-emerald-500/30 text-emerald-300 px-1 rounded font-black">PRO</span>
+                        <div className="text-xs font-bold flex items-center gap-1.5 text-white">
+                          <span>Agence Pro</span>
+                          <span className="text-[9px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-black">PRO</span>
                         </div>
-                        <div className="text-[9px] text-emerald-400">1er Mois Offert • SARL / Ets</div>
+                        <div className="text-[10px] text-emerald-400 font-semibold">1er Mois Offert</div>
                       </div>
                     </button>
                   </div>
@@ -1173,7 +1206,7 @@ export const AuthModal: React.FC = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs hover:opacity-95 transition-all shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 mt-3 disabled:opacity-50"
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 text-slate-950 font-black text-sm hover:opacity-95 transition-all shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 mt-4 disabled:opacity-50 active:scale-[0.99] cursor-pointer"
               >
                 {isLoading ? (
                   <span className="flex items-center gap-2">
@@ -1184,30 +1217,42 @@ export const AuthModal: React.FC = () => {
                   <>
                     <span>
                       {mode === 'login'
-                        ? 'Se Connecter'
-                        : 'Continuer vers la Vérification Code'}
+                        ? 'Se Connecter à Immocraft RDC'
+                        : 'Valider et Continuer l\'Inscription'}
                     </span>
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowRight className="w-4 h-4 text-slate-950" />
                   </>
                 )}
               </button>
             </form>
 
-            {/* Discrete Footer Lock Link for Admin PIN Access */}
-            <div className="pt-3 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
-              <span>ESTATIK ® Kinshasa</span>
+            {/* Bottom Navigation & Secondary Controls */}
+            <div className="pt-4 mt-4 border-t border-slate-800/80 space-y-2.5">
               <button
                 type="button"
-                onClick={() => {
-                  setStep('admin_pin');
-                  setError(null);
-                  setAdminPinInput('');
-                }}
-                className="flex items-center gap-1.5 text-slate-500 hover:text-amber-400 font-medium transition-colors cursor-pointer"
+                onClick={handleReturnHome}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-98 shadow-sm cursor-pointer"
+                title="Quitter et retourner à la page d'accueil"
               >
-                <Lock className="w-3 h-3 text-slate-500 hover:text-amber-400" />
-                <span>Accès Protégé (PIN)</span>
+                <Home className="w-4 h-4 text-emerald-400" />
+                <span>← Retourner à l'Accueil du Site</span>
               </button>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                <span>ESTATIK ® Kinshasa</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep('admin_pin');
+                    setError(null);
+                    setAdminPinInput('');
+                  }}
+                  className="flex items-center gap-1.5 text-slate-500 hover:text-amber-400 font-medium transition-colors cursor-pointer"
+                >
+                  <Lock className="w-3 h-3 text-slate-500 hover:text-amber-400" />
+                  <span>Accès Protégé (PIN)</span>
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -1267,19 +1312,28 @@ export const AuthModal: React.FC = () => {
                   setStep('form');
                   setError(null);
                 }}
-                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all cursor-pointer"
               >
                 Retour
               </button>
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:opacity-90 text-slate-950 text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all"
+                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:opacity-90 text-slate-950 text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4 text-slate-950" />
                 <span>Déverrouiller Admin</span>
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={handleReturnHome}
+              className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 pt-2 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>← Retourner à l'Accueil</span>
+            </button>
           </form>
         )}
 
@@ -1349,14 +1403,14 @@ export const AuthModal: React.FC = () => {
                   setStep('form');
                   setError(null);
                 }}
-                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all cursor-pointer"
               >
                 Annuler
               </button>
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-teal-500 hover:opacity-90 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 transition-all disabled:opacity-50"
+                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-teal-500 hover:opacity-90 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 cursor-pointer"
               >
                 {isLoading ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
@@ -1368,6 +1422,15 @@ export const AuthModal: React.FC = () => {
                 )}
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={handleReturnHome}
+              className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 pt-2 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>← Retourner à l'Accueil</span>
+            </button>
           </form>
         )}
 
@@ -1409,7 +1472,7 @@ export const AuthModal: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -1424,13 +1487,23 @@ export const AuthModal: React.FC = () => {
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => setStep('form')}
-              className="w-full text-center text-xs text-slate-400 hover:text-white pt-1 block"
-            >
-              ← Modifier mes informations
-            </button>
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setStep('form')}
+                className="w-full text-center text-xs text-slate-400 hover:text-white block cursor-pointer transition-colors"
+              >
+                ← Modifier mes informations
+              </button>
+              <button
+                type="button"
+                onClick={handleReturnHome}
+                className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span>Quitter et Retourner à l'Accueil</span>
+              </button>
+            </div>
           </form>
         )}
 
@@ -1472,7 +1545,7 @@ export const AuthModal: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -1487,13 +1560,23 @@ export const AuthModal: React.FC = () => {
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => setStep('form')}
-              className="w-full text-center text-xs text-slate-400 hover:text-white pt-1 block"
-            >
-              ← Modifier mes informations
-            </button>
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setStep('form')}
+                className="w-full text-center text-xs text-slate-400 hover:text-white block cursor-pointer transition-colors"
+              >
+                ← Modifier mes informations
+              </button>
+              <button
+                type="button"
+                onClick={handleReturnHome}
+                className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span>Quitter et Retourner à l'Accueil</span>
+              </button>
+            </div>
           </form>
         )}
 
@@ -1534,7 +1617,7 @@ export const AuthModal: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs hover:opacity-95 transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs hover:opacity-95 transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -1549,13 +1632,23 @@ export const AuthModal: React.FC = () => {
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => setStep('form')}
-              className="w-full text-center text-xs text-slate-400 hover:text-white pt-1 block"
-            >
-              ← Annuler la connexion
-            </button>
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setStep('form')}
+                className="w-full text-center text-xs text-slate-400 hover:text-white block cursor-pointer transition-colors"
+              >
+                ← Annuler la connexion
+              </button>
+              <button
+                type="button"
+                onClick={handleReturnHome}
+                className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span>Quitter et Retourner à l'Accueil</span>
+              </button>
+            </div>
           </form>
         )}
 
@@ -1617,7 +1710,7 @@ export const AuthModal: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -1631,6 +1724,17 @@ export const AuthModal: React.FC = () => {
                 </>
               )}
             </button>
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={handleReturnHome}
+                className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span>Quitter et Retourner à l'Accueil</span>
+              </button>
+            </div>
           </form>
         )}
 
