@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { convertAndFormatPrice } from '../utils/currency';
 import { generatePropertyPDF } from '../utils/pdfGenerator';
@@ -80,10 +80,54 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
   const [tourTime, setTourTime] = useState('14:00');
   const [isSent, setIsSent] = useState(false);
 
+  // Close modal on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActivePropertyModalId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [setActivePropertyModalId]);
+
+  // Reset tab and selected image on property change
+  useEffect(() => {
+    if (activePropertyModalId) {
+      setSelectedImageIndex(0);
+      setActiveMediaTab('photos');
+    }
+  }, [activePropertyModalId]);
+
   if (!activePropertyModalId) return null;
 
   const property = properties.find((p) => p.id === activePropertyModalId);
-  if (!property) return null;
+  if (!property) {
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center space-y-4 shadow-2xl text-slate-100">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto animate-pulse">
+            <Building2 className="w-7 h-7" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white">Chargement de l'annonce...</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Récupération des détails, photos et critères de la propriété.
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setActivePropertyModalId(null)}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+            >
+              Fermer et voir toutes les annonces
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const isFavorite = wishlist.includes(property.id);
   const isCompared = compareList.includes(property.id);

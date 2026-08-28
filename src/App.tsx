@@ -40,13 +40,37 @@ import {
 const AppContent: React.FC = () => {
   const { properties, filters, setFilters, setIsFieldsBuilderOpen } = useApp();
 
-  const [currentTab, setCurrentTab] = useState('home'); // 'home' | 'map' | 'agents' | 'shortcodes' | 'dashboard' | 'wishlist'
+  const [currentTab, setCurrentTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab && ['home', 'map', 'agents', 'shortcodes', 'dashboard', 'wishlist'].includes(tab)) {
+          return tab;
+        }
+      } catch {}
+    }
+    return 'home';
+  }); // 'home' | 'map' | 'agents' | 'shortcodes' | 'dashboard' | 'wishlist'
   const [viewLayout, setViewLayout] = useState<'grid' | 'split'>('grid');
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
   useEffect(() => {
     initAllTracking();
+
+    const handleTabPopState = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab && ['home', 'map', 'agents', 'shortcodes', 'dashboard', 'wishlist'].includes(tab)) {
+          setCurrentTab(tab);
+        }
+      } catch {}
+    };
+
+    window.addEventListener('popstate', handleTabPopState);
+    return () => window.removeEventListener('popstate', handleTabPopState);
   }, []);
 
   useEffect(() => {

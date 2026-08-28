@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Property } from '../types';
 import { useApp } from '../context/AppContext';
 import { convertAndFormatPrice } from '../utils/currency';
+import { buildPropertyShareUrl } from '../utils/shareUtils';
 import {
   Bed,
   Bath,
@@ -269,17 +270,18 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
             onClick={(e) => {
               e.stopPropagation();
               recordPropertyAction(property.id, 'share');
+              const shareUrl = buildPropertyShareUrl(property.id);
               if (onShare) {
                 onShare(property.id);
               } else if (navigator.share) {
                 navigator.share({
                   title: property.title,
                   text: `${property.title} à Kinshasa (${formattedPrice})`,
-                  url: window.location.href,
+                  url: shareUrl,
                 }).catch(() => {});
               } else {
-                navigator.clipboard.writeText(window.location.href);
-                alert('Lien de l\'annonce copié dans le presse-papier !');
+                navigator.clipboard.writeText(shareUrl);
+                alert('Lien direct de l\'annonce copié dans le presse-papier !');
               }
             }}
             title="Partager l'annonce"

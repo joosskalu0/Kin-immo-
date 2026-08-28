@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { convertAndFormatPrice } from '../utils/currency';
 import { trackSocialShare } from '../utils/analytics';
+import { buildPropertyShareUrl } from '../utils/shareUtils';
 
 interface SocialShareBarProps {
   property: Property;
@@ -24,9 +25,7 @@ export const SocialShareBar: React.FC<SocialShareBarProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
-  const currentUrl = typeof window !== 'undefined'
-    ? window.location.href.split('#')[0] + `?property=${property.id}`
-    : '';
+  const currentUrl = property ? buildPropertyShareUrl(property.id) : '';
   const formattedPrice = convertAndFormatPrice(property.price, 'USD');
 
   const handleCopy = (e: React.MouseEvent) => {

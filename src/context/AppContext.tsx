@@ -50,6 +50,7 @@ import {
   subscribeToAgencies,
   subscribeToUsers,
   savePropertyToFirestore,
+  getPropertyFromFirestore,
   deletePropertyFromFirestore,
   saveCustomFieldToFirestore,
   deleteCustomFieldFromFirestore,
@@ -68,6 +69,7 @@ import {
   subscribeToPricingConfig,
   savePricingConfigToFirestore
 } from '../lib/firebase';
+import { parsePropertyIdFromUrl, updateBrowserUrlForProperty } from '../utils/shareUtils';
 
 interface AppContextType {
   language: LanguageCode;
@@ -316,14 +318,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [filters, setFilters] = useState<PropertyFilters>(defaultFilters);
 
-  // Modals
-  const [activePropertyModalId, setActivePropertyModalId] = useState<string | null>(null);
+  // Modals & Deep Linking
+  const [activePropertyModalId, setActivePropertyModalId] = useState<string | null>(() => {
+    return parsePropertyIdFromUrl();
+  });
   const [isFieldsBuilderOpen, setIsFieldsBuilderOpen] = useState(false);
   const [isSubmitPropertyOpen, setIsSubmitPropertyOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+
+  // Deep-linking URL Synchronization & Browser History Navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const propId = parsePropertyIdFromUrl();
+      setActivePropertyModalId(propId);
+      if (propId) {
+        incrementPropertyViews(propId);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  // When activePropertyModalId changes or properties list updates, sync URL & fetch from Firestore if missing
+  useEffect(() => {
+    if (!activePropertyModalId) {
+      updateBrowserUrlForProperty(null);
+      return;
+    }
+
+    const foundProp = properties.find((p) => p.id === activePropertyModalId);
+    if (foundProp) {
+      updateBrowserUrlForProperty(foundProp.id, foundProp.title);
+    } else {
+      // Property might be stored in Firestore but not yet in local state
+      let isMounted = true;
+      getPropertyFromFirestore(activePropertyModalId).then((fetchedProp) => {
+        if (isMounted && fetchedProp) {
+          setProperties((prev) => {
+            if (prev.some((p) => p.id === fetchedProp.id)) return prev;
+            return [fetchedProp, ...prev];
+          });
+          updateBrowserUrlForProperty(fetchedProp.id, fetchedProp.title);
+        }
+      });
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [activePropertyModalId, properties]);
 
   // Confirm Modal State
   const [confirmState, setConfirmState] = useState<ConfirmOptions | null>(null);
@@ -1400,6 +1448,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActivePropertyModalId(id);
     if (id) {
       incrementPropertyViews(id);
+      const prop = properties.find((p) => p.id === id);
+      updateBrowserUrlForProperty(id, prop?.title);
+    } else {
+      updateBrowserUrlForProperty(null);
     }
   };
 

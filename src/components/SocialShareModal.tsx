@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { convertAndFormatPrice } from '../utils/currency';
 import { trackSocialShare } from '../utils/analytics';
+import { buildPropertyShareUrl, formatPropertyPitch } from '../utils/shareUtils';
 
 interface SocialShareModalProps {
   property: Property | null;
@@ -31,17 +32,11 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({ property, on
 
   if (!property) return null;
 
-  const currentUrl = window.location.href.split('#')[0] + `?property=${property.id}`;
+  const currentUrl = buildPropertyShareUrl(property.id);
   const formattedPrice = convertAndFormatPrice(property.price, 'USD');
 
   // Formatted pitch for social networks and WhatsApp groups
-  const fullPitchText = `🏡 *${property.title.toUpperCase()}*\n` +
-    `📍 Localisation : ${property.commune || property.city} (${property.quartier || 'Kinshasa'})\n` +
-    `💰 Prix : ${formattedPrice}${property.period === 'month' ? '/mois' : ''}\n` +
-    `📐 Surface : ${property.area} m² | 🛏️ ${property.bedrooms} Chambres | 🚿 ${property.bathrooms} Salles de bain\n` +
-    `✨ Type : ${property.type.toUpperCase()} - ${property.category === 'sale' ? 'À VENDRE' : 'À LOUER'}\n` +
-    `\n🔗 Consulter la fiche complète & photos HD :\n${currentUrl}\n` +
-    `\n🏢 Publié via ImmoCraft RDC - Plateforme Immobilière`;
+  const fullPitchText = formatPropertyPitch(property, currentUrl, formattedPrice);
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(currentUrl);

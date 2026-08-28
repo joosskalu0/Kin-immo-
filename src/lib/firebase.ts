@@ -460,6 +460,19 @@ export async function savePropertyToFirestore(property: Property) {
   await setDoc(ref, sanitizeForFirestore(property), { merge: true });
 }
 
+export async function getPropertyFromFirestore(id: string): Promise<Property | null> {
+  try {
+    const ref = doc(db, COLLECTIONS.PROPERTIES, id);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      return { id: snap.id, ...snap.data() } as Property;
+    }
+  } catch (err) {
+    console.error('Error fetching property from Firestore:', err);
+  }
+  return null;
+}
+
 export async function deletePropertyFromFirestore(id: string) {
   const ref = doc(db, COLLECTIONS.PROPERTIES, id);
   await deleteDoc(ref);
