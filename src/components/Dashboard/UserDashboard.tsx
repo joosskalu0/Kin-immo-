@@ -13,6 +13,7 @@ import { AdminPlansPricingManager } from './AdminPlansPricingManager';
 import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
 import { saveUserToFirestore } from '../../lib/firebase';
 import {
+  Home,
   Building2,
   Users,
   Search,
@@ -48,7 +49,11 @@ import {
   UploadCloud,
 } from 'lucide-react';
 
-export const UserDashboard: React.FC = () => {
+interface UserDashboardProps {
+  onReturnHome?: () => void;
+}
+
+export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) => {
   const {
     user,
     setUser,
@@ -189,6 +194,17 @@ export const UserDashboard: React.FC = () => {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          {onReturnHome && (
+            <button
+              onClick={onReturnHome}
+              className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all flex items-center justify-center gap-2"
+              title="Retourner à la page d'accueil"
+            >
+              <Home className="w-4 h-4 text-emerald-400" />
+              <span>Retour à l'Accueil</span>
+            </button>
+          )}
+
           <button
             onClick={() => setIsAuthModalOpen(true)}
             className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs hover:opacity-95 transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
@@ -484,6 +500,17 @@ export const UserDashboard: React.FC = () => {
                 <span>Mon Abonnement Pro</span>
               </button>
             </>
+          )}
+
+          {onReturnHome && (
+            <button
+              onClick={onReturnHome}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all flex items-center gap-2 shadow-sm"
+              title="Retourner à la page d'accueil"
+            >
+              <Home className="w-4 h-4 text-emerald-400" />
+              <span>Retour Accueil</span>
+            </button>
           )}
 
           <button
@@ -1052,6 +1079,19 @@ export const UserDashboard: React.FC = () => {
               <Upload className="w-4 h-4 text-emerald-400" /> Importer le CSV
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Bottom Navigation / Return Home */}
+      {onReturnHome && (
+        <div className="pt-4 border-t border-slate-800 flex justify-center">
+          <button
+            onClick={onReturnHome}
+            className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95"
+          >
+            <Home className="w-4 h-4" />
+            <span>← Retourner à l'Accueil du Site</span>
+          </button>
         </div>
       )}
 

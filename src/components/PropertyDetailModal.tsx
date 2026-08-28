@@ -4,6 +4,7 @@ import { convertAndFormatPrice } from '../utils/currency';
 import { generatePropertyPDF } from '../utils/pdfGenerator';
 import {
   X,
+  Home,
   Bed,
   Bath,
   Maximize,
@@ -179,6 +180,16 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
         <div className="p-4 sm:p-6 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs text-slate-400">
+              <button
+                type="button"
+                onClick={() => setActivePropertyModalId(null)}
+                className="hover:text-emerald-400 font-bold flex items-center gap-1 text-slate-300 transition-colors"
+                title="Retourner à l'accueil"
+              >
+                <Home className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Accueil</span>
+              </button>
+              <span>›</span>
               <span className="text-emerald-400 font-semibold">{property.category}</span>
               <span>•</span>
               <span className="flex items-center gap-1">
@@ -198,6 +209,16 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Direct Home Return Button */}
+            <button
+              type="button"
+              onClick={() => setActivePropertyModalId(null)}
+              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 active:scale-95 shrink-0"
+              title="Retourner à l'accueil et fermer cette fiche"
+            >
+              <Home className="w-4 h-4" />
+              <span>Accueil</span>
+            </button>
             {/* Quick Toggle Sold Button for Admin / Agent / Agency / Owner */}
             {canManageProperty && (
               <button
@@ -877,6 +898,25 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Bottom Navigation / Return to Home Banner */}
+          <div className="pt-6 pb-2 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={() => {
+                setActivePropertyModalId(null);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition-all active:scale-95 cursor-pointer"
+              title="Quitter la fiche et retourner à la liste complète des annonces"
+            >
+              <Home className="w-4 h-4" />
+              <span>← Retour à l'Accueil & Voir toutes les annonces de Kinshasa</span>
+            </button>
+            <p className="text-[11px] text-slate-400 text-center sm:text-right">
+              Réf. Annonce : <span className="font-mono text-emerald-400 font-semibold">{property.id}</span>
+            </p>
           </div>
         </div>
       </div>

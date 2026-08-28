@@ -23,6 +23,7 @@ import { CompareDock } from './components/CompareDock';
 import { InteractiveAssistantModal } from './components/InteractiveAssistantModal';
 import { LiveActivityTicker } from './components/LiveActivityTicker';
 import {
+  Home,
   Building2,
   MapPin,
   Grid,
@@ -38,7 +39,7 @@ import {
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
-  const { properties, filters, setFilters, setIsFieldsBuilderOpen } = useApp();
+  const { properties, filters, setFilters, setIsFieldsBuilderOpen, setActivePropertyModalId } = useApp();
 
   const [currentTab, setCurrentTab] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -55,6 +56,19 @@ const AppContent: React.FC = () => {
   const [viewLayout, setViewLayout] = useState<'grid' | 'split'>('grid');
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+
+  const handleGoHome = () => {
+    setActivePropertyModalId(null);
+    setIsFieldsBuilderOpen(false);
+    setCurrentTab('home');
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      url.searchParams.delete('property');
+      window.history.pushState({}, '', url.pathname + (url.search ? url.search : ''));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {}
+  };
 
   useEffect(() => {
     initAllTracking();
@@ -478,25 +492,47 @@ const AppContent: React.FC = () => {
         {/* TAB 2: INTERACTIVE MAP AJAX */}
         {currentTab === 'map' && (
           <div className="space-y-6">
+            <div className="flex items-center justify-between bg-white border border-slate-200 rounded-2xl px-5 py-3 shadow-sm">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                <MapPin className="w-4 h-4 text-emerald-600" />
+                <span>Carte Interactive des Biens Immobiliers à Kinshasa</span>
+              </div>
+              <button
+                onClick={handleGoHome}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                title="Retourner à la page d'accueil"
+              >
+                <Home className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Retour Accueil</span>
+              </button>
+            </div>
             <SearchWidget />
             <PropertyMap properties={sortedProperties} height="h-[700px]" />
           </div>
         )}
 
         {/* TAB 3: AGENTS DIRECTORY */}
-        {currentTab === 'agents' && <AgentDirectory />}
+        {currentTab === 'agents' && <AgentDirectory onReturnHome={handleGoHome} />}
 
         {/* TAB 4: WIDGETS & SHORTCODES */}
-        {currentTab === 'shortcodes' && <ShortcodesGallery />}
+        {currentTab === 'shortcodes' && <ShortcodesGallery onReturnHome={handleGoHome} />}
 
         {/* TAB 5: DASHBOARD */}
-        {currentTab === 'dashboard' && <UserDashboard />}
+        {currentTab === 'dashboard' && <UserDashboard onReturnHome={handleGoHome} />}
 
         {/* TAB 6: WISHLIST */}
         {currentTab === 'wishlist' && (
           <div className="space-y-6">
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 font-bold text-slate-900 text-lg shadow-sm">
-              Mes Favoris Enregistrés
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 flex items-center justify-between shadow-sm">
+              <span className="font-bold text-slate-900 text-lg">Mes Favoris Enregistrés</span>
+              <button
+                onClick={handleGoHome}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+                title="Retourner à la page d'accueil"
+              >
+                <Home className="w-4 h-4 text-emerald-600" />
+                <span>Retour Accueil</span>
+              </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {properties

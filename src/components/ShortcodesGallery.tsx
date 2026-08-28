@@ -2,6 +2,7 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import { MortgageCalculator } from './MortgageCalculator';
 import {
+  Home,
   Grid,
   MapPin,
   Sparkles,
@@ -15,7 +16,11 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 
-export const ShortcodesGallery: React.FC = () => {
+interface ShortcodesGalleryProps {
+  onReturnHome?: () => void;
+}
+
+export const ShortcodesGallery: React.FC<ShortcodesGalleryProps> = ({ onReturnHome }) => {
   const { properties, agents, customFields, setIsFieldsBuilderOpen } = useApp();
 
   const cities = [
@@ -29,9 +34,21 @@ export const ShortcodesGallery: React.FC = () => {
     <div className="space-y-12">
       {/* Shortcodes Header */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-8 text-slate-100 shadow-2xl space-y-3">
-        <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
-          <Grid className="w-4 h-4" />
-          Outils & Modules Immobiliers
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
+            <Grid className="w-4 h-4" />
+            Outils & Modules Immobiliers
+          </div>
+          {onReturnHome && (
+            <button
+              onClick={onReturnHome}
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all flex items-center gap-2 shadow-sm"
+              title="Retourner à l'Accueil"
+            >
+              <Home className="w-4 h-4 text-emerald-400" />
+              <span>Retour Accueil</span>
+            </button>
+          )}
         </div>
         <h2 className="text-3xl font-bold text-white tracking-tight">
           Bibliothèque de Composants & Outils Immobiliers
@@ -138,6 +155,19 @@ export const ShortcodesGallery: React.FC = () => {
         </h3>
         <MortgageCalculator initialPrice={650000} />
       </div>
+
+      {/* Bottom Return to Home */}
+      {onReturnHome && (
+        <div className="pt-6 border-t border-slate-800 flex justify-center">
+          <button
+            onClick={onReturnHome}
+            className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+          >
+            <Home className="w-4 h-4" />
+            <span>← Retourner à la liste des annonces (Accueil)</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

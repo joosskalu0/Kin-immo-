@@ -9,6 +9,7 @@ import {
 } from '../data/kinshasaLocations';
 import {
   X,
+  Home,
   Plus,
   Trash2,
   Building2,
@@ -335,12 +336,23 @@ export const PropertyFormModal: React.FC = () => {
             </p>
           </div>
 
-          <button
-            onClick={handleClose}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+              title="Retourner à l'Accueil"
+            >
+              <Home className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Accueil</span>
+            </button>
+            <button
+              onClick={handleClose}
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Step Indicator */}

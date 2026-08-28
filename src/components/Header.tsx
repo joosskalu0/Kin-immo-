@@ -46,9 +46,22 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
     setIsAuthModalOpen,
     setIsSecurityModalOpen,
     setIsCompareOpen,
+    setActivePropertyModalId,
   } = useApp();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const handleGoHome = () => {
+    setActivePropertyModalId(null);
+    setIsFieldsBuilderOpen(false);
+    setIsSubmitPropertyOpen(false);
+    setIsAuthModalOpen(false);
+    setIsSecurityModalOpen(false);
+    setIsCompareOpen(false);
+    setIsMobileMenuOpen(false);
+    setCurrentTab('home');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <>
@@ -107,11 +120,9 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
           {/* Kin Immobilier Logo */}
           <div
-            onClick={() => {
-              setCurrentTab('home');
-              setIsMobileMenuOpen(false);
-            }}
+            onClick={handleGoHome}
             className="flex items-center gap-2 cursor-pointer group shrink-0"
+            title="Retourner à l'Accueil"
           >
             <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white font-bold shadow-md shadow-emerald-600/20 group-hover:scale-105 transition-transform">
               <svg
@@ -137,14 +148,15 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
           {/* Navigation Links */}
           <nav className="hidden lg:flex items-center gap-1">
             <button
-              onClick={() => setCurrentTab('home')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              onClick={handleGoHome}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
                 currentTab === 'home'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
+                  : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'
               }`}
+              title="Retourner à la page d'accueil"
             >
-              <Home className="w-3.5 h-3.5" />
+              <Home className="w-4 h-4" />
               Accueil
             </button>
 
@@ -161,7 +173,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
             </button>
 
             <button
-              onClick={() => setCurrentTab('grid')}
+              onClick={handleGoHome}
               className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
                 currentTab === 'grid'
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -382,17 +394,15 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
 
               <div className="grid grid-cols-2 gap-2.5">
                 <button
-                  onClick={() => {
-                    setCurrentTab('home');
-                    setIsMobileMenuOpen(false);
-                  }}
+                  onClick={handleGoHome}
                   className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
                     currentTab === 'home'
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-sm'
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
                       : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
                   }`}
+                  title="Retourner à l'Accueil"
                 >
-                  <Home className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <Home className="w-4 h-4 text-emerald-500 shrink-0" />
                   <span>Accueil</span>
                 </button>
 
@@ -412,10 +422,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                 </button>
 
                 <button
-                  onClick={() => {
-                    setCurrentTab('grid');
-                    setIsMobileMenuOpen(false);
-                  }}
+                  onClick={handleGoHome}
                   className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
                     currentTab === 'grid'
                       ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-sm'
@@ -503,10 +510,11 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
       {/* Fixed Mobile Bottom Navigation Bar */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-2xl border-t border-slate-200 px-2 h-16 sm:h-18 flex items-center justify-around text-[10px] font-bold text-slate-600 shadow-lg select-none pb-safe">
         <button
-          onClick={() => setCurrentTab('home')}
+          onClick={handleGoHome}
           className={`flex flex-col items-center justify-center min-w-[52px] min-h-[48px] gap-1 transition-all active:scale-90 ${
             currentTab === 'home' ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
           }`}
+          title="Retourner à l'Accueil"
         >
           <Home className={`w-5 h-5 ${currentTab === 'home' ? 'text-emerald-600' : ''}`} />
           <span>Accueil</span>

@@ -4,6 +4,7 @@ import { Agent, Agency } from '../types';
 import { AgentVerificationSubmitModal } from './Dashboard/AgentVerificationSubmitModal';
 import { AgencyRegistrationModal } from './AgencyRegistrationModal';
 import {
+  Home,
   Search,
   Star,
   Phone,
@@ -30,7 +31,12 @@ import {
   EyeOff,
 } from 'lucide-react';
 
-export const AgentDirectory: React.FC = () => {
+interface AgentDirectoryProps {
+  initialTab?: 'agents' | 'agencies';
+  onReturnHome?: () => void;
+}
+
+export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'agents', onReturnHome }) => {
   const {
     agents,
     agencies,
@@ -47,7 +53,13 @@ export const AgentDirectory: React.FC = () => {
 
   const isAdmin = user?.role === 'admin' || user?.email === 'joosskalu72@gmail.com' || (user as any)?.isAdmin;
 
-  const [activeTab, setActiveTab] = useState<'agents' | 'agencies'>('agents');
+  const [activeTab, setActiveTab] = useState<'agents' | 'agencies'>(initialTab);
+
+  React.useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [verificationFilter, setVerificationFilter] = useState<'all' | 'verified_only' | 'pending_only' | 'hidden_only'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [contactAgentModal, setContactAgentModal] = useState<Agent | null>(null);
@@ -265,6 +277,17 @@ export const AgentDirectory: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {onReturnHome && (
+                <button
+                  onClick={onReturnHome}
+                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                  title="Retourner à la page d'accueil"
+                >
+                  <Home className="w-4 h-4 text-emerald-400" />
+                  <span>Accueil</span>
+                </button>
+              )}
+
               <button
                 onClick={() => setShowAgencyRegistrationModal(true)}
                 className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-slate-950 font-black text-xs transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer shrink-0"
@@ -811,6 +834,22 @@ export const AgentDirectory: React.FC = () => {
               </form>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Bottom Return to Home Bar */}
+      {onReturnHome && (
+        <div className="pt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <button
+            onClick={onReturnHome}
+            className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
+          >
+            <Home className="w-4 h-4" />
+            <span>← Retourner à la liste de toutes les annonces (Accueil)</span>
+          </button>
+          <span className="text-xs text-slate-400">
+            Annuaire officiel des professionnels immobiliers certifiés à Kinshasa
+          </span>
         </div>
       )}
 
