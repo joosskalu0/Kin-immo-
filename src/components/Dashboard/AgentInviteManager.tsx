@@ -226,27 +226,7 @@ export const AgentInviteManager: React.FC = () => {
         </div>
       )}
 
-      {/* Firebase & Security Guarantees */}
-      <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs text-slate-400 space-y-2">
-        <div className="flex items-center gap-2 text-white font-bold">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Sécurité et Architecture Firebase & Google Authentification</span>
-        </div>
-        <ul className="space-y-1.5 text-[11px] list-disc list-inside text-slate-400 pl-1">
-          <li>
-            <strong className="text-slate-200">Google Authentification & Firebase Auth :</strong> Les utilisateurs peuvent s'inscrire en 1 clic via leur compte Google officiel ou par e-mail / téléphone.
-          </li>
-          <li>
-            <strong className="text-slate-200">Aucun mot de passe dans Firestore :</strong> Les mots de passe sont exclusivement hachés et sécurisés par l'infrastructure Firebase Authentication.
-          </li>
-          <li>
-            <strong className="text-slate-200">Firestore en base de données centrale :</strong> L'ID, le nom, le numéro de téléphone, l'adresse e-mail et le rôle sont synchronisés en temps réel dans Firestore.
-          </li>
-          <li>
-            <strong className="text-slate-200">Zéro stockage local non sécurisé :</strong> Les données sont persistées directement dans Firebase sans dépendance au stockage du navigateur.
-          </li>
-        </ul>
-      </div>
     </div>
   );
 };
+

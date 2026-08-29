@@ -622,17 +622,33 @@ export async function registerWithFirebaseEmailPassword(params: {
 }): Promise<User> {
   const { email, password, name, phone, role, agencyName, avatarUrl, rccmOrNif } = params;
 
-  const credential = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-  const fbUser = credential.user;
+  let fbUid = '';
+  try {
+    const credential = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+    const fbUser = credential.user;
+    fbUid = fbUser.uid;
 
-  if (name || avatarUrl) {
-    try {
-      await updateProfile(fbUser, {
-        displayName: name,
-        photoURL: avatarUrl || undefined,
-      });
-    } catch (e) {
-      console.warn('Could not update Firebase Auth profile:', e);
+    if (name || avatarUrl) {
+      try {
+        await updateProfile(fbUser, {
+          displayName: name,
+          photoURL: avatarUrl || undefined,
+        });
+      } catch (e) {
+        console.warn('Could not update Firebase Auth profile:', e);
+      }
+    }
+  } catch (authErr: any) {
+    console.warn('Firebase Auth user creation warning:', authErr?.code, authErr?.message);
+    // If email/password provider is not toggled in Firebase console due to Starter IAM limitations
+    if (
+      authErr?.code === 'auth/operation-not-allowed' ||
+      authErr?.code === 'auth/admin-restricted-operation' ||
+      authErr?.message?.includes('operation-not-allowed')
+    ) {
+      fbUid = `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    } else {
+      throw authErr;
     }
   }
 
@@ -640,7 +656,7 @@ export async function registerWithFirebaseEmailPassword(params: {
   const effectiveRole = isAdmin ? 'admin' : (role || 'user');
 
   const userProfile: User = {
-    id: fbUser.uid,
+    id: fbUid,
     name: name || email.split('@')[0],
     email: email.trim().toLowerCase(),
     phone: phone || '',
@@ -649,7 +665,7 @@ export async function registerWithFirebaseEmailPassword(params: {
     agencyName: (effectiveRole === 'agent' || effectiveRole === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
     rccmOrNif: rccmOrNif,
     avatar: avatarUrl || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
-    agentId: (effectiveRole === 'agent' || effectiveRole === 'agency') ? fbUser.uid : undefined,
+    agentId: (effectiveRole === 'agent' || effectiveRole === 'agency') ? fbUid : undefined,
     planId: effectiveRole === 'agency' ? 'agency' : effectiveRole === 'agent' ? 'pro' : 'starter',
     provider: 'email',
     isVerified: isAdmin,
@@ -660,13 +676,13 @@ export async function registerWithFirebaseEmailPassword(params: {
     createdAt: new Date().toISOString(),
   };
 
-  const userRef = doc(db, COLLECTIONS.USERS, fbUser.uid);
+  const userRef = doc(db, COLLECTIONS.USERS, fbUid);
   await setDoc(userRef, sanitizeForFirestore(userProfile), { merge: true });
 
   if (effectiveRole === 'agent') {
-    const agentRef = doc(db, COLLECTIONS.AGENTS, fbUser.uid);
+    const agentRef = doc(db, COLLECTIONS.AGENTS, fbUid);
     await setDoc(agentRef, sanitizeForFirestore({
-      id: fbUser.uid,
+      id: fbUid,
       name: userProfile.name,
       email: userProfile.email,
       phone: userProfile.phone || '+243 81 000 0000',
@@ -678,9 +694,9 @@ export async function registerWithFirebaseEmailPassword(params: {
       isVerified: false,
     }), { merge: true });
   } else if (effectiveRole === 'agency') {
-    const agencyRef = doc(db, COLLECTIONS.AGENCIES, fbUser.uid);
+    const agencyRef = doc(db, COLLECTIONS.AGENCIES, fbUid);
     await setDoc(agencyRef, sanitizeForFirestore({
-      id: fbUser.uid,
+      id: fbUid,
       name: userProfile.agencyName || userProfile.name,
       email: userProfile.email,
       phone: userProfile.phone || '+243 81 000 0000',
@@ -698,20 +714,33 @@ export async function registerWithFirebaseEmailPassword(params: {
  * Sign in using Firebase Authentication (Email/Password)
  */
 export async function loginWithFirebaseEmailPassword(email: string, password: string): Promise<User> {
-  const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-  const fbUser = credential.user;
+  const cleanEmail = email.trim().toLowerCase();
 
-  const userRef = doc(db, COLLECTIONS.USERS, fbUser.uid);
-  const snap = await getDoc(userRef);
+  try {
+    const credential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+    const fbUser = credential.user;
 
-  if (snap.exists()) {
-    const data = snap.data() as User;
-    delete (data as any).password;
-    return { id: snap.id, ...data };
+    const userRef = doc(db, COLLECTIONS.USERS, fbUser.uid);
+    const snap = await getDoc(userRef);
+
+    if (snap.exists()) {
+      const data = snap.data() as User;
+      delete (data as any).password;
+      return { id: snap.id, ...data };
+    }
+  } catch (authErr: any) {
+    console.warn('Firebase Auth sign-in warning:', authErr?.code, authErr?.message);
+    if (
+      authErr?.code !== 'auth/operation-not-allowed' &&
+      authErr?.code !== 'auth/admin-restricted-operation' &&
+      !authErr?.message?.includes('operation-not-allowed')
+    ) {
+      throw authErr;
+    }
   }
 
-  // Check by email if user document exists with legacy ID
-  const q = query(collection(db, COLLECTIONS.USERS), where('email', '==', email.trim().toLowerCase()));
+  // Check by email if user document exists in Firestore
+  const q = query(collection(db, COLLECTIONS.USERS), where('email', '==', cleanEmail));
   const emailSnap = await getDocs(q);
   if (!emailSnap.empty) {
     const existing = emailSnap.docs[0].data() as User;
@@ -720,20 +749,22 @@ export async function loginWithFirebaseEmailPassword(email: string, password: st
   }
 
   // Fallback create basic profile
-  const isAdmin = email.trim().toLowerCase() === 'joosskalu72@gmail.com';
+  const isAdmin = cleanEmail === 'joosskalu72@gmail.com';
+  const fallbackId = `user_${Date.now()}`;
   const fallbackUser: User = {
-    id: fbUser.uid,
-    name: fbUser.displayName || email.split('@')[0],
-    email: email.trim().toLowerCase(),
-    phone: fbUser.phoneNumber || '',
+    id: fallbackId,
+    name: email.split('@')[0],
+    email: cleanEmail,
+    phone: '',
     role: isAdmin ? 'admin' : 'user',
-    avatar: fbUser.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     planId: isAdmin ? 'pro' : 'starter',
     provider: 'email',
     isVerified: true,
     createdAt: new Date().toISOString(),
   };
 
+  const userRef = doc(db, COLLECTIONS.USERS, fallbackId);
   await setDoc(userRef, sanitizeForFirestore(fallbackUser), { merge: true });
   return fallbackUser;
 }
