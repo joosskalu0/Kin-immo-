@@ -339,7 +339,15 @@ export const AuthModal: React.FC = () => {
         } catch (fbRegErr: any) {
           setIsLoading(false);
           console.error('Firebase registration error:', fbRegErr);
-          setError(fbRegErr?.message || 'Erreur lors de l\'enregistrement dans Firebase Authentication.');
+          let friendlyRegErr = 'Erreur lors de la création de votre compte.';
+          if (fbRegErr?.code === 'auth/email-already-in-use' || fbRegErr?.message?.includes('email-already-in-use')) {
+            friendlyRegErr = 'Cette adresse e-mail possède déjà un compte. Cliquez sur "Se Connecter" ci-dessus pour vous identifier.';
+          } else if (fbRegErr?.code === 'auth/weak-password' || fbRegErr?.message?.includes('weak-password')) {
+            friendlyRegErr = 'Le mot de passe doit comporter au moins 6 caractères.';
+          } else if (fbRegErr?.message && !fbRegErr.message.includes('Firebase')) {
+            friendlyRegErr = fbRegErr.message;
+          }
+          setError(friendlyRegErr);
           return;
         }
       } else {
@@ -383,12 +391,17 @@ export const AuthModal: React.FC = () => {
       // STRICT LOGIN MODE
       if (method === 'email') {
         try {
-          const authedFbUser = await loginWithFirebaseEmailPassword(email.trim(), password.trim());
+          const authedFbUser = await loginWithFirebaseEmailPassword(
+            email.trim(),
+            password.trim(),
+            role,
+            agencyName
+          );
           setIsLoading(false);
           completeAuthentication(authedFbUser, `Connexion réussie ! Bienvenue ${authedFbUser.name}`);
           return;
         } catch (loginErr: any) {
-          console.warn('Firebase login failed, trying fallback:', loginErr?.message);
+          console.warn('Firebase login fallback check:', loginErr?.message);
           // Check in-memory store for admin PIN or pre-seeded credentials
           const identifier = email.trim();
           const authResult = authenticateUser(identifier, password, method);
@@ -404,7 +417,13 @@ export const AuthModal: React.FC = () => {
             return;
           }
           setIsLoading(false);
-          setError(loginErr?.message || 'Adresse e-mail ou mot de passe incorrect.');
+          let friendlyMsg = 'Adresse e-mail ou mot de passe incorrect. Vous pouvez également cliquer sur "Continuer avec Google".';
+          if (loginErr?.message?.includes('operation-not-allowed')) {
+            friendlyMsg = 'Pour ce compte e-mail, veuillez cliquer sur "Continuer avec Google" ci-dessus pour vous connecter en toute sécurité.';
+          } else if (loginErr?.message && !loginErr.message.includes('Firebase')) {
+            friendlyMsg = loginErr.message;
+          }
+          setError(friendlyMsg);
           return;
         }
       } else {

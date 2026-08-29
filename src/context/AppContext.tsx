@@ -39,7 +39,11 @@ import {
   trackContactClick,
   DEFAULT_GA_ID
 } from '../utils/analytics';
-import { getRegisteredAccounts, syncFirestoreUsersToAuthStore } from '../lib/authStore';
+import {
+  getRegisteredAccounts,
+  syncFirestoreUsersToAuthStore,
+  syncFirestoreAgentsToAuthStore,
+} from '../lib/authStore';
 import {
   seedInitialFirestoreData,
   subscribeToProperties,
@@ -432,6 +436,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubAgents = subscribeToAgents((firestoreAgents) => {
       if (Array.isArray(firestoreAgents)) {
         setAgents(firestoreAgents);
+        try {
+          syncFirestoreAgentsToAuthStore(firestoreAgents);
+        } catch (e) {
+          console.error('Error syncing firestore agents to auth store:', e);
+        }
       }
     });
 

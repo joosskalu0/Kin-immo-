@@ -207,13 +207,15 @@ export interface LeadRequest {
   createdAt: string;
 }
 
+export type UserRole = 'admin' | 'agent' | 'user' | 'owner' | 'agency';
+
 export interface User {
   id: string;
   name: string;
   email: string;
   phone?: string;
   whatsapp?: string;
-  role: 'admin' | 'agent' | 'user' | 'owner' | 'agency';
+  role: UserRole;
   avatar: string;
   agentId?: string;
   agencyId?: string;
