@@ -94,13 +94,8 @@ export const AdminBillingManager: React.FC = () => {
   const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
 
   useEffect(() => {
-    const localUsers: User[] = JSON.parse(localStorage.getItem('estatik_registered_users') || '[]');
-    
     const unsub = subscribeToUsers((firestoreUsers) => {
       const mergedMap = new Map<string, User>();
-      localUsers.forEach((u) => {
-        if (u.email) mergedMap.set(u.email.toLowerCase(), u);
-      });
       firestoreUsers.forEach((u) => {
         if (u.email) mergedMap.set(u.email.toLowerCase(), u);
       });
@@ -109,15 +104,6 @@ export const AdminBillingManager: React.FC = () => {
       }
       setRegisteredUsers(Array.from(mergedMap.values()));
     });
-
-    if (localUsers.length > 0) {
-      const map = new Map<string, User>();
-      localUsers.forEach((u) => {
-        if (u.email) map.set(u.email.toLowerCase(), u);
-      });
-      if (user && user.email) map.set(user.email.toLowerCase(), user);
-      setRegisteredUsers(Array.from(map.values()));
-    }
 
     return () => unsub();
   }, [user]);

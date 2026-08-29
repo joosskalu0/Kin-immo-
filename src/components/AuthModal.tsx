@@ -32,11 +32,27 @@ import {
   Trash2,
 } from 'lucide-react';
 import { User, Agency, Agent } from '../types';
-import { saveUserToFirestore, saveAgentToFirestore, saveAgencyToFirestore } from '../lib/firebase';
+import {
+  saveUserToFirestore,
+  saveAgentToFirestore,
+  saveAgencyToFirestore,
+  signInWithGoogleAuth,
+  registerWithFirebaseEmailPassword,
+  loginWithFirebaseEmailPassword,
+} from '../lib/firebase';
 import { authenticateUser, registerUserAccount, authenticateOrRegisterGoogleUser } from '../lib/authStore';
 
 export const AuthModal: React.FC = () => {
-  const { isAuthModalOpen, setIsAuthModalOpen, setUser, addAgency, addAgent } = useApp();
+  const {
+    isAuthModalOpen,
+    setIsAuthModalOpen,
+    setUser,
+    addAgency,
+    addAgent,
+    invitedRole,
+    invitedBy,
+    clearInvite,
+  } = useApp();
   
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [method, setMethod] = useState<'email' | 'phone'>('email');
@@ -61,6 +77,19 @@ export const AuthModal: React.FC = () => {
   const [rccmOrNif, setRccmOrNif] = useState('');
   const [role, setRole] = useState<'user' | 'owner' | 'agent' | 'agency'>('user');
   const [enable2FAOnSignup, setEnable2FAOnSignup] = useState(true);
+
+  // Automatically activate invited role when arriving via invite link
+  React.useEffect(() => {
+    if (invitedRole) {
+      setMode('register');
+      if (invitedRole === 'agent' || invitedRole === 'agency') {
+        setRole(invitedRole);
+      }
+      if (invitedBy && !agencyName) {
+        setAgencyName(invitedBy);
+      }
+    }
+  }, [invitedRole, invitedBy]);
 
   // Avatar / Profile photo state
   const [avatarUrl, setAvatarUrl] = useState<string>('');
@@ -137,15 +166,38 @@ export const AuthModal: React.FC = () => {
 
   const strength = getPasswordStrength();
 
-  // Social Sign-In Prompt
-  const handleSocialLogin = (provider: 'google' | 'facebook') => {
+  // Social Sign-In Prompt with Google Authentication & Firebase
+  const handleSocialLogin = async (provider: 'google' | 'facebook') => {
     setError(null);
     if (provider === 'google') {
-      const initialGoogleEmail = email.includes('@') ? email : '';
-      const initialGoogleName = name.trim() || (initialGoogleEmail ? initialGoogleEmail.split('@')[0] : '');
-      setGoogleEmailInput(initialGoogleEmail);
-      setGoogleNameInput(initialGoogleName);
-      setStep('google_prompt');
+      setIsLoading(true);
+      try {
+        const googleUser = await signInWithGoogleAuth(
+          role,
+          (role === 'agent' || role === 'agency' || role === 'owner') ? agencyName : undefined
+        );
+        setUser(googleUser);
+        setIsLoading(false);
+        setSuccessMessage(`Bienvenue ${googleUser.name} ! Connexion réussie via Google Authentification.`);
+        setTimeout(() => {
+          setIsAuthModalOpen(false);
+          setSuccessMessage(null);
+          resetState();
+        }, 1200);
+      } catch (err: any) {
+        setIsLoading(false);
+        console.error('Google Sign-In error:', err);
+        if (err?.code === 'auth/popup-blocked' || err?.message?.includes('popup') || err?.message?.includes('closed')) {
+          // If popup is blocked by iframe or browser sandbox, fallback to Google prompt form
+          const initialGoogleEmail = email.includes('@') ? email : '';
+          const initialGoogleName = name.trim() || (initialGoogleEmail ? initialGoogleEmail.split('@')[0] : '');
+          setGoogleEmailInput(initialGoogleEmail);
+          setGoogleNameInput(initialGoogleName);
+          setStep('google_prompt');
+        } else {
+          setError(err?.message || 'Erreur lors de la connexion Google Authentification.');
+        }
+      }
     } else {
       setIsLoading(true);
       setTimeout(() => {
@@ -218,7 +270,6 @@ export const AuthModal: React.FC = () => {
       };
 
       setUser(adminUserObj);
-      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(adminUserObj));
       setIsLoading(false);
       setSuccessMessage('Connexion réussie en tant qu\'Administrateur Système !');
       setTimeout(() => {
@@ -243,7 +294,7 @@ export const AuthModal: React.FC = () => {
   };
 
   // Step 1: Form Submit Handler
-  const handleInitialSubmit = (e: React.FormEvent) => {
+  const handleInitialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -264,70 +315,121 @@ export const AuthModal: React.FC = () => {
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
+    if (mode === 'register') {
+      // Firebase Authentication Email/Password Registration
+      if (method === 'email') {
+        try {
+          const registeredFbUser = await registerWithFirebaseEmailPassword({
+            email: email.trim(),
+            password: password.trim(),
+            name: name.trim() || email.split('@')[0],
+            phone: phone && phone.trim() !== '+243' ? phone.trim() : '+243 81 000 0000',
+            role: role,
+            agencyName: (role === 'agent' || role === 'owner' || role === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
+            avatarUrl: avatarUrl || undefined,
+            rccmOrNif: rccmOrNif || undefined,
+          });
 
-      if (mode === 'register') {
-        // Construct pending user profile
-        const newTempUser: User = {
-          id: `user_${Date.now()}`,
-          name: name || (method === 'email' ? email.split('@')[0] : 'Membre Kinshasa'),
-          email: method === 'email' ? email : `${phone.replace(/\s+/g, '')}@estatik.cd`,
-          phone: phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000',
-          whatsapp: whatsapp && whatsapp.trim() !== '+243' ? whatsapp : (phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000'),
-          role: role,
-          agencyName: (role === 'agent' || role === 'owner' || role === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
-          rccmOrNif: rccmOrNif || (role === 'agency' || role === 'agent' ? 'CD/KIN/RCCM/26-B-08420' : undefined),
-          avatar: avatarUrl || (role === 'agency' || role === 'agent'
-            ? 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'
-            : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80'),
-          agentId: (role === 'agent' || role === 'agency') ? `agent_${Date.now()}` : undefined,
-          planId: role === 'agency' ? 'agency' : role === 'agent' ? 'pro' : 'starter',
-          subscriptionStatus: 'Active',
-          subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          provider: method,
-          isVerified: false,
-          emailVerified: method === 'email' ? false : true,
-          phoneVerified: method === 'phone' ? false : true,
-          twoFactorEnabled: enable2FAOnSignup,
-          twoFactorMethod: 'authenticator',
-          kinshasaBadgeVerified: role === 'agent' || role === 'owner' || role === 'agency',
-          identityDocType: managerIdType,
-          identityDocNumber: managerIdNumber,
-          lastLoginLocation: role === 'agency' ? `Kinshasa (${agencyCommune}), RDC` : 'Kinshasa (Gombe), RDC',
-          createdAt: new Date().toISOString(),
-        };
-
-        setPendingUser(newTempUser);
-
-        // Redirect to Verification Step (Email or Phone)
-        if (method === 'email') {
-          setStep('email_verify');
-        } else {
-          setStep('phone_verify');
-        }
-      } else {
-        // STRICT LOGIN MODE: Must match account & exact password
-        const identifier = method === 'email' ? email : phone;
-        const authResult = authenticateUser(identifier, password, method);
-
-        if (!authResult.success) {
-          setError(authResult.error || 'Mot de passe ou identifiant incorrect.');
+          setIsLoading(false);
+          completeAuthentication(
+            registeredFbUser,
+            `Compte créé avec succès dans Firebase Authentication & Firestore ! Bienvenue ${registeredFbUser.name}`
+          );
+          return;
+        } catch (fbRegErr: any) {
+          setIsLoading(false);
+          console.error('Firebase registration error:', fbRegErr);
+          setError(fbRegErr?.message || 'Erreur lors de l\'enregistrement dans Firebase Authentication.');
           return;
         }
+      } else {
+        // Construct pending user profile for phone verification
+        setTimeout(() => {
+          setIsLoading(false);
+          const newTempUser: User = {
+            id: `user_${Date.now()}`,
+            name: name || 'Membre Kinshasa',
+            email: `${phone.replace(/\s+/g, '')}@estatik.cd`,
+            phone: phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000',
+            whatsapp: whatsapp && whatsapp.trim() !== '+243' ? whatsapp : (phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000'),
+            role: role,
+            agencyName: (role === 'agent' || role === 'owner' || role === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
+            rccmOrNif: rccmOrNif || (role === 'agency' || role === 'agent' ? 'CD/KIN/RCCM/26-B-08420' : undefined),
+            avatar: avatarUrl || (role === 'agency' || role === 'agent'
+              ? 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'
+              : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80'),
+            agentId: (role === 'agent' || role === 'agency') ? `agent_${Date.now()}` : undefined,
+            planId: role === 'agency' ? 'agency' : role === 'agent' ? 'pro' : 'starter',
+            subscriptionStatus: 'Active',
+            subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            provider: 'phone',
+            isVerified: false,
+            emailVerified: true,
+            phoneVerified: false,
+            twoFactorEnabled: enable2FAOnSignup,
+            twoFactorMethod: 'authenticator',
+            kinshasaBadgeVerified: role === 'agent' || role === 'owner' || role === 'agency',
+            identityDocType: managerIdType,
+            identityDocNumber: managerIdNumber,
+            lastLoginLocation: role === 'agency' ? `Kinshasa (${agencyCommune}), RDC` : 'Kinshasa (Gombe), RDC',
+            createdAt: new Date().toISOString(),
+          };
 
-        const targetUser = authResult.user!;
-        setPendingUser(targetUser);
-
-        // If 2FA enabled, force 2FA Challenge step
-        if (targetUser.twoFactorEnabled) {
-          setStep('2fa_challenge');
-        } else {
-          // Direct authenticated login
-          completeAuthentication(targetUser, 'Connexion réussie !');
-        }
+          setPendingUser(newTempUser);
+          setStep('phone_verify');
+        }, 500);
       }
-    }, 700);
+    } else {
+      // STRICT LOGIN MODE
+      if (method === 'email') {
+        try {
+          const authedFbUser = await loginWithFirebaseEmailPassword(email.trim(), password.trim());
+          setIsLoading(false);
+          completeAuthentication(authedFbUser, `Connexion réussie ! Bienvenue ${authedFbUser.name}`);
+          return;
+        } catch (loginErr: any) {
+          console.warn('Firebase login failed, trying fallback:', loginErr?.message);
+          // Check in-memory store for admin PIN or pre-seeded credentials
+          const identifier = email.trim();
+          const authResult = authenticateUser(identifier, password, method);
+          if (authResult.success && authResult.user) {
+            setIsLoading(false);
+            const targetUser = authResult.user;
+            if (targetUser.twoFactorEnabled) {
+              setPendingUser(targetUser);
+              setStep('2fa_challenge');
+            } else {
+              completeAuthentication(targetUser, 'Connexion réussie !');
+            }
+            return;
+          }
+          setIsLoading(false);
+          setError(loginErr?.message || 'Adresse e-mail ou mot de passe incorrect.');
+          return;
+        }
+      } else {
+        // Phone login
+        setTimeout(() => {
+          setIsLoading(false);
+          const identifier = phone.trim();
+          const authResult = authenticateUser(identifier, password, method);
+
+          if (!authResult.success) {
+            setError(authResult.error || 'Numéro de téléphone ou mot de passe incorrect.');
+            return;
+          }
+
+          const targetUser = authResult.user!;
+          setPendingUser(targetUser);
+
+          if (targetUser.twoFactorEnabled) {
+            setStep('2fa_challenge');
+          } else {
+            completeAuthentication(targetUser, 'Connexion réussie !');
+          }
+        }, 500);
+      }
+    }
   };
 
   // Verify Email or Phone Code
@@ -399,9 +501,10 @@ export const AuthModal: React.FC = () => {
 
   // Save finalized user and close modal
   const completeAuthentication = (userToSave: User, msg: string) => {
-    // Save account with password to persistent authStore
-    const userPass = password || (userToSave as any).password || 'kalu2002jooss';
-    registerUserAccount(userToSave, userPass);
+    // Only register to in-memory store if password is provided, never fallback to admin password!
+    if (password) {
+      registerUserAccount(userToSave, password);
+    }
 
     saveUserToFirestore(userToSave).catch((err) => console.error('Error saving user to Firestore:', err));
 
@@ -466,11 +569,11 @@ export const AuthModal: React.FC = () => {
 
       addAgent(chiefAgent);
       saveAgentToFirestore(chiefAgent).catch((err) => console.error('Error saving chief agent to Firestore:', err));
-    } else if (userToSave.role === 'agent' || userToSave.role === 'owner' || userToSave.role === 'admin' || userToSave.agencyName) {
+    } else if ((userToSave.role === 'agent' || userToSave.role === 'owner' || Boolean(userToSave.agencyName)) && userToSave.role !== 'admin') {
       saveAgentToFirestore({
         id: userToSave.agentId || userToSave.id,
         name: userToSave.name,
-        title: userToSave.role === 'admin' ? 'Administrateur Immobilier' : userToSave.role === 'owner' ? 'Propriétaire Vendeur' : 'Agent Immobilier Agréé',
+        title: userToSave.role === 'owner' ? 'Propriétaire Vendeur' : 'Agent Immobilier Agréé',
         email: userToSave.email,
         phone: userToSave.phone || '+243 81 000 0000',
         whatsapp: userToSave.whatsapp || userToSave.phone || '+243 81 000 0000',
@@ -591,6 +694,32 @@ export const AuthModal: React.FC = () => {
         {/* Form Step */}
         {step === 'form' && (
           <>
+            {/* Invitation Banner if User arrived via invitation link */}
+            {invitedRole && (
+              <div className="mb-4 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-teal-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between gap-3 animate-fadeIn">
+                <div className="flex items-center gap-2.5">
+                  <Sparkles className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <div>
+                    <div className="font-bold text-white text-xs">🎉 Invitation Reçue !</div>
+                    <div className="text-[11px] text-emerald-300">
+                      Vous avez été invité(e){invitedBy ? ` par ${invitedBy}` : ''} à rejoindre Immocraft en tant que{' '}
+                      <strong className="text-white uppercase">
+                        {invitedRole === 'agency' ? 'Agence Immobilière' : 'Agent Immobilier'}
+                      </strong>.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearInvite}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                  title="Fermer l'invitation"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Mode Switcher Tabs */}
             <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-5 shadow-inner">
               <button

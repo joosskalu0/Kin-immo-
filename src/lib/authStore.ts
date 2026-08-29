@@ -7,8 +7,8 @@ export interface StoredUserAccount extends User {
   password?: string;
 }
 
-const STORAGE_USERS_KEY = 'estatik_registered_users';
-const DEFAULT_ACCOUNT_PASSWORD = 'kalu2002jooss';
+// In-memory registry for initial demo seed accounts only (isolated, never overwriting agent passwords)
+let inMemoryAccounts: StoredUserAccount[] = [];
 
 /**
  * Clean phone numbers to digits only with country code standard
@@ -18,7 +18,7 @@ export const normalizePhone = (phoneStr: string): string => {
 };
 
 /**
- * Pre-seed standard demo accounts with default password 'kalu2002jooss'
+ * Pre-seed standard demo accounts with their own individual credentials
  */
 const getInitialSeedAccounts = (): StoredUserAccount[] => {
   const adminCreds = getAdminCredentials();
@@ -44,7 +44,7 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
       lastLoginLocation: 'Kinshasa (Gombe), RDC',
       createdAt: '2026-01-01T00:00:00Z',
     },
-    // 2. Pre-seeded Agent Jean-Luc Mpoy
+    // 2. Pre-seeded Agent Jean-Luc Mpoy (distinct password)
     {
       id: 'user_agent_1',
       agentId: 'agent_1',
@@ -57,7 +57,7 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
       rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
       avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
       planId: 'pro',
-      password: DEFAULT_ACCOUNT_PASSWORD,
+      password: 'agent@kinshasa2026',
       isVerified: true,
       emailVerified: true,
       phoneVerified: true,
@@ -66,7 +66,7 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
       lastLoginLocation: 'Kinshasa (Gombe), RDC',
       createdAt: '2026-07-01T00:00:00Z',
     },
-    // 3. Pre-seeded Agent Grace Kabamba
+    // 3. Pre-seeded Agent Grace Kabamba (distinct password)
     {
       id: 'user_agent_2',
       agentId: 'agent_2',
@@ -79,7 +79,7 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
       rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
       avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
       planId: 'pro',
-      password: DEFAULT_ACCOUNT_PASSWORD,
+      password: 'agent@kinshasa2026',
       isVerified: true,
       emailVerified: true,
       phoneVerified: true,
@@ -102,7 +102,7 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
       rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
       avatar: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
       planId: 'agency',
-      password: DEFAULT_ACCOUNT_PASSWORD,
+      password: 'agence@prestige2026',
       isVerified: true,
       emailVerified: true,
       phoneVerified: true,
@@ -125,7 +125,7 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
       rccmOrNif: 'CD/KIN/RCCM/22-A-1104',
       avatar: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=300&auto=format&fit=crop&q=80',
       planId: 'agency',
-      password: DEFAULT_ACCOUNT_PASSWORD,
+      password: 'agence@congo2026',
       isVerified: true,
       emailVerified: true,
       phoneVerified: true,
@@ -140,105 +140,50 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
 };
 
 /**
- * Retrieve all registered accounts from localStorage (merging with initial seeds)
+ * Retrieve all registered accounts (in-memory, clean of localStorage pollution)
  */
 export const getRegisteredAccounts = (): StoredUserAccount[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_USERS_KEY);
-    if (raw) {
-      const parsed: StoredUserAccount[] = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // Upgrade legacy passwords (e.g. Kinshasa2026, 2026, Admin2026) to kalu2002jooss
-        let modified = false;
-        parsed.forEach((acc) => {
-          if (acc.password === '2026' || acc.password === 'Kinshasa2026' || acc.password === 'Admin2026' || !acc.password) {
-            acc.password = 'kalu2002jooss';
-            modified = true;
-          }
-        });
-
-        // Ensure initial seeds are preserved if not present
-        const seeds = getInitialSeedAccounts();
-        const existingEmails = new Set(parsed.map((p) => p.email?.toLowerCase()));
-        const missingSeeds = seeds.filter((s) => s.email && !existingEmails.has(s.email.toLowerCase()));
-        if (missingSeeds.length > 0) {
-          const merged = [...parsed, ...missingSeeds];
-          localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(merged));
-          return merged;
-        }
-        if (modified) {
-          localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(parsed));
-        }
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Error reading registered accounts:', e);
+  if (inMemoryAccounts.length === 0) {
+    inMemoryAccounts = getInitialSeedAccounts();
   }
-
-  const initialSeeds = getInitialSeedAccounts();
-  try {
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(initialSeeds));
-  } catch (e) {
-    console.error('Error saving initial seeds:', e);
-  }
-  return initialSeeds;
+  return inMemoryAccounts;
 };
 
 /**
- * Safely merge incoming Firestore users into local auth store without losing passwords or existing custom accounts
+ * Sync Firestore users into in-memory store without EVER overriding individual passwords
  */
 export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUserAccount[] => {
   const currentAccounts = getRegisteredAccounts();
   const accountsMap = new Map<string, StoredUserAccount>();
 
-  // 1. First load existing accounts (with passwords intact)
+  // 1. Keep initial accounts
   currentAccounts.forEach((acc) => {
-    if (acc.password === '2026' || acc.password === 'Kinshasa2026' || acc.password === 'Admin2026') {
-      acc.password = 'kalu2002jooss';
-    }
     if (acc.id) accountsMap.set(acc.id, acc);
     if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
   });
 
-  // 2. Merge Firestore users
+  // 2. Merge Firestore users (without assigning admin password)
   firestoreUsers.forEach((fu) => {
     if (!fu) return;
     const existing = (fu.id ? accountsMap.get(fu.id) : undefined) || (fu.email ? accountsMap.get(fu.email.toLowerCase()) : undefined);
-    let pwd = existing?.password || DEFAULT_ACCOUNT_PASSWORD;
-    if (pwd === '2026' || pwd === 'Kinshasa2026' || pwd === 'Admin2026') {
-      pwd = 'kalu2002jooss';
-    }
     const merged: StoredUserAccount = {
       ...existing,
       ...fu,
-      password: pwd,
+      password: existing?.password, // Retain own password if present, never overwrite with admin password
     };
     if (fu.id) accountsMap.set(fu.id, merged);
     if (fu.email) accountsMap.set(fu.email.toLowerCase(), merged);
   });
 
-  // 3. Re-inject initial seeds if any were dropped
-  const seeds = getInitialSeedAccounts();
-  seeds.forEach((s) => {
-    if (s.email && !accountsMap.has(s.email.toLowerCase())) {
-      accountsMap.set(s.email.toLowerCase(), s);
-    }
-  });
-
   const mergedList = Array.from(new Set(Array.from(accountsMap.values())));
-  try {
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(mergedList));
-  } catch (e) {
-    console.error('Error saving merged accounts to localStorage:', e);
-  }
+  inMemoryAccounts = mergedList;
   return mergedList;
 };
 
 /**
- * Register or update an account with its exact password
+ * Register account into in-memory list and Firestore (NEVER storing password in Firestore)
  */
-export const registerUserAccount = (user: User, password: string): StoredUserAccount => {
+export const registerUserAccount = (user: User, password?: string): StoredUserAccount => {
   const accounts = getRegisteredAccounts();
   const cleanEmail = user.email.toLowerCase().trim();
   const cleanPhone = normalizePhone(user.phone || '');
@@ -253,7 +198,7 @@ export const registerUserAccount = (user: User, password: string): StoredUserAcc
   const accountToSave: StoredUserAccount = {
     ...user,
     email: cleanEmail,
-    password: password.trim(),
+    password: password ? password.trim() : undefined,
   };
 
   if (existingIdx >= 0) {
@@ -265,21 +210,16 @@ export const registerUserAccount = (user: User, password: string): StoredUserAcc
     accounts.push(accountToSave);
   }
 
-  try {
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(accounts));
-  } catch (e) {
-    console.error('Failed to write registered user to localStorage:', e);
-  }
+  inMemoryAccounts = [...accounts];
 
-  // Also sync to Firestore
+  // Save profile to Firestore WITHOUT the password!
   saveUserToFirestore(user).catch((err) => console.error('Firestore saveUser error in authStore:', err));
 
   return accountToSave;
 };
 
 /**
- * Strict Credentials Verification
- * Verifies email/phone AND exact password match.
+ * Strict Credentials Verification for seed / fallback accounts
  */
 export const authenticateUser = (
   identifier: string,
@@ -312,7 +252,6 @@ export const authenticateUser = (
     trimmedId === 'mukamba@kin-immobilier.cd';
 
   if (isAdminEmail) {
-    // Admin password check: strictly kalu2002jooss or configured admin PIN (reject 2026)
     const isPinMatch = verifyAdminPin(trimmedPwd);
     const isPassMatch = trimmedPwd === 'kalu2002jooss' || trimmedPwd === adminCreds.pin;
 
@@ -363,9 +302,8 @@ export const authenticateUser = (
     };
   }
 
-  // 3. Strict password comparison
-  const expectedPassword = matchedAccount.password || DEFAULT_ACCOUNT_PASSWORD;
-  if (trimmedPwd !== expectedPassword) {
+  // 3. Compare with account's own password
+  if (!matchedAccount.password || trimmedPwd !== matchedAccount.password) {
     const roleLabel =
       matchedAccount.role === 'agency'
         ? "d'agence"
@@ -374,7 +312,7 @@ export const authenticateUser = (
         : 'utilisateur';
     return {
       success: false,
-      error: `Mot de passe incorrect pour le compte ${roleLabel} (${matchedAccount.name}). Veuillez saisir le mot de passe exact défini lors de la création de votre compte.`,
+      error: `Mot de passe incorrect pour le compte ${roleLabel} (${matchedAccount.name}). Veuillez saisir le mot de passe exact défini lors de la création de votre compte ou vous connecter avec Google.`,
     };
   }
 
@@ -399,7 +337,6 @@ export const authenticateOrRegisterGoogleUser = (
     return existing;
   }
 
-  // Create genuine buyer/client account (role: user, not agent, not agency)
   const displayName = googleName?.trim() || cleanEmail.split('@')[0];
   const newGoogleUser: StoredUserAccount = {
     id: `user_google_${Date.now()}`,
@@ -418,15 +355,14 @@ export const authenticateOrRegisterGoogleUser = (
     kinshasaBadgeVerified: false,
     lastLoginLocation: 'Kinshasa (Gombe), RDC',
     createdAt: new Date().toISOString(),
-    password: 'GoogleOAuth2026',
   };
 
-  registerUserAccount(newGoogleUser, 'GoogleOAuth2026');
+  registerUserAccount(newGoogleUser);
   return newGoogleUser;
 };
 
 /**
- * Update password for an existing account
+ * Update password for an existing account in memory
  */
 export const updateAccountPassword = (
   userId: string,
@@ -441,9 +377,9 @@ export const updateAccountPassword = (
   }
 
   const account = accounts[idx];
-  const currentPass = account.password || DEFAULT_ACCOUNT_PASSWORD;
+  const currentPass = account.password;
 
-  if (oldPassword.trim() !== currentPass && !verifyAdminPin(oldPassword)) {
+  if (currentPass && oldPassword.trim() !== currentPass) {
     return { success: false, error: 'Le mot de passe actuel est incorrect.' };
   }
 
@@ -451,11 +387,7 @@ export const updateAccountPassword = (
     ...account,
     password: newPassword.trim(),
   };
+  inMemoryAccounts = [...accounts];
 
-  try {
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(accounts));
-    return { success: true };
-  } catch (e: any) {
-    return { success: false, error: e.message || 'Erreur d\'enregistrement.' };
-  }
+  return { success: true };
 };

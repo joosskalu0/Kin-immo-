@@ -78,36 +78,15 @@ function notifyLogListeners() {
   eventListeners.forEach((fn) => fn([...eventLogs]));
 }
 
+let runtimeTrackingConfig: TrackingConfig = { ...DEFAULT_TRACKING_CONFIG };
+
 export function getStoredTrackingConfig(): TrackingConfig {
-  if (typeof window === 'undefined') return DEFAULT_TRACKING_CONFIG;
-  try {
-    const saved = localStorage.getItem('kin_tracking_config');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // Migrate legacy placeholder ID to user's real container ID & GA4 ID
-      if (parsed.gtmContainerId === 'GTM-KINSHASA' || !parsed.gtmContainerId) {
-        parsed.gtmContainerId = DEFAULT_GTM_ID;
-      }
-      if (parsed.googleAnalyticsId === 'G-KINSHASA2026' || !parsed.googleAnalyticsId) {
-        parsed.googleAnalyticsId = DEFAULT_GA_ID;
-      }
-      return { ...DEFAULT_TRACKING_CONFIG, ...parsed };
-    }
-  } catch (e) {
-    console.error('Error reading tracking config from localStorage:', e);
-  }
-  return DEFAULT_TRACKING_CONFIG;
+  return { ...runtimeTrackingConfig };
 }
 
 export function saveStoredTrackingConfig(config: TrackingConfig) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem('kin_tracking_config', JSON.stringify(config));
-    // Re-initialize tags
-    initAllTracking(config);
-  } catch (e) {
-    console.error('Error saving tracking config:', e);
-  }
+  runtimeTrackingConfig = { ...runtimeTrackingConfig, ...config };
+  initAllTracking(runtimeTrackingConfig);
 }
 
 /**

@@ -27,14 +27,25 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[ErrorBoundary caught error]:', error, errorInfo);
+    if (error?.message && (error.message.includes('quota') || error.message.includes('Storage') || error.message.includes('setItem'))) {
+      try {
+        localStorage.clear();
+      } catch (e) {}
+    }
     this.setState({ errorInfo });
   }
 
   private handleReload = () => {
+    try {
+      localStorage.clear();
+    } catch (e) {}
     window.location.reload();
   };
 
   private handleReset = () => {
+    try {
+      localStorage.clear();
+    } catch (e) {}
     this.setState({ hasError: false, error: null, errorInfo: null });
   };
 

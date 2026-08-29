@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { initialSubscriptionPlans } from '../../data/mockData';
 import { Property, LeadRequest, User } from '../../types';
-import { AdminDatabaseManager } from './AdminDatabaseManager';
+import { AgentInviteManager } from './AgentInviteManager';
 import { AdminBillingManager } from './AdminBillingManager';
 import { AdminSettingsManager } from './AdminSettingsManager';
 import { AdminVerificationManager } from './AdminVerificationManager';
@@ -16,6 +16,7 @@ import {
   Home,
   Building2,
   Users,
+  UserPlus,
   Search,
   CreditCard,
   FileSpreadsheet,
@@ -35,7 +36,6 @@ import {
   BadgeCheck,
   KeyRound,
   Zap,
-  Database,
   Receipt,
   Lock,
   X,
@@ -82,7 +82,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
   } = useApp();
 
   const isAdmin = user?.role === 'admin';
-  const [activeTab, setActiveTab] = useState<'analytics' | 'verification' | 'billing' | 'database' | 'admin_settings' | 'listings' | 'my_invoices' | 'leads' | 'saved' | 'plans' | 'csv' | 'gtm_manager'>(
+  const [activeTab, setActiveTab] = useState<'analytics' | 'verification' | 'billing' | 'invitations' | 'admin_settings' | 'listings' | 'my_invoices' | 'leads' | 'saved' | 'plans' | 'csv' | 'gtm_manager'>(
     isAdmin ? 'admin_settings' : 'analytics'
   );
   const [csvTextInput, setCsvTextInput] = useState('');
@@ -129,7 +129,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           avatar: event.target.result,
         };
         setUser(updatedUser);
-        localStorage.setItem('estatik_kinshasa_user', JSON.stringify(updatedUser));
         saveUserToFirestore(updatedUser).catch(console.error);
         setPhotoUploadSuccess(true);
         setTimeout(() => setPhotoUploadSuccess(false), 3000);
@@ -171,7 +170,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       createdAt: new Date().toISOString(),
     };
     setUser(adminProfile);
-    localStorage.setItem('estatik_kinshasa_user', JSON.stringify(adminProfile));
     setActiveTab('admin_settings');
   };
 
@@ -449,18 +447,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
               </button>
 
               <button
-                onClick={() => setActiveTab('database')}
-                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
-                  activeTab === 'database'
-                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                }`}
-              >
-                <Database className="w-4 h-4 text-emerald-400" />
-                <span>Console DB Admin</span>
-              </button>
-
-              <button
                 onClick={() => setIsTagManagerModalOpen(true)}
                 className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
                   activeTab === 'gtm_manager'
@@ -522,6 +508,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           </button>
 
           <button
+            onClick={() => setActiveTab('invitations')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+              activeTab === 'invitations'
+                ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-emerald-500/20'
+                : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+            }`}
+          >
+            <UserPlus className="w-4 h-4 text-emerald-400" />
+            <span>Inviter des Partenaires</span>
+          </button>
+
+          <button
             onClick={() => {
               setEditingProperty(null);
               setIsSubmitPropertyOpen(true);
@@ -545,9 +543,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           ...(isAdmin || activeTab === 'billing'
             ? [{ id: 'billing', label: 'Facturation & Encaissements Admin', icon: Receipt }]
             : []),
-          ...(isAdmin || activeTab === 'database'
-            ? [{ id: 'database', label: 'Base de Données Sécurisée (Admin)', icon: Database }]
-            : []),
+          { id: 'invitations', label: '🔗 Inviter des Agents & Agences', icon: UserPlus },
           ...(isAdmin
             ? [{ id: 'gtm_manager', label: '🏷️ Google Tag Manager & Pixels (Admin)', icon: Layers }]
             : []),
@@ -601,9 +597,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
         <AdminBillingManager />
       )}
 
-      {/* TAB 2: Firestore Admin Database Manager */}
-      {activeTab === 'database' && (
-        <AdminDatabaseManager />
+      {/* TAB: Agent and Agency Invite Manager */}
+      {activeTab === 'invitations' && (
+        <AgentInviteManager />
       )}
 
       {/* TAB 1: My Listings */}

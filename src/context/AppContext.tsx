@@ -64,11 +64,12 @@ import {
   deleteAgentFromFirestore,
   saveAgencyToFirestore,
   deleteAgencyFromFirestore,
-  saveAdminPinToFirestore,
-  getAdminPinFromFirestore,
   subscribeToPricingConfig,
-  savePricingConfigToFirestore
+  savePricingConfigToFirestore,
+  listenToAuthChanges,
+  logOutFromFirebase
 } from '../lib/firebase';
+import { getAdminCredentials, saveAdminCredentials } from '../lib/adminCredentials';
 import { parsePropertyIdFromUrl, updateBrowserUrlForProperty } from '../utils/shareUtils';
 
 interface AppContextType {
@@ -82,6 +83,14 @@ interface AppContextType {
   setUser: (user: User | null) => void;
   deleteUser: (id: string) => void;
   allUsers: User[];
+  logOut: () => Promise<void>;
+
+  // Invitation link support for agents & agencies
+  invitedRole: 'agent' | 'agency' | null;
+  invitedBy: string | null;
+  clearInvite: () => void;
+  isInviteModalOpen: boolean;
+  setIsInviteModalOpen: (open: boolean) => void;
 
   customFields: CustomFieldDefinition[];
   addCustomField: (field: CustomFieldDefinition) => void;
@@ -217,102 +226,89 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguage] = useState<LanguageCode>('fr');
   const [currency, setCurrency] = useState<CurrencyCode>('USD');
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('estatik_kinshasa_user');
-    try {
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState<User | null>(null);
 
+  // Invitation link state for agents & agencies
+  const [invitedRole, setInvitedRole] = useState<'agent' | 'agency' | null>(null);
+  const [invitedBy, setInvitedBy] = useState<string | null>(null);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+
+  // Proactively clean up all legacy localStorage keys to ensure 100% Firestore truth and zero client-side caching
   useEffect(() => {
-    if (user) {
-      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('estatik_kinshasa_user');
-    }
-  }, [user]);
-
-  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>(() => {
-    const saved = localStorage.getItem('immocraft_custom_fields');
-    return saved ? JSON.parse(saved) : initialCustomFields;
-  });
-
-  const [properties, setProperties] = useState<Property[]>(() => {
-    let deletedIds: string[] = [];
     try {
-      const deletedRaw = localStorage.getItem('immocraft_deleted_properties');
-      deletedIds = deletedRaw ? JSON.parse(deletedRaw) : [];
+      localStorage.removeItem('estatik_kinshasa_user');
+      localStorage.removeItem('estatik_admin_credentials_v1');
+      localStorage.removeItem('immocraft_properties');
+      localStorage.removeItem('immocraft_agents');
+      localStorage.removeItem('immocraft_agencies');
+      localStorage.removeItem('estatik_registered_users');
+      localStorage.removeItem('immocraft_custom_fields');
+      localStorage.removeItem('immocraft_deleted_properties');
+      localStorage.removeItem('immocraft_saved_searches');
+      localStorage.removeItem('kin_tracking_config');
     } catch {}
+  }, []);
 
-    const saved = localStorage.getItem('immocraft_properties');
-    if (saved) {
+  // Listen to Firebase Auth state changes
+  useEffect(() => {
+    const unsub = listenToAuthChanges((fbUser) => {
+      setUser(fbUser);
+    });
+    return () => unsub();
+  }, []);
+
+  // Check URL query parameters for agent/agency invitation links
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
       try {
-        const parsed: Property[] = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.filter((p) => !deletedIds.includes(p.id));
+        const params = new URLSearchParams(window.location.search);
+        const inviteParam = params.get('invite');
+        const refParam = params.get('ref') || params.get('agency');
+        if (inviteParam === 'agent' || inviteParam === 'agency') {
+          setInvitedRole(inviteParam);
+          setInvitedBy(refParam || null);
+          setIsAuthModalOpen(true);
         }
-      } catch {}
-    }
-    return initialProperties.filter((p) => !deletedIds.includes(p.id));
-  });
-
-  const [allUsers, setAllUsers] = useState<User[]>(() => {
-    return getRegisteredAccounts();
-  });
-
-  const [agents, setAgents] = useState<Agent[]>(() => {
-    const saved = localStorage.getItem('immocraft_agents');
-    return saved ? JSON.parse(saved) : initialAgents;
-  });
-
-  const [agencies, setAgencies] = useState<Agency[]>(() => {
-    const saved = localStorage.getItem('immocraft_agencies');
-    return saved ? JSON.parse(saved) : initialAgencies;
-  });
-
-  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(() => {
-    const saved = localStorage.getItem('immocraft_subscription_plans');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch (e) {
-        console.error('Error parsing subscription plans from localStorage:', e);
+        console.warn('Error reading invite search params:', e);
       }
     }
-    return initialSubscriptionPlans;
-  });
+  }, []);
 
-  const [pricingDisplayCurrency, setPricingDisplayCurrency] = useState<'CDF' | 'USD' | 'BOTH'>(() => {
-    return (localStorage.getItem('immocraft_pricing_display_currency') as any) || 'CDF';
-  });
+  const clearInvite = () => {
+    setInvitedRole(null);
+    setInvitedBy(null);
+  };
 
-  const [cdfExchangeRate, setCdfExchangeRate] = useState<number>(() => {
-    const saved = localStorage.getItem('immocraft_cdf_exchange_rate');
-    return saved ? Number(saved) : 2800;
-  });
+  const logOut = async () => {
+    setUser(null);
+    await logOutFromFirebase();
+  };
 
-  const [wishlist, setWishlist] = useState<string[]>(() => {
-    const saved = localStorage.getItem('immocraft_wishlist');
-    return saved ? JSON.parse(saved) : ['prop_1', 'prop_2'];
-  });
+  // Firestore is the single source of truth - initialized with clean mock data until snapshot triggers
+  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>(initialCustomFields);
+  const [properties, setProperties] = useState<Property[]>(initialProperties);
+  const [allUsers, setAllUsers] = useState<User[]>(() => getRegisteredAccounts());
+  const [agents, setAgents] = useState<Agent[]>(initialAgents);
+  const [agencies, setAgencies] = useState<Agency[]>(initialAgencies);
 
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(initialSubscriptionPlans);
+
+  const [pricingDisplayCurrency, setPricingDisplayCurrency] = useState<'CDF' | 'USD' | 'BOTH'>('CDF');
+  const [cdfExchangeRate, setCdfExchangeRate] = useState<number>(2800);
+
+  const [wishlist, setWishlist] = useState<string[]>(['prop_1', 'prop_2']);
   const [compareList, setCompareList] = useState<string[]>([]);
-  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(() => {
-    const saved = localStorage.getItem('immocraft_saved_searches');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'search_1',
-        userId: 'user_admin',
-        title: 'Penthouse Paris > 150m²',
-        filters: { city: 'Paris', type: 'penthouse', minArea: 150 },
-        notifyFrequency: 'instant',
-        createdAt: '2026-08-01T12:00:00Z',
-      }
-    ];
-  });
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([
+    {
+      id: 'search_1',
+      userId: 'user_admin',
+      title: 'Penthouse Paris > 150m²',
+      filters: { city: 'Paris', type: 'penthouse', minArea: 150 },
+      notifyFrequency: 'instant',
+      createdAt: '2026-08-01T12:00:00Z',
+    }
+  ]);
 
   const [leads, setLeads] = useState<LeadRequest[]>(initialLeads);
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
@@ -381,9 +377,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Google Analytics ID State
-  const [googleAnalyticsId, setGoogleAnalyticsIdState] = useState<string>(() => {
-    return localStorage.getItem('kin_google_analytics_id') || DEFAULT_GA_ID;
-  });
+  const [googleAnalyticsId, setGoogleAnalyticsIdState] = useState<string>(DEFAULT_GA_ID);
 
   useEffect(() => {
     initGoogleAnalytics(googleAnalyticsId);
@@ -392,39 +386,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateGoogleAnalyticsId = (newId: string) => {
     const cleanId = newId.trim() || DEFAULT_GA_ID;
     setGoogleAnalyticsIdState(cleanId);
-    localStorage.setItem('kin_google_analytics_id', cleanId);
     initGoogleAnalytics(cleanId);
   };
 
   const [adminPin, setAdminPinState] = useState<string>(() => {
-    const saved = localStorage.getItem('kin_admin_secret_pin');
-    if (saved && saved !== '2026' && saved !== '2430' && saved !== 'admin' && saved !== '1234') {
-      return saved;
-    }
-    localStorage.setItem('kin_admin_secret_pin', 'kalu2002jooss');
-    return 'kalu2002jooss';
+    const creds = getAdminCredentials();
+    return creds.pin || 'kalu2002jooss';
   });
-
-  useEffect(() => {
-    getAdminPinFromFirestore().then((pin) => {
-      if (pin && pin !== '2026' && pin !== '2430' && pin !== 'admin' && pin !== '1234') {
-        setAdminPinState(pin);
-        localStorage.setItem('kin_admin_secret_pin', pin);
-      } else {
-        setAdminPinState('kalu2002jooss');
-        localStorage.setItem('kin_admin_secret_pin', 'kalu2002jooss');
-        saveAdminPinToFirestore('kalu2002jooss').catch(() => {});
-      }
-    });
-  }, []);
 
   const updateAdminPin = async (newPin: string) => {
     setAdminPinState(newPin);
-    localStorage.setItem('kin_admin_secret_pin', newPin);
-    await saveAdminPinToFirestore(newPin);
+    saveAdminCredentials({ pin: newPin });
   };
 
-  // Initialize and subscribe to Firestore
+  // Initialize and subscribe to Firestore (Single source of truth)
   useEffect(() => {
     // Seed initial data if Firestore collections are empty
     seedInitialFirestoreData();
@@ -432,18 +407,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Subscribe to real-time updates from Firestore
     const unsubProperties = subscribeToProperties((firestoreProps) => {
       if (Array.isArray(firestoreProps)) {
-        let deletedIds: string[] = [];
-        try {
-          const deletedRaw = localStorage.getItem('immocraft_deleted_properties');
-          deletedIds = deletedRaw ? JSON.parse(deletedRaw) : [];
-        } catch {}
-        const filtered = firestoreProps.filter((p) => !deletedIds.includes(p.id));
-        setProperties(filtered);
-        try {
-          localStorage.setItem('immocraft_properties', JSON.stringify(filtered));
-        } catch (e) {
-          console.error('Error saving properties to localStorage:', e);
-        }
+        setProperties(firestoreProps);
       }
     });
 
@@ -468,22 +432,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubAgents = subscribeToAgents((firestoreAgents) => {
       if (Array.isArray(firestoreAgents)) {
         setAgents(firestoreAgents);
-        try {
-          localStorage.setItem('immocraft_agents', JSON.stringify(firestoreAgents));
-        } catch (e) {
-          console.error('Error saving agents to localStorage:', e);
-        }
       }
     });
 
     const unsubAgencies = subscribeToAgencies((firestoreAgencies) => {
       if (Array.isArray(firestoreAgencies)) {
         setAgencies(firestoreAgencies);
-        try {
-          localStorage.setItem('immocraft_agencies', JSON.stringify(firestoreAgencies));
-        } catch (e) {
-          console.error('Error saving agencies to localStorage:', e);
-        }
       }
     });
 
@@ -502,21 +456,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (firestorePricing) {
         if (typeof firestorePricing.cdfExchangeRate === 'number' && firestorePricing.cdfExchangeRate > 0) {
           setCdfExchangeRate(firestorePricing.cdfExchangeRate);
-          try {
-            localStorage.setItem('immocraft_cdf_exchange_rate', String(firestorePricing.cdfExchangeRate));
-          } catch {}
         }
         if (firestorePricing.pricingDisplayCurrency) {
           setPricingDisplayCurrency(firestorePricing.pricingDisplayCurrency);
-          try {
-            localStorage.setItem('immocraft_pricing_display_currency', firestorePricing.pricingDisplayCurrency);
-          } catch {}
         }
         if (Array.isArray(firestorePricing.subscriptionPlans) && firestorePricing.subscriptionPlans.length > 0) {
           setSubscriptionPlans(firestorePricing.subscriptionPlans);
-          try {
-            localStorage.setItem('immocraft_subscription_plans', JSON.stringify(firestorePricing.subscriptionPlans));
-          } catch {}
         }
       }
     });
@@ -533,31 +478,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  // Save changes to LocalStorage & Firestore User
+  // Sync user profile to Firestore (never password)
   useEffect(() => {
     if (user) {
-      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(user));
       saveUserToFirestore(user).catch(err => console.error('Error saving user to Firestore:', err));
-    } else {
-      localStorage.removeItem('estatik_kinshasa_user');
     }
   }, [user]);
-
-  useEffect(() => {
-    localStorage.setItem('immocraft_custom_fields', JSON.stringify(customFields));
-  }, [customFields]);
-
-  useEffect(() => {
-    localStorage.setItem('immocraft_properties', JSON.stringify(properties));
-  }, [properties]);
-
-  useEffect(() => {
-    localStorage.setItem('immocraft_wishlist', JSON.stringify(wishlist));
-  }, [wishlist]);
-
-  useEffect(() => {
-    localStorage.setItem('immocraft_saved_searches', JSON.stringify(savedSearches));
-  }, [savedSearches]);
 
   // Translate helper
   const t = (key: string): string => {
@@ -582,87 +508,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Properties Actions
   const addProperty = (property: Property) => {
-    setProperties((prev) => {
-      const updated = [property, ...prev];
-      try {
-        localStorage.setItem('immocraft_properties', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to save property to localStorage:', e);
-      }
-      return updated;
-    });
+    setProperties((prev) => [property, ...prev]);
     savePropertyToFirestore(property).catch((err) => console.error('Firestore save property error:', err));
   };
 
   const updateProperty = (property: Property) => {
-    setProperties((prev) => {
-      const updated = prev.map((p) => (p.id === property.id ? property : p));
-      try {
-        localStorage.setItem('immocraft_properties', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to update property in localStorage:', e);
-      }
-      return updated;
-    });
+    setProperties((prev) => prev.map((p) => (p.id === property.id ? property : p)));
     savePropertyToFirestore(property).catch((err) => console.error('Firestore update property error:', err));
   };
 
   const deleteProperty = (id: string) => {
-    setProperties((prev) => {
-      const updated = prev.filter((p) => p.id !== id);
-      try {
-        localStorage.setItem('immocraft_properties', JSON.stringify(updated));
-        const deletedRaw = localStorage.getItem('immocraft_deleted_properties');
-        const deletedIds: string[] = deletedRaw ? JSON.parse(deletedRaw) : [];
-        if (!deletedIds.includes(id)) {
-          deletedIds.push(id);
-          localStorage.setItem('immocraft_deleted_properties', JSON.stringify(deletedIds));
-        }
-      } catch (e) {
-        console.error('Failed to delete property from localStorage:', e);
-      }
-      return updated;
-    });
+    setProperties((prev) => prev.filter((p) => p.id !== id));
     deletePropertyFromFirestore(id).catch((err) => console.error('Firestore delete property error:', err));
   };
 
   // Agent Actions
   const addAgent = (agent: Agent) => {
-    setAgents((prev) => {
-      const updated = [agent, ...prev];
-      try {
-        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to save agent to localStorage:', e);
-      }
-      return updated;
-    });
+    setAgents((prev) => [agent, ...prev]);
     saveAgentToFirestore(agent).catch((err) => console.error('Firestore save agent error:', err));
   };
 
   const updateAgent = (agent: Agent) => {
-    setAgents((prev) => {
-      const updated = prev.map((a) => (a.id === agent.id ? agent : a));
-      try {
-        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to update agent in localStorage:', e);
-      }
-      return updated;
-    });
+    setAgents((prev) => prev.map((a) => (a.id === agent.id ? agent : a)));
     saveAgentToFirestore(agent).catch((err) => console.error('Firestore update agent error:', err));
   };
 
   const deleteAgent = (id: string) => {
-    setAgents((prev) => {
-      const updated = prev.filter((a) => a.id !== id);
-      try {
-        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to delete agent from localStorage:', e);
-      }
-      return updated;
-    });
+    setAgents((prev) => prev.filter((a) => a.id !== id));
     deleteAgentFromFirestore(id).catch((err) => console.error('Firestore delete agent error:', err));
   };
 
@@ -677,11 +549,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return a;
       });
-      try {
-        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to update agent visibility in localStorage:', e);
-      }
       return updated;
     });
     if (updatedAgentObj) {
@@ -725,11 +592,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return a;
       });
 
-      try {
-        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to update agents in localStorage:', e);
-      }
       return updated;
     });
 
@@ -755,11 +617,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return u;
       });
-      try {
-        localStorage.setItem('estatik_registered_users', JSON.stringify(updatedUsers));
-      } catch (e) {
-        console.error('Failed to update registered users in localStorage:', e);
-      }
       return updatedUsers;
     });
 
@@ -826,11 +683,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return a;
       });
 
-      try {
-        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to update agent doc status in localStorage:', e);
-      }
       return updated;
     });
 
@@ -901,11 +753,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatedAgentObj = newAgent;
       }
 
-      try {
-        localStorage.setItem('immocraft_agents', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to save submitted docs in localStorage:', e);
-      }
       return updated;
     });
 
@@ -939,15 +786,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       lastPaymentDate: new Date().toISOString().split('T')[0],
     };
 
-    setAgencies((prev) => {
-      const updated = [agencyWithFreeTrial, ...prev];
-      try {
-        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to save agency to localStorage:', e);
-      }
-      return updated;
-    });
+    setAgencies((prev) => [agencyWithFreeTrial, ...prev]);
     saveAgencyToFirestore(agencyWithFreeTrial).catch((err) => console.error('Firestore save agency error:', err));
 
     // Auto-generate 1 month free welcome invoice ($0)
@@ -985,28 +824,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateAgency = (agency: Agency) => {
-    setAgencies((prev) => {
-      const updated = prev.map((a) => (a.id === agency.id ? agency : a));
-      try {
-        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to update agency in localStorage:', e);
-      }
-      return updated;
-    });
+    setAgencies((prev) => prev.map((a) => (a.id === agency.id ? agency : a)));
     saveAgencyToFirestore(agency).catch((err) => console.error('Firestore update agency error:', err));
   };
 
   const deleteAgency = (id: string) => {
-    setAgencies((prev) => {
-      const updated = prev.filter((a) => a.id !== id);
-      try {
-        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to delete agency from localStorage:', e);
-      }
-      return updated;
-    });
+    setAgencies((prev) => prev.filter((a) => a.id !== id));
     deleteAgencyFromFirestore(id).catch((err) => console.error('Firestore delete agency error:', err));
   };
 
@@ -1021,11 +844,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return ag;
       });
-      try {
-        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to update agency visibility in localStorage:', e);
-      }
       return updated;
     });
     if (updatedAgencyObj) {
@@ -1037,11 +855,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateSubscriptionPlan = (plan: SubscriptionPlan) => {
     setSubscriptionPlans((prev) => {
       const updated = prev.map((p) => (p.id === plan.id ? plan : p));
-      try {
-        localStorage.setItem('immocraft_subscription_plans', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to save subscription plans in localStorage:', e);
-      }
       savePricingConfigToFirestore({
         cdfExchangeRate,
         pricingDisplayCurrency,
@@ -1054,11 +867,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addSubscriptionPlan = (plan: SubscriptionPlan) => {
     setSubscriptionPlans((prev) => {
       const updated = [...prev, plan];
-      try {
-        localStorage.setItem('immocraft_subscription_plans', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to add subscription plan to localStorage:', e);
-      }
       savePricingConfigToFirestore({
         cdfExchangeRate,
         pricingDisplayCurrency,
@@ -1071,11 +879,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteSubscriptionPlan = (id: string) => {
     setSubscriptionPlans((prev) => {
       const updated = prev.filter((p) => p.id !== id);
-      try {
-        localStorage.setItem('immocraft_subscription_plans', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to delete subscription plan from localStorage:', e);
-      }
       savePricingConfigToFirestore({
         cdfExchangeRate,
         pricingDisplayCurrency,
@@ -1088,9 +891,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const handleSetCdfExchangeRate = (rate: number) => {
     if (typeof rate === 'number' && rate > 0) {
       setCdfExchangeRate(rate);
-      try {
-        localStorage.setItem('immocraft_cdf_exchange_rate', String(rate));
-      } catch {}
       savePricingConfigToFirestore({
         cdfExchangeRate: rate,
         pricingDisplayCurrency,
@@ -1101,9 +901,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const handleSetPricingDisplayCurrency = (currency: 'CDF' | 'USD' | 'BOTH') => {
     setPricingDisplayCurrency(currency);
-    try {
-      localStorage.setItem('immocraft_pricing_display_currency', currency);
-    } catch {}
     savePricingConfigToFirestore({
       cdfExchangeRate,
       pricingDisplayCurrency: currency,
@@ -1130,11 +927,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return ag;
       });
-      try {
-        localStorage.setItem('immocraft_agencies', JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to update agency subscription in localStorage:', e);
-      }
       return updated;
     });
 
@@ -1146,7 +938,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         subscriptionExpiresAt: nextExpiry,
       };
       setUser(updatedUser);
-      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(updatedUser));
       saveUserToFirestore(updatedUser).catch((err) => console.error('Firestore update user error:', err));
     }
   };
@@ -1179,7 +970,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         subscriptionExpiresAt: nextExpiry,
       };
       setUser(updatedUser);
-      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(updatedUser));
       saveUserToFirestore(updatedUser).catch((err) => console.error('Firestore update user error:', err));
     }
   };
@@ -1254,16 +1044,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteUser = (id: string) => {
-    const localUsers: User[] = JSON.parse(localStorage.getItem('estatik_registered_users') || '[]');
-    const updatedLocal = localUsers.filter((u) => u.id !== id && u.email !== id);
-    localStorage.setItem('estatik_registered_users', JSON.stringify(updatedLocal));
-
     if (user && (user.id === id || user.email === id)) {
       setUser(null);
-      localStorage.removeItem('estatik_kinshasa_user');
     }
-
-    deleteUserFromFirestore(id).catch(err => console.error(err));
+    deleteUserFromFirestore(id).catch((err) => console.error(err));
   };
 
   // Invoices Actions
@@ -1467,6 +1251,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setUser,
         deleteUser,
         allUsers,
+        logOut,
+        invitedRole,
+        invitedBy,
+        clearInvite,
+        isInviteModalOpen,
+        setIsInviteModalOpen,
         customFields,
         addCustomField,
         updateCustomField,

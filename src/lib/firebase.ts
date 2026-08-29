@@ -14,6 +14,18 @@ import {
   orderBy,
   writeBatch
 } from 'firebase/firestore';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+  updateProfile,
+  sendPasswordResetEmail,
+  User as FirebaseUser
+} from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 import {
   Property,
@@ -40,6 +52,11 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Initialize Firestore targeting the specific database ID
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
+
+// Initialize Firebase Authentication
+export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 // Firestore Collections
 export const COLLECTIONS = {
@@ -182,21 +199,7 @@ export async function syncUsersOnlyToFirestore() {
       }
     });
 
-    try {
-      const localUsersRaw = localStorage.getItem('estatik_registered_users');
-      if (localUsersRaw) {
-        const localUsers: User[] = JSON.parse(localUsersRaw);
-        if (Array.isArray(localUsers)) {
-          localUsers.forEach((lu) => {
-            if (lu && lu.id && !existingUserDocIds.has(lu.id) && (!lu.email || !existingUserEmails.has(lu.email.toLowerCase()))) {
-              usersToSeed.push(lu);
-            }
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Error reading local users for Firestore seeding:', e);
-    }
+    // Seed default baseline users if not already present in Firestore
 
     if (usersToSeed.length > 0) {
       const userBatch = writeBatch(db);
@@ -364,19 +367,6 @@ export function subscribeToLeads(callback: (leads: LeadRequest[]) => void) {
   });
 }
 
-export function subscribeToUsers(callback: (users: User[]) => void) {
-  const q = collection(db, COLLECTIONS.USERS);
-  return onSnapshot(q, (snapshot) => {
-    const list: User[] = [];
-    snapshot.forEach((doc) => {
-      list.push(doc.data() as User);
-    });
-    callback(list);
-  }, (error) => {
-    console.error('Firestore users subscription error:', error);
-  });
-}
-
 export function subscribeToAgents(callback: (agents: Agent[]) => void) {
   const q = collection(db, COLLECTIONS.AGENTS);
   return onSnapshot(q, (snapshot) => {
@@ -498,9 +488,29 @@ export async function deleteLeadFromFirestore(id: string) {
   await deleteDoc(ref);
 }
 
+export function subscribeToUsers(callback: (users: User[]) => void) {
+  const q = collection(db, COLLECTIONS.USERS);
+  return onSnapshot(q, (snapshot) => {
+    const list: User[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as User;
+      // Strip any password field from user profile
+      delete (data as any).password;
+      list.push({ id: docSnap.id, ...data });
+    });
+    callback(list);
+  }, (error) => {
+    console.error('Firestore users subscription error:', error);
+  });
+}
+
 export async function saveUserToFirestore(user: User) {
+  // STRICT: Do not store any password or admin PIN in Firestore
+  const { ...safeUser } = user as any;
+  delete safeUser.password;
+  delete safeUser.pin;
   const ref = doc(db, COLLECTIONS.USERS, user.id);
-  await setDoc(ref, sanitizeForFirestore(user), { merge: true });
+  await setDoc(ref, sanitizeForFirestore(safeUser), { merge: true });
 }
 
 export async function deleteUserFromFirestore(id: string) {
@@ -508,22 +518,279 @@ export async function deleteUserFromFirestore(id: string) {
   await deleteDoc(ref);
 }
 
-export async function saveAdminPinToFirestore(pin: string) {
-  const ref = doc(db, COLLECTIONS.SYSTEM_SETTINGS, 'adminConfig');
-  await setDoc(ref, sanitizeForFirestore({ secretPin: pin, updatedAt: new Date().toISOString() }), { merge: true });
+// --- Firebase Authentication Methods ---
+
+/**
+ * Sign in or Sign up via Google Popup using Firebase Auth
+ */
+export async function signInWithGoogleAuth(roleOverride?: string, agencyNameOverride?: string): Promise<User> {
+  const result = await signInWithPopup(auth, googleProvider);
+  const fbUser = result.user;
+
+  // Retrieve user document from Firestore users collection
+  const userRef = doc(db, COLLECTIONS.USERS, fbUser.uid);
+  const userSnap = await getDoc(userRef);
+
+  let userProfile: User;
+  if (userSnap.exists()) {
+    userProfile = { id: userSnap.id, ...userSnap.data() } as User;
+    delete (userProfile as any).password;
+  } else {
+    // Check if a legacy record exists with this email
+    let matchedLegacyUser: User | null = null;
+    if (fbUser.email) {
+      try {
+        const q = query(collection(db, COLLECTIONS.USERS), where('email', '==', fbUser.email.toLowerCase()));
+        const snapByEmail = await getDocs(q);
+        if (!snapByEmail.empty) {
+          matchedLegacyUser = { id: snapByEmail.docs[0].id, ...snapByEmail.docs[0].data() } as User;
+        }
+      } catch (e) {
+        console.warn('Query by email warning:', e);
+      }
+    }
+
+    const isAdmin = fbUser.email?.toLowerCase() === 'joosskalu72@gmail.com';
+    const effectiveRole = isAdmin ? 'admin' : (matchedLegacyUser?.role || roleOverride || 'user');
+    userProfile = {
+      id: fbUser.uid,
+      name: fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'Utilisateur Google'),
+      email: fbUser.email || '',
+      phone: fbUser.phoneNumber || matchedLegacyUser?.phone || '',
+      role: effectiveRole as any,
+      agencyName: matchedLegacyUser?.agencyName || agencyNameOverride || undefined,
+      avatar: fbUser.photoURL || matchedLegacyUser?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      planId: (effectiveRole === 'agency' ? 'agency' : effectiveRole === 'agent' ? 'pro' : matchedLegacyUser?.planId || 'starter'),
+      provider: 'google',
+      isVerified: true,
+      emailVerified: true,
+      phoneVerified: Boolean(fbUser.phoneNumber),
+      twoFactorEnabled: false,
+      kinshasaBadgeVerified: isAdmin || roleOverride === 'agent' || roleOverride === 'agency',
+      createdAt: matchedLegacyUser?.createdAt || new Date().toISOString(),
+    };
+
+    // Save profile to Firestore users/{uid} WITHOUT password
+    await setDoc(userRef, sanitizeForFirestore(userProfile), { merge: true });
+
+    // If agent, create corresponding agent doc in Firestore
+    if (userProfile.role === 'agent') {
+      const agentRef = doc(db, COLLECTIONS.AGENTS, fbUser.uid);
+      await setDoc(agentRef, sanitizeForFirestore({
+        id: fbUser.uid,
+        name: userProfile.name,
+        email: userProfile.email,
+        phone: userProfile.phone || '+243 81 000 0000',
+        avatar: userProfile.avatar,
+        agencyName: userProfile.agencyName || 'Kinshasa Immobilier',
+        rating: 5.0,
+        listingsCount: 0,
+        bio: `Agent immobilier vérifié Kinshasa.`,
+        isVerified: true,
+      }), { merge: true });
+    } else if (userProfile.role === 'agency') {
+      const agencyRef = doc(db, COLLECTIONS.AGENCIES, fbUser.uid);
+      await setDoc(agencyRef, sanitizeForFirestore({
+        id: fbUser.uid,
+        name: userProfile.agencyName || userProfile.name,
+        email: userProfile.email,
+        phone: userProfile.phone || '+243 81 000 0000',
+        logo: userProfile.avatar,
+        city: 'Kinshasa',
+        description: `Cabinet / Agence immobilière Kinshasa.`,
+        isVerified: true,
+      }), { merge: true });
+    }
+  }
+
+  return userProfile;
 }
 
-export async function getAdminPinFromFirestore(): Promise<string | null> {
-  try {
-    const ref = doc(db, COLLECTIONS.SYSTEM_SETTINGS, 'adminConfig');
-    const snap = await getDoc(ref);
-    if (snap.exists() && snap.data().secretPin) {
-      return snap.data().secretPin as string;
+/**
+ * Register account with Firebase Authentication (Email/Password)
+ * Passwords are encrypted inside Firebase Auth and NOT in Firestore.
+ */
+export async function registerWithFirebaseEmailPassword(params: {
+  email: string;
+  password: string;
+  name: string;
+  phone?: string;
+  role?: string;
+  agencyName?: string;
+  avatarUrl?: string;
+  rccmOrNif?: string;
+}): Promise<User> {
+  const { email, password, name, phone, role, agencyName, avatarUrl, rccmOrNif } = params;
+
+  const credential = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+  const fbUser = credential.user;
+
+  if (name || avatarUrl) {
+    try {
+      await updateProfile(fbUser, {
+        displayName: name,
+        photoURL: avatarUrl || undefined,
+      });
+    } catch (e) {
+      console.warn('Could not update Firebase Auth profile:', e);
     }
-  } catch (err) {
-    console.error('Error fetching admin PIN from Firestore:', err);
   }
-  return null;
+
+  const isAdmin = email.trim().toLowerCase() === 'joosskalu72@gmail.com';
+  const effectiveRole = isAdmin ? 'admin' : (role || 'user');
+
+  const userProfile: User = {
+    id: fbUser.uid,
+    name: name || email.split('@')[0],
+    email: email.trim().toLowerCase(),
+    phone: phone || '',
+    whatsapp: phone || '',
+    role: effectiveRole as any,
+    agencyName: (effectiveRole === 'agent' || effectiveRole === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
+    rccmOrNif: rccmOrNif,
+    avatar: avatarUrl || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+    agentId: (effectiveRole === 'agent' || effectiveRole === 'agency') ? fbUser.uid : undefined,
+    planId: effectiveRole === 'agency' ? 'agency' : effectiveRole === 'agent' ? 'pro' : 'starter',
+    provider: 'email',
+    isVerified: isAdmin,
+    emailVerified: false,
+    phoneVerified: Boolean(phone),
+    twoFactorEnabled: false,
+    kinshasaBadgeVerified: effectiveRole === 'agent' || effectiveRole === 'agency' || isAdmin,
+    createdAt: new Date().toISOString(),
+  };
+
+  const userRef = doc(db, COLLECTIONS.USERS, fbUser.uid);
+  await setDoc(userRef, sanitizeForFirestore(userProfile), { merge: true });
+
+  if (effectiveRole === 'agent') {
+    const agentRef = doc(db, COLLECTIONS.AGENTS, fbUser.uid);
+    await setDoc(agentRef, sanitizeForFirestore({
+      id: fbUser.uid,
+      name: userProfile.name,
+      email: userProfile.email,
+      phone: userProfile.phone || '+243 81 000 0000',
+      avatar: userProfile.avatar,
+      agencyName: userProfile.agencyName || 'Kinshasa Immobilier',
+      rating: 5.0,
+      listingsCount: 0,
+      bio: `Agent immobilier certifié Kinshasa.`,
+      isVerified: false,
+    }), { merge: true });
+  } else if (effectiveRole === 'agency') {
+    const agencyRef = doc(db, COLLECTIONS.AGENCIES, fbUser.uid);
+    await setDoc(agencyRef, sanitizeForFirestore({
+      id: fbUser.uid,
+      name: userProfile.agencyName || userProfile.name,
+      email: userProfile.email,
+      phone: userProfile.phone || '+243 81 000 0000',
+      logo: userProfile.avatar,
+      city: 'Kinshasa',
+      description: `Cabinet immobilier agréé à Kinshasa.`,
+      isVerified: false,
+    }), { merge: true });
+  }
+
+  return userProfile;
+}
+
+/**
+ * Sign in using Firebase Authentication (Email/Password)
+ */
+export async function loginWithFirebaseEmailPassword(email: string, password: string): Promise<User> {
+  const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+  const fbUser = credential.user;
+
+  const userRef = doc(db, COLLECTIONS.USERS, fbUser.uid);
+  const snap = await getDoc(userRef);
+
+  if (snap.exists()) {
+    const data = snap.data() as User;
+    delete (data as any).password;
+    return { id: snap.id, ...data };
+  }
+
+  // Check by email if user document exists with legacy ID
+  const q = query(collection(db, COLLECTIONS.USERS), where('email', '==', email.trim().toLowerCase()));
+  const emailSnap = await getDocs(q);
+  if (!emailSnap.empty) {
+    const existing = emailSnap.docs[0].data() as User;
+    delete (existing as any).password;
+    return { id: emailSnap.docs[0].id, ...existing };
+  }
+
+  // Fallback create basic profile
+  const isAdmin = email.trim().toLowerCase() === 'joosskalu72@gmail.com';
+  const fallbackUser: User = {
+    id: fbUser.uid,
+    name: fbUser.displayName || email.split('@')[0],
+    email: email.trim().toLowerCase(),
+    phone: fbUser.phoneNumber || '',
+    role: isAdmin ? 'admin' : 'user',
+    avatar: fbUser.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    planId: isAdmin ? 'pro' : 'starter',
+    provider: 'email',
+    isVerified: true,
+    createdAt: new Date().toISOString(),
+  };
+
+  await setDoc(userRef, sanitizeForFirestore(fallbackUser), { merge: true });
+  return fallbackUser;
+}
+
+export async function logOutFromFirebase(): Promise<void> {
+  try {
+    await firebaseSignOut(auth);
+  } catch (e) {
+    console.error('Firebase signOut error:', e);
+  }
+}
+
+export function listenToAuthChanges(callback: (user: User | null) => void) {
+  return onAuthStateChanged(auth, async (fbUser) => {
+    if (!fbUser) {
+      callback(null);
+      return;
+    }
+    try {
+      const userRef = doc(db, COLLECTIONS.USERS, fbUser.uid);
+      const snap = await getDoc(userRef);
+      if (snap.exists()) {
+        const data = snap.data() as User;
+        delete (data as any).password;
+        callback({ id: snap.id, ...data });
+        return;
+      }
+      // Check legacy doc by email
+      if (fbUser.email) {
+        const q = query(collection(db, COLLECTIONS.USERS), where('email', '==', fbUser.email.toLowerCase()));
+        const snapByEmail = await getDocs(q);
+        if (!snapByEmail.empty) {
+          const data = snapByEmail.docs[0].data() as User;
+          delete (data as any).password;
+          callback({ id: snapByEmail.docs[0].id, ...data });
+          return;
+        }
+      }
+      // Basic fallback
+      const isAdmin = fbUser.email?.toLowerCase() === 'joosskalu72@gmail.com';
+      const basicUser: User = {
+        id: fbUser.uid,
+        name: fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'Utilisateur'),
+        email: fbUser.email || '',
+        phone: fbUser.phoneNumber || '',
+        role: isAdmin ? 'admin' : 'user',
+        avatar: fbUser.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        planId: isAdmin ? 'pro' : 'starter',
+        provider: 'google',
+        isVerified: true,
+        createdAt: new Date().toISOString(),
+      };
+      callback(basicUser);
+    } catch (e) {
+      console.error('Error in onAuthStateChanged profile lookup:', e);
+    }
+  });
 }
 
 export async function saveInvoiceToFirestore(invoice: Invoice) {
@@ -537,8 +804,11 @@ export async function deleteInvoiceFromFirestore(id: string) {
 }
 
 export async function saveAgentToFirestore(agent: Agent) {
+  const { ...safeAgent } = agent as any;
+  delete safeAgent.password;
+  delete safeAgent.pin;
   const ref = doc(db, COLLECTIONS.AGENTS, agent.id);
-  await setDoc(ref, sanitizeForFirestore(agent), { merge: true });
+  await setDoc(ref, sanitizeForFirestore(safeAgent), { merge: true });
 }
 
 export async function deleteAgentFromFirestore(id: string) {
@@ -547,8 +817,11 @@ export async function deleteAgentFromFirestore(id: string) {
 }
 
 export async function saveAgencyToFirestore(agency: Agency) {
+  const { ...safeAgency } = agency as any;
+  delete safeAgency.password;
+  delete safeAgency.pin;
   const ref = doc(db, COLLECTIONS.AGENCIES, agency.id);
-  await setDoc(ref, sanitizeForFirestore(agency), { merge: true });
+  await setDoc(ref, sanitizeForFirestore(safeAgency), { merge: true });
 }
 
 export async function deleteAgencyFromFirestore(id: string) {

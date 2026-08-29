@@ -1,6 +1,14 @@
 <!doctype html>
 <html lang="fr">
   <head>
+    <script>
+      // Immediate cleanup of legacy bloated localStorage items to prevent QuotaExceededError
+      try {
+        ['immocraft_properties', 'immocraft_agents', 'immocraft_agencies', 'estatik_registered_users', 'estatik_kinshasa_user', 'immocraft_custom_fields', 'immocraft_deleted_properties', 'immocraft_saved_searches', 'kin_tracking_config', 'estatik_admin_credentials_v1'].forEach(function(k) {
+          try { localStorage.removeItem(k); } catch (e) {}
+        });
+      } catch (e) {}
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kinshasa Immobilier - Plateforme Immobilière & Gestion RDC</title>

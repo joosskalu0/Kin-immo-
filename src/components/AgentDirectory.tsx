@@ -29,6 +29,7 @@ import {
   Filter,
   Eye,
   EyeOff,
+  UserPlus,
 } from 'lucide-react';
 
 interface AgentDirectoryProps {
@@ -48,7 +49,8 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
     toggleAgencyVisibility,
     user,
     requestConfirm,
-    setActivePropertyModalId
+    setActivePropertyModalId,
+    setIsInviteModalOpen,
   } = useApp();
 
   const isAdmin = user?.role === 'admin' || user?.email === 'joosskalu72@gmail.com' || (user as any)?.isAdmin;
@@ -294,6 +296,15 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
               >
                 <Building2 className="w-4 h-4 text-slate-950" />
                 <span>Inscrire une Agence (1 Mois Offert)</span>
+              </button>
+
+              <button
+                onClick={() => setIsInviteModalOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs border border-emerald-500/40 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+                title="Inviter un agent ou une agence à s'inscrire sur Immocraft"
+              >
+                <UserPlus className="w-4 h-4 text-emerald-400" />
+                <span>Inviter un Partenaire</span>
               </button>
 
               <button

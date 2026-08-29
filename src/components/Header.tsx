@@ -22,6 +22,7 @@ import {
   Menu,
   X,
   Bot,
+  UserPlus,
 } from 'lucide-react';
 import { CurrencyCode, LanguageCode } from '../types';
 
@@ -47,6 +48,8 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
     setIsSecurityModalOpen,
     setIsCompareOpen,
     setActivePropertyModalId,
+    setIsInviteModalOpen,
+    logOut,
   } = useApp();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -283,6 +286,18 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
             {/* User Account / Auth Menu */}
             {user ? (
               <div className="flex items-center gap-1.5 pl-1.5 sm:pl-2 border-l border-slate-200">
+                {/* Invite Partner button for agents, agencies, admins */}
+                {(user.role === 'agent' || user.role === 'agency' || user.role === 'admin') && (
+                  <button
+                    onClick={() => setIsInviteModalOpen(true)}
+                    title="Inviter un agent ou une agence"
+                    className="p-2.5 min-h-[42px] rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer"
+                  >
+                    <UserPlus className="w-4 h-4 text-emerald-700" />
+                    <span className="hidden md:inline text-[11px] font-bold">Inviter</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => setIsSecurityModalOpen(true)}
                   title="2FA & Sécurité"
@@ -312,9 +327,9 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                 </button>
 
                 <button
-                  onClick={() => setUser(null)}
-                  title="Se déconnecter"
-                  className="p-2 text-slate-500 hover:text-rose-600 hover:bg-slate-100 rounded-xl transition-colors"
+                  onClick={logOut}
+                  title="Se déconnecter de Firebase"
+                  className="p-2 text-slate-500 hover:text-rose-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -353,27 +368,53 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
             <div className="fixed inset-x-0 top-[102px] z-40 bg-white border-b border-slate-200 px-4 py-5 space-y-4 shadow-xl max-h-[82vh] overflow-y-auto lg:hidden rounded-b-3xl animate-in slide-in-from-top duration-200">
               {/* User Profile Card Header inside Mobile Menu */}
               {user ? (
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <img src={user.avatar} alt={user.name} className="w-10 h-10 rounded-xl object-cover ring-2 ring-emerald-500/40" />
-                    <div>
-                      <h4 className="font-extrabold text-slate-900 text-sm flex items-center gap-1">
-                        {user.name}
-                        <BadgeCheck className="w-3.5 h-3.5 text-emerald-600" />
-                      </h4>
-                      <p className="text-[11px] text-slate-500">{user.email}</p>
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <img src={user.avatar} alt={user.name} className="w-10 h-10 rounded-xl object-cover ring-2 ring-emerald-500/40" />
+                      <div>
+                        <h4 className="font-extrabold text-slate-900 text-sm flex items-center gap-1">
+                          {user.name}
+                          <BadgeCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        </h4>
+                        <p className="text-[11px] text-slate-500">{user.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          setIsSecurityModalOpen(true);
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className="p-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold"
+                        title="Sécurité 2FA"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          logOut();
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className="p-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-slate-100 text-xs"
+                        title="Se déconnecter"
+                      >
+                        <LogOut className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setIsSecurityModalOpen(true);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className="p-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold"
-                    title="Sécurité 2FA"
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                  </button>
+                  {(user.role === 'agent' || user.role === 'agency' || user.role === 'admin') && (
+                    <button
+                      onClick={() => {
+                        setIsInviteModalOpen(true);
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className="w-full py-2.5 px-3 rounded-xl bg-emerald-100/70 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                    >
+                      <UserPlus className="w-4 h-4 text-emerald-700" />
+                      <span>Inviter des Agents & Agences</span>
+                    </button>
+                  )}
                 </div>
               ) : (
                 <button

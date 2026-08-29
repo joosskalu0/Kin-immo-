@@ -44,7 +44,6 @@ export const AdminSettingsManager: React.FC = () => {
         agencyName: updated.agencyName,
       };
       setUser(updatedUser);
-      localStorage.setItem('estatik_kinshasa_user', JSON.stringify(updatedUser));
     }
 
     setErrorMsg(null);

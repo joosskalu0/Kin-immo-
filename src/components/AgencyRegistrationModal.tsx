@@ -923,7 +923,7 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
                     setManagerTitle('Directeur Général');
                     setManagerIdType('passport');
                     setManagerIdNumber('OB-992140-CD');
-                    setPassword('kalu2002jooss');
+                    setPassword('CongoAssets2026!');
                   }}
                   className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] text-emerald-400 border border-slate-700 font-semibold"
                 >

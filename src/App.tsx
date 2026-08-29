@@ -15,6 +15,7 @@ import { PropertyFormModal } from './components/PropertyFormModal';
 import { FieldsBuilderModal } from './components/FieldsBuilder/FieldsBuilderModal';
 import { CompareModal } from './components/CompareModal';
 import { AuthModal } from './components/AuthModal';
+import { AgentInviteModal } from './components/Dashboard/AgentInviteModal';
 import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 import { SocialShareModal } from './components/SocialShareModal';
 import { QuickInteractiveFilters } from './components/QuickInteractiveFilters';
@@ -572,6 +573,7 @@ const AppContent: React.FC = () => {
       <FieldsBuilderModal />
       <CompareModal />
       <AuthModal />
+      <AgentInviteModal />
       <SecuritySettingsModal />
       <SocialShareModal property={propertyToShare} onClose={() => setSharePropertyId(null)} />
 
