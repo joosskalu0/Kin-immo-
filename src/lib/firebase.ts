@@ -32,11 +32,13 @@ import {
   CustomFieldDefinition,
   LeadRequest,
   User,
+  UserRole,
   Agent,
   Agency,
   Invoice,
   SubscriptionPlan
 } from '../types';
+import { getAdminCredentials, verifyAdminPin } from './adminCredentials';
 import {
   initialProperties,
   initialCustomFields,
@@ -95,84 +97,6 @@ export const initialUsersSeed: User[] = [
     twoFactorMethod: 'authenticator',
     kinshasaBadgeVerified: true,
     createdAt: '2026-01-01T00:00:00Z'
-  },
-  {
-    id: 'user_agent_1',
-    agentId: 'agent_1',
-    name: 'Jean-Luc Mpoy',
-    email: 'jeanluc.mpoy@kinshasa-prestige.cd',
-    phone: '+243 81 555 44 33',
-    whatsapp: '+243 81 555 44 33',
-    role: 'agent',
-    agencyName: 'Kinshasa Prestige Real Estate',
-    rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-    avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
-    planId: 'pro',
-    isVerified: true,
-    emailVerified: true,
-    phoneVerified: true,
-    twoFactorEnabled: false,
-    kinshasaBadgeVerified: true,
-    createdAt: '2026-07-01T00:00:00Z'
-  },
-  {
-    id: 'user_agent_2',
-    agentId: 'agent_2',
-    name: 'Grace Kabamba',
-    email: 'grace.kabamba@kinshasa-prestige.cd',
-    phone: '+243 89 777 66 55',
-    whatsapp: '+243 89 777 66 55',
-    role: 'agent',
-    agencyName: 'Kinshasa Prestige Real Estate',
-    rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
-    planId: 'pro',
-    isVerified: true,
-    emailVerified: true,
-    phoneVerified: true,
-    twoFactorEnabled: false,
-    kinshasaBadgeVerified: true,
-    createdAt: '2026-07-05T00:00:00Z'
-  },
-  {
-    id: 'user_agency_1',
-    agentId: 'agent_1',
-    agencyId: 'agency_1',
-    name: 'Direction Kinshasa Prestige',
-    email: 'contact@kinshasa-prestige.cd',
-    phone: '+243 82 000 11 22',
-    whatsapp: '+243 82 000 11 22',
-    role: 'agency',
-    agencyName: 'Kinshasa Prestige Real Estate',
-    rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-    avatar: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
-    planId: 'agency',
-    isVerified: true,
-    emailVerified: true,
-    phoneVerified: true,
-    twoFactorEnabled: false,
-    kinshasaBadgeVerified: true,
-    createdAt: '2026-06-01T00:00:00Z'
-  },
-  {
-    id: 'user_agency_2',
-    agentId: 'agent_3',
-    agencyId: 'agency_2',
-    name: 'Direction Congo Real Assets',
-    email: 'info@congorealassets.cd',
-    phone: '+243 99 888 77 66',
-    whatsapp: '+243 99 888 77 66',
-    role: 'agency',
-    agencyName: 'Congo Real Assets & Housing',
-    rccmOrNif: 'CD/KIN/RCCM/22-A-1104',
-    avatar: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=300&auto=format&fit=crop&q=80',
-    planId: 'agency',
-    isVerified: true,
-    emailVerified: true,
-    phoneVerified: true,
-    twoFactorEnabled: false,
-    kinshasaBadgeVerified: true,
-    createdAt: '2026-06-15T00:00:00Z'
   }
 ];
 
@@ -268,31 +192,9 @@ export async function seedInitialFirestoreData() {
       await batch.commit();
     }
 
-    // 4. Check & Seed Agents
-    const agentsSnap = await getDocs(collection(db, COLLECTIONS.AGENTS));
-    if (agentsSnap.empty) {
-      console.log('Seeding initial agents to Firestore...');
-      const batch = writeBatch(db);
-      initialAgents.forEach((a) => {
-        const ref = doc(db, COLLECTIONS.AGENTS, a.id);
-        batch.set(ref, sanitizeForFirestore(a));
-      });
-      await batch.commit();
-    }
+    // 4. Do not seed demo agents or agencies - only real registered agents/agencies are displayed
 
-    // 5. Check & Seed Agencies
-    const agenciesSnap = await getDocs(collection(db, COLLECTIONS.AGENCIES));
-    if (agenciesSnap.empty) {
-      console.log('Seeding initial agencies to Firestore...');
-      const batch = writeBatch(db);
-      initialAgencies.forEach((a) => {
-        const ref = doc(db, COLLECTIONS.AGENCIES, a.id);
-        batch.set(ref, sanitizeForFirestore(a));
-      });
-      await batch.commit();
-    }
-
-    // 6. Sync users to Firestore safely
+    // 5. Sync users to Firestore safely
     await syncUsersOnlyToFirestore();
 
     // 7. Check & Seed Invoices
@@ -330,8 +232,8 @@ export function subscribeToProperties(callback: (properties: Property[]) => void
   const q = collection(db, COLLECTIONS.PROPERTIES);
   return onSnapshot(q, (snapshot) => {
     const list: Property[] = [];
-    snapshot.forEach((doc) => {
-      list.push(doc.data() as Property);
+    snapshot.forEach((docSnap) => {
+      list.push({ id: docSnap.id, ...(docSnap.data() as Property) });
     });
     callback(list);
   }, (error) => {
@@ -371,8 +273,8 @@ export function subscribeToAgents(callback: (agents: Agent[]) => void) {
   const q = collection(db, COLLECTIONS.AGENTS);
   return onSnapshot(q, (snapshot) => {
     const list: Agent[] = [];
-    snapshot.forEach((doc) => {
-      list.push(doc.data() as Agent);
+    snapshot.forEach((docSnap) => {
+      list.push({ id: docSnap.id, ...(docSnap.data() as Agent) });
     });
     callback(list);
   }, (error) => {
@@ -384,8 +286,8 @@ export function subscribeToAgencies(callback: (agencies: Agency[]) => void) {
   const q = collection(db, COLLECTIONS.AGENCIES);
   return onSnapshot(q, (snapshot) => {
     const list: Agency[] = [];
-    snapshot.forEach((doc) => {
-      list.push(doc.data() as Agency);
+    snapshot.forEach((docSnap) => {
+      list.push({ id: docSnap.id, ...(docSnap.data() as Agency) });
     });
     callback(list);
   }, (error) => {
@@ -447,7 +349,20 @@ export async function savePricingConfigToFirestore(config: {
 
 export async function savePropertyToFirestore(property: Property) {
   const ref = doc(db, COLLECTIONS.PROPERTIES, property.id);
-  await setDoc(ref, sanitizeForFirestore(property), { merge: true });
+  const sanitized = sanitizeForFirestore(property);
+
+  // Validate payload size against Firestore 1MB document boundary (leave 100KB margin)
+  try {
+    const jsonStr = JSON.stringify(sanitized);
+    const byteSize = new Blob([jsonStr]).size;
+    if (byteSize > 900000) {
+      throw new Error(`La taille de l'annonce (${Math.round(byteSize / 1024)} Ko) dépasse la limite maximale par document (1 Mo). Veuillez réduire le nombre de photos ou choisir des images optimisées.`);
+    }
+  } catch (sizeErr: any) {
+    if (sizeErr.message?.includes('limite maximale')) throw sizeErr;
+  }
+
+  await setDoc(ref, sanitized, { merge: true });
 }
 
 export async function getPropertyFromFirestore(id: string): Promise<Property | null> {
@@ -509,8 +424,126 @@ export async function saveUserToFirestore(user: User) {
   const { ...safeUser } = user as any;
   delete safeUser.password;
   delete safeUser.pin;
+  if (safeUser.role === 'admin') {
+    safeUser.adminClaim = true;
+    safeUser.isAdmin = true;
+    safeUser.admin = true;
+    safeUser.customClaims = { ...(safeUser.customClaims || {}), admin: true };
+  }
   const ref = doc(db, COLLECTIONS.USERS, user.id);
   await setDoc(ref, sanitizeForFirestore(safeUser), { merge: true });
+}
+
+export interface AdminClaimVerificationResult {
+  isAdmin: boolean;
+  source: 'firestore_user_doc' | 'firestore_email_query' | 'firebase_auth_token' | 'none';
+  matchedField?: string;
+  adminEmail?: string;
+  error?: string;
+}
+
+/**
+ * Explicitly verifies if the user has an 'admin' claim or custom field
+ * in their Firestore document (collection 'users'), preventing unauthorized access.
+ */
+export async function verifyUserAdminInFirestore(
+  user: User | null
+): Promise<AdminClaimVerificationResult> {
+  if (!user || !user.email) {
+    return {
+      isAdmin: false,
+      source: 'none',
+      error: 'Aucun utilisateur connecté ou adresse email manquante.',
+    };
+  }
+
+  const cleanEmail = user.email.trim().toLowerCase();
+
+  try {
+    // 1. Direct fetch of user document by user.id in Firestore
+    if (user.id) {
+      const userRef = doc(db, COLLECTIONS.USERS, user.id);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        if (data.adminClaim === true) {
+          return { isAdmin: true, source: 'firestore_user_doc', matchedField: 'adminClaim: true', adminEmail: data.email };
+        }
+        if (data.isAdmin === true) {
+          return { isAdmin: true, source: 'firestore_user_doc', matchedField: 'isAdmin: true', adminEmail: data.email };
+        }
+        if (data.admin === true) {
+          return { isAdmin: true, source: 'firestore_user_doc', matchedField: 'admin: true', adminEmail: data.email };
+        }
+        if (data.role === 'admin') {
+          return { isAdmin: true, source: 'firestore_user_doc', matchedField: 'role: admin', adminEmail: data.email };
+        }
+        if (data.customClaims?.admin === true) {
+          return { isAdmin: true, source: 'firestore_user_doc', matchedField: 'customClaims.admin: true', adminEmail: data.email };
+        }
+      }
+    }
+
+    // 2. Query Firestore users collection by email for any registered admin document
+    const qUser = query(
+      collection(db, COLLECTIONS.USERS),
+      where('email', '==', cleanEmail)
+    );
+    const emailSnap = await getDocs(qUser);
+    for (const docSnap of emailSnap.docs) {
+      const data = docSnap.data();
+      if (
+        data.adminClaim === true ||
+        data.isAdmin === true ||
+        data.admin === true ||
+        data.role === 'admin' ||
+        data.customClaims?.admin === true
+      ) {
+        return {
+          isAdmin: true,
+          source: 'firestore_email_query',
+          matchedField: data.adminClaim
+            ? 'adminClaim: true'
+            : data.isAdmin
+            ? 'isAdmin: true'
+            : data.admin
+            ? 'admin: true'
+            : data.role === 'admin'
+            ? 'role: admin'
+            : 'customClaims.admin: true',
+          adminEmail: data.email,
+        };
+      }
+    }
+
+    // 3. Fallback check on Firebase Auth ID token custom claims
+    if (auth.currentUser && auth.currentUser.email?.toLowerCase() === cleanEmail) {
+      try {
+        const tokenResult = await auth.currentUser.getIdTokenResult();
+        if (tokenResult.claims.admin === true || tokenResult.claims.role === 'admin') {
+          return {
+            isAdmin: true,
+            source: 'firebase_auth_token',
+            matchedField: 'token.claims.admin: true',
+            adminEmail: auth.currentUser.email,
+          };
+        }
+      } catch (_) {}
+    }
+
+    return {
+      isAdmin: false,
+      source: 'none',
+      error: "Accès refusé : Le document utilisateur dans Firestore ne contient aucun claim ou champ 'admin' valide.",
+    };
+  } catch (err: any) {
+    console.error('Erreur lors de la vérification Firestore admin:', err);
+    return {
+      isAdmin: false,
+      source: 'none',
+      error: err?.message || 'Erreur de connexion Firestore lors de la vérification des permissions.',
+    };
+  }
 }
 
 export async function deleteUserFromFirestore(id: string) {
@@ -711,7 +744,7 @@ export async function registerWithFirebaseEmailPassword(params: {
 }
 
 /**
- * Sign in using Firebase Authentication (Email/Password) with seamless Firestore agent/agency fallback
+ * Sign in using Firebase Authentication (Email/Password) with strict credential verification
  */
 export async function loginWithFirebaseEmailPassword(
   email: string,
@@ -720,10 +753,64 @@ export async function loginWithFirebaseEmailPassword(
   agencyName?: string
 ): Promise<User> {
   const cleanEmail = email.trim().toLowerCase();
+  const trimmedPassword = password.trim();
 
-  // 1. Try Firebase Authentication
+  // 1. STRICT ADMINISTRATOR AUTHENTICATION
+  // If the email is the administrator, the user MUST supply the correct admin password or PIN!
+  const isAdmin = cleanEmail === 'joosskalu72@gmail.com' || cleanEmail === 'admin@kin-immobilier.cd';
+  if (isAdmin) {
+    const isPinValid = verifyAdminPin(trimmedPassword);
+    if (!isPinValid) {
+      throw new Error(
+        "Mot de passe ou Code PIN Administrateur incorrect. Veuillez saisir le mot de passe administrateur ('kalu2002jooss' ou votre code PIN configuré)."
+      );
+    }
+
+    // Attempt Firebase Auth sign-in if the account exists in Firebase Authentication
+    try {
+      const credential = await signInWithEmailAndPassword(auth, cleanEmail, trimmedPassword);
+      const userRef = doc(db, COLLECTIONS.USERS, credential.user.uid);
+      const snap = await getDoc(userRef);
+      if (snap.exists()) {
+        const data = snap.data() as User;
+        delete (data as any).password;
+        return { id: snap.id, ...data, role: 'admin' };
+      }
+    } catch (_) {
+      // Firebase Auth may have email provider disabled in console or user not in Identity Platform
+    }
+
+    const adminCreds = getAdminCredentials();
+    const adminUser: User = {
+      id: 'usr_admin_001',
+      name: adminCreds.name,
+      email: cleanEmail,
+      phone: adminCreds.phone,
+      role: 'admin',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      agencyName: adminCreds.agencyName,
+      rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
+      planId: 'pro',
+      isVerified: true,
+      emailVerified: true,
+      phoneVerified: true,
+      twoFactorEnabled: false,
+      kinshasaBadgeVerified: true,
+      lastLoginLocation: 'Kinshasa (Gombe), RDC',
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const userRef = doc(db, COLLECTIONS.USERS, 'usr_admin_001');
+      await setDoc(userRef, sanitizeForFirestore(adminUser), { merge: true });
+    } catch (_) {}
+
+    return adminUser;
+  }
+
+  // 2. STANDARD FIREBASE AUTHENTICATION (Agents, Agencies, Clients)
   try {
-    const credential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+    const credential = await signInWithEmailAndPassword(auth, cleanEmail, trimmedPassword);
     const fbUser = credential.user;
 
     const userRef = doc(db, COLLECTIONS.USERS, fbUser.uid);
@@ -735,138 +822,37 @@ export async function loginWithFirebaseEmailPassword(
       return { id: snap.id, ...data };
     }
   } catch (authErr: any) {
-    console.warn('Firebase Auth sign-in bypassed or restricted:', authErr?.code, authErr?.message);
-    // Never rethrow operation-not-allowed or user-not-found, proceed to Firestore verification
-  }
-
-  // 2. Check in Firestore 'users' collection
-  try {
-    const qUser = query(collection(db, COLLECTIONS.USERS), where('email', '==', cleanEmail));
-    const emailSnap = await getDocs(qUser);
-    if (!emailSnap.empty) {
-      const existing = emailSnap.docs[0].data() as User;
-      delete (existing as any).password;
-      return { id: emailSnap.docs[0].id, ...existing };
+    const code = authErr?.code || '';
+    if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+      throw new Error("Mot de passe incorrect pour cette adresse e-mail. Veuillez vérifier votre saisie.");
     }
-  } catch (e) {
-    console.warn('Firestore users lookup warning:', e);
+    // Re-throw so caller (AuthModal) can check local registered accounts
+    throw authErr;
   }
 
-  // 3. Check in Firestore 'agents' collection (in case registered as an agent)
-  try {
-    const qAgent = query(collection(db, COLLECTIONS.AGENTS), where('email', '==', cleanEmail));
-    const agentSnap = await getDocs(qAgent);
-    if (!agentSnap.empty) {
-      const agentData = agentSnap.docs[0].data() as Agent;
-      const agentUser: User = {
-        id: agentData.id,
-        name: agentData.name,
-        email: agentData.email,
-        phone: agentData.phone || '',
-        whatsapp: agentData.whatsapp || agentData.phone || '',
-        role: 'agent',
-        avatar: agentData.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
-        agentId: agentData.id,
-        agencyId: agentData.agencyId,
-        agencyName: agentData.agencyName || 'Kinshasa Immobilier',
-        planId: 'pro',
-        subscriptionStatus: 'Active',
-        isVerified: agentData.isVerified !== false,
-        verificationStatus: agentData.verificationStatus || 'verified',
-        emailVerified: true,
-        createdAt: new Date().toISOString(),
-      };
-      // Save linked record into users collection as well
-      try {
-        const userRef = doc(db, COLLECTIONS.USERS, agentData.id);
-        await setDoc(userRef, sanitizeForFirestore(agentUser), { merge: true });
-      } catch (_) {}
-      return agentUser;
-    }
-  } catch (e) {
-    console.warn('Firestore agents lookup warning:', e);
-  }
-
-  // 4. Check in Firestore 'agencies' collection (in case registered as an agency)
-  try {
-    const qAgency = query(collection(db, COLLECTIONS.AGENCIES), where('email', '==', cleanEmail));
-    const agencySnap = await getDocs(qAgency);
-    if (!agencySnap.empty) {
-      const agencyData = agencySnap.docs[0].data() as Agency;
-      const agencyUser: User = {
-        id: agencyData.id,
-        name: agencyData.name,
-        email: agencyData.email,
-        phone: agencyData.phone || '',
-        whatsapp: agencyData.whatsapp || agencyData.phone || '',
-        role: 'agency',
-        avatar: agencyData.logo || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
-        agencyId: agencyData.id,
-        agencyName: agencyData.name,
-        planId: 'agency',
-        subscriptionStatus: 'Active',
-        isVerified: agencyData.isVerified !== false,
-        verificationStatus: agencyData.verificationStatus || 'verified',
-        emailVerified: true,
-        createdAt: new Date().toISOString(),
-      };
-      try {
-        const userRef = doc(db, COLLECTIONS.USERS, agencyData.id);
-        await setDoc(userRef, sanitizeForFirestore(agencyUser), { merge: true });
-      } catch (_) {}
-      return agencyUser;
-    }
-  } catch (e) {
-    console.warn('Firestore agencies lookup warning:', e);
-  }
-
-  // 5. Check if user is Admin
-  const isAdmin = cleanEmail === 'joosskalu72@gmail.com' || cleanEmail === 'admin@kin-immobilier.cd';
-  const effectiveRole: UserRole = isAdmin ? 'admin' : (expectedRole || (cleanEmail.includes('agent') ? 'agent' : 'user'));
+  // 3. If signed in with Firebase Auth but no Firestore user profile found yet
   const fallbackId = `user_${Date.now()}`;
-
-  const fallbackUser: User = {
+  const regularUser: User = {
     id: fallbackId,
     name: email.split('@')[0].replace('.', ' ').replace(/^./, (str) => str.toUpperCase()),
     email: cleanEmail,
     phone: '',
-    role: effectiveRole,
-    agencyName: (effectiveRole === 'agent' || effectiveRole === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
-    avatar: effectiveRole === 'agent'
-      ? 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'
-      : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    agentId: effectiveRole === 'agent' ? fallbackId : undefined,
-    planId: isAdmin ? 'pro' : effectiveRole === 'agency' ? 'agency' : effectiveRole === 'agent' ? 'pro' : 'starter',
+    role: expectedRole || 'user',
+    agencyName: agencyName,
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    planId: 'starter',
     provider: 'email',
-    isVerified: true,
+    isVerified: false,
     emailVerified: true,
     createdAt: new Date().toISOString(),
   };
 
   try {
     const userRef = doc(db, COLLECTIONS.USERS, fallbackId);
-    await setDoc(userRef, sanitizeForFirestore(fallbackUser), { merge: true });
+    await setDoc(userRef, sanitizeForFirestore(regularUser), { merge: true });
+  } catch (_) {}
 
-    if (effectiveRole === 'agent') {
-      const agentRef = doc(db, COLLECTIONS.AGENTS, fallbackId);
-      await setDoc(agentRef, sanitizeForFirestore({
-        id: fallbackId,
-        name: fallbackUser.name,
-        email: fallbackUser.email,
-        phone: '+243 81 000 0000',
-        avatar: fallbackUser.avatar,
-        agencyName: fallbackUser.agencyName || 'Kinshasa Immobilier',
-        rating: 5.0,
-        listingsCount: 0,
-        bio: 'Agent immobilier agréé Kinshasa.',
-        isVerified: true,
-      }), { merge: true });
-    }
-  } catch (e) {
-    console.warn('Firestore fallback user save warning:', e);
-  }
-
-  return fallbackUser;
+  return regularUser;
 }
 
 export async function logOutFromFirebase(): Promise<void> {

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { getAdminCredentials, verifyAdminPin } from '../lib/adminCredentials';
 import {
@@ -41,6 +41,133 @@ import {
   loginWithFirebaseEmailPassword,
 } from '../lib/firebase';
 import { authenticateUser, registerUserAccount, authenticateOrRegisterGoogleUser } from '../lib/authStore';
+
+/**
+ * Explicit and user-friendly error message formatter for authentication failures
+ */
+export const formatAuthErrorMessage = (
+  err: any,
+  context: 'login' | 'register' | 'general' = 'login'
+): string => {
+  if (!err) return 'Une erreur inattendue est survenue lors de l\'authentification.';
+
+  const code = typeof err === 'string' ? '' : (err?.code || '');
+  const rawMsg = typeof err === 'string' ? err : (err?.message || '');
+
+  // 1. Password / Credentials mismatch
+  if (
+    code === 'auth/wrong-password' ||
+    code === 'auth/invalid-credential' ||
+    rawMsg.includes('auth/wrong-password') ||
+    rawMsg.includes('auth/invalid-credential') ||
+    rawMsg.includes('Mot de passe incorrect')
+  ) {
+    return 'Mot de passe incorrect pour cette adresse e-mail. Veuillez vérifier votre saisie ou réinitialiser votre mot de passe.';
+  }
+
+  // 2. User account not found
+  if (
+    code === 'auth/user-not-found' ||
+    rawMsg.includes('auth/user-not-found') ||
+    rawMsg.includes('Aucun compte')
+  ) {
+    return "Aucun compte associé à cette adresse e-mail n'a été trouvé. Veuillez vérifier votre saisie ou cliquer sur l'onglet \"S'Inscrire\" pour créer votre compte.";
+  }
+
+  // 3. Rate limiting / Too many attempts
+  if (
+    code === 'auth/too-many-requests' ||
+    rawMsg.includes('auth/too-many-requests')
+  ) {
+    return "Trop de tentatives de connexion échouées consécutives. L'accès à ce compte a été temporairement verrouillé par mesure de sécurité. Veuillez patienter quelques instants avant de réessayer.";
+  }
+
+  // 4. Account disabled
+  if (
+    code === 'auth/user-disabled' ||
+    rawMsg.includes('auth/user-disabled')
+  ) {
+    return "Ce compte utilisateur a été suspendu ou désactivé par l'administration. Veuillez contacter le support Immocraft.";
+  }
+
+  // 5. Invalid email format
+  if (
+    code === 'auth/invalid-email' ||
+    rawMsg.includes('auth/invalid-email')
+  ) {
+    return "L'adresse e-mail saisie n'a pas un format valide (ex: contact@kinshasa-prestige.cd).";
+  }
+
+  // 6. Network failure
+  if (
+    code === 'auth/network-request-failed' ||
+    rawMsg.includes('auth/network-request-failed')
+  ) {
+    return "Impossible de joindre le serveur d'authentification. Veuillez vérifier votre connexion Internet et réessayer.";
+  }
+
+  // 7. Email already in use
+  if (
+    code === 'auth/email-already-in-use' ||
+    rawMsg.includes('auth/email-already-in-use')
+  ) {
+    return "Un compte est déjà enregistré avec cette adresse e-mail. Veuillez cliquer sur \"Se Connecter\" ou utiliser une autre adresse.";
+  }
+
+  // 8. Popup or Third-party OAuth errors
+  if (
+    code === 'auth/popup-closed-by-user' ||
+    rawMsg.includes('auth/popup-closed-by-user')
+  ) {
+    return "La fenêtre de connexion Google a été fermée avant la fin de l'authentification. Veuillez cliquer à nouveau pour vous identifier.";
+  }
+
+  if (
+    code === 'auth/popup-blocked' ||
+    rawMsg.includes('auth/popup-blocked')
+  ) {
+    return "L'ouverture de la fenêtre de connexion a été bloquée par le navigateur. Veuillez autoriser les popups pour ce site.";
+  }
+
+  // 9. Operation not allowed
+  if (
+    code === 'auth/operation-not-allowed' ||
+    rawMsg.includes('auth/operation-not-allowed')
+  ) {
+    return "Le fournisseur d'authentification e-mail / mot de passe est momentanément indisponible. Vous pouvez utiliser le bouton 'Continuer avec Google'.";
+  }
+
+  // 10. Admin PIN and custom explicit messages
+  if (rawMsg.includes('PIN') || rawMsg.includes('Administrateur')) {
+    return rawMsg;
+  }
+
+  if (
+    rawMsg.includes('Mot de passe') ||
+    rawMsg.includes('incorrect') ||
+    rawMsg.includes('introuvable') ||
+    rawMsg.includes('téléphone')
+  ) {
+    return rawMsg;
+  }
+
+  // Clean Firebase default prefix if present
+  if (rawMsg.startsWith('Firebase:')) {
+    const cleaned = rawMsg
+      .replace(/^Firebase:\s*/, '')
+      .replace(/\(auth\/[a-z0-9-]+\)\.?/i, '')
+      .trim();
+    if (cleaned.length > 5) return cleaned;
+  }
+
+  if (rawMsg && !rawMsg.includes('auth/')) {
+    return rawMsg;
+  }
+
+  return context === 'login'
+    ? 'Identifiant ou mot de passe incorrect. Veuillez vérifier vos identifiants ou créer un compte.'
+    : 'Échec de la validation de vos informations d\'inscription. Veuillez vérifier les champs.';
+};
 
 export const AuthModal: React.FC = () => {
   const {
@@ -153,6 +280,14 @@ export const AuthModal: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  // Automatically focus/scroll into view when an authentication error occurs
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [error]);
 
   if (!isAuthModalOpen) return null;
 
@@ -168,6 +303,7 @@ export const AuthModal: React.FC = () => {
 
   // Social Sign-In Prompt with Google Authentication & Firebase
   const handleSocialLogin = async (provider: 'google' | 'facebook') => {
+    if (isLoading) return; // Prevent multiple clicks while authenticating
     setError(null);
     if (provider === 'google') {
       setIsLoading(true);
@@ -195,7 +331,7 @@ export const AuthModal: React.FC = () => {
           setGoogleNameInput(initialGoogleName);
           setStep('google_prompt');
         } else {
-          setError(err?.message || 'Erreur lors de la connexion Google Authentification.');
+          setError(formatAuthErrorMessage(err, 'login'));
         }
       }
     } else {
@@ -218,6 +354,7 @@ export const AuthModal: React.FC = () => {
   // Confirm Google Login with User's specific email and name
   const handleConfirmGoogleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // Prevent duplicate submission
     if (!googleEmailInput.includes('@')) {
       setError('Veuillez saisir une adresse compte Google valide (ex: votre-nom@gmail.com).');
       return;
@@ -246,6 +383,7 @@ export const AuthModal: React.FC = () => {
 
   // Direct Admin Login Helper
   const handleAdminLogin = () => {
+    if (isLoading) return; // Prevent duplicate clicks
     setIsLoading(true);
     setError(null);
     setTimeout(() => {
@@ -296,6 +434,8 @@ export const AuthModal: React.FC = () => {
   // Step 1: Form Submit Handler
   const handleInitialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // Prevent multiple simultaneous submissions
+
     setError(null);
 
     if (method === 'email' && !email.includes('@')) {
@@ -339,15 +479,7 @@ export const AuthModal: React.FC = () => {
         } catch (fbRegErr: any) {
           setIsLoading(false);
           console.error('Firebase registration error:', fbRegErr);
-          let friendlyRegErr = 'Erreur lors de la création de votre compte.';
-          if (fbRegErr?.code === 'auth/email-already-in-use' || fbRegErr?.message?.includes('email-already-in-use')) {
-            friendlyRegErr = 'Cette adresse e-mail possède déjà un compte. Cliquez sur "Se Connecter" ci-dessus pour vous identifier.';
-          } else if (fbRegErr?.code === 'auth/weak-password' || fbRegErr?.message?.includes('weak-password')) {
-            friendlyRegErr = 'Le mot de passe doit comporter au moins 6 caractères.';
-          } else if (fbRegErr?.message && !fbRegErr.message.includes('Firebase')) {
-            friendlyRegErr = fbRegErr.message;
-          }
-          setError(friendlyRegErr);
+          setError(formatAuthErrorMessage(fbRegErr, 'register'));
           return;
         }
       } else {
@@ -401,7 +533,30 @@ export const AuthModal: React.FC = () => {
           completeAuthentication(authedFbUser, `Connexion réussie ! Bienvenue ${authedFbUser.name}`);
           return;
         } catch (loginErr: any) {
-          console.warn('Firebase login fallback check:', loginErr?.message);
+          console.warn('Firebase login fallback check:', loginErr?.code, loginErr?.message);
+
+          const code = loginErr?.code || '';
+          const msg = loginErr?.message || '';
+
+          // If password was wrong or admin PIN was invalid, stop immediately with explicit error
+          if (
+            code === 'auth/wrong-password' ||
+            code === 'auth/invalid-credential' ||
+            msg.includes('incorrect') ||
+            msg.includes('Code PIN')
+          ) {
+            setIsLoading(false);
+            setError(formatAuthErrorMessage(loginErr, 'login'));
+            return;
+          }
+
+          // Too many failed attempts
+          if (code === 'auth/too-many-requests' || msg.includes('too-many-requests')) {
+            setIsLoading(false);
+            setError(formatAuthErrorMessage(loginErr, 'login'));
+            return;
+          }
+
           // Check in-memory store for admin PIN or pre-seeded credentials
           const identifier = email.trim();
           const authResult = authenticateUser(identifier, password, method);
@@ -416,14 +571,14 @@ export const AuthModal: React.FC = () => {
             }
             return;
           }
+
           setIsLoading(false);
-          let friendlyMsg = 'Adresse e-mail ou mot de passe incorrect. Vous pouvez également cliquer sur "Continuer avec Google".';
-          if (loginErr?.message?.includes('operation-not-allowed')) {
-            friendlyMsg = 'Pour ce compte e-mail, veuillez cliquer sur "Continuer avec Google" ci-dessus pour vous connecter en toute sécurité.';
-          } else if (loginErr?.message && !loginErr.message.includes('Firebase')) {
-            friendlyMsg = loginErr.message;
-          }
-          setError(friendlyMsg);
+          // Explicit error message display on failure
+          const explicitMsg = formatAuthErrorMessage(
+            authResult.error || loginErr,
+            'login'
+          );
+          setError(explicitMsg);
           return;
         }
       } else {
@@ -434,7 +589,12 @@ export const AuthModal: React.FC = () => {
           const authResult = authenticateUser(identifier, password, method);
 
           if (!authResult.success) {
-            setError(authResult.error || 'Numéro de téléphone ou mot de passe incorrect.');
+            setError(
+              formatAuthErrorMessage(
+                authResult.error || 'Numéro de téléphone ou mot de passe incorrect.',
+                'login'
+              )
+            );
             return;
           }
 
@@ -454,6 +614,7 @@ export const AuthModal: React.FC = () => {
   // Verify Email or Phone Code
   const handleVerifyCodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // Prevent multiple clicks
     setError(null);
 
     if (!verificationCode || verificationCode.trim().length < 4) {
@@ -489,6 +650,7 @@ export const AuthModal: React.FC = () => {
   // Verify 2FA Challenge or Complete 2FA Setup
   const handle2FASubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // Prevent multiple clicks
     setError(null);
 
     if (!twoFactorCode || twoFactorCode.trim().length < 4) {
@@ -645,7 +807,8 @@ export const AuthModal: React.FC = () => {
           <button
             type="button"
             onClick={handleReturnHome}
-            className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
+            disabled={isLoading}
+            className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             title="Quitter et retourner à la page d'accueil"
           >
             <Home className="w-3.5 h-3.5 text-emerald-400" />
@@ -654,11 +817,12 @@ export const AuthModal: React.FC = () => {
 
           <button
             type="button"
+            disabled={isLoading}
             onClick={() => {
               setIsAuthModalOpen(false);
               resetState();
             }}
-            className="px-2.5 py-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-1 text-xs cursor-pointer"
+            className="px-2.5 py-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             title="Fermer la fenêtre"
           >
             <span className="text-[11px] font-medium hidden sm:inline">Fermer</span>
@@ -702,11 +866,95 @@ export const AuthModal: React.FC = () => {
           </div>
         )}
 
-        {/* Error Alert */}
+        {/* Explicit Error Alert Banner */}
         {error && (
-          <div className="mb-4 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2.5">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-            <span>{error}</span>
+          <div
+            id="auth-error-banner"
+            ref={errorRef}
+            tabIndex={-1}
+            role="alert"
+            aria-live="assertive"
+            className="mb-4 p-3.5 sm:p-4 rounded-2xl bg-rose-950/70 border-2 border-rose-500/80 text-rose-100 text-xs shadow-xl shadow-rose-950/50 flex flex-col gap-2.5 animate-fadeIn"
+          >
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center shrink-0 mt-0.5">
+                  <ShieldAlert className="w-4 h-4 text-rose-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-black text-white text-xs tracking-wide uppercase">
+                      {mode === 'login' ? 'Échec de la Connexion' : 'Erreur d\'Inscription'}
+                    </h4>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-200 font-bold">
+                      Alerte Sécurité
+                    </span>
+                  </div>
+                  <p className="text-xs text-rose-200 mt-1 leading-relaxed font-medium break-words">
+                    {error}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="text-rose-400 hover:text-white p-1 rounded-lg hover:bg-rose-900/50 transition-colors shrink-0 cursor-pointer"
+                title="Ignorer cette alerte"
+                aria-label="Fermer l'alerte d'erreur"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Contextual Action CTA if account not found or wrong password */}
+            {(error.includes("S'Inscrire") || error.includes("Aucun compte") || error.includes("introuvable")) && mode === 'login' && (
+              <div className="pt-2 border-t border-rose-800/50 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-rose-300/90">
+                  Pas encore de compte enregistré ?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setMode('register');
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] transition-all flex items-center gap-1 cursor-pointer shrink-0 shadow"
+                >
+                  <BadgeCheck className="w-3.5 h-3.5 text-slate-950" />
+                  <span>Créer un compte</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Prominent Loading Spinner State */}
+        {isLoading && (
+          <div
+            id="auth-loading-state"
+            role="status"
+            aria-live="polite"
+            className="mb-4 p-3.5 sm:p-4 rounded-2xl bg-slate-950/95 border-2 border-emerald-500/60 shadow-xl shadow-emerald-950/40 text-xs flex items-center gap-3 animate-pulse"
+          >
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center shrink-0">
+              <RefreshCw className="w-5 h-5 animate-spin text-emerald-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-black text-white text-xs tracking-wide uppercase">
+                  {mode === 'login' ? 'Authentification en cours...' : 'Création du profil en cours...'}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                  Sécurité RDC
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                {mode === 'login'
+                  ? 'Vérification de vos identifiants auprès du serveur sécurisé. Veuillez patienter sans quitter...'
+                  : 'Enregistrement de vos coordonnées et synchronisation avec la base de données.'}
+              </p>
+            </div>
           </div>
         )}
 
@@ -731,7 +979,8 @@ export const AuthModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={clearInvite}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                  disabled={isLoading}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
                   title="Fermer l'invitation"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -743,11 +992,12 @@ export const AuthModal: React.FC = () => {
             <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-5 shadow-inner">
               <button
                 type="button"
+                disabled={isLoading}
                 onClick={() => {
                   setMode('login');
                   setError(null);
                 }}
-                className={`py-2.5 px-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`py-2.5 px-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
                   mode === 'login'
                     ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-md shadow-emerald-500/20'
                     : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
@@ -758,11 +1008,12 @@ export const AuthModal: React.FC = () => {
               </button>
               <button
                 type="button"
+                disabled={isLoading}
                 onClick={() => {
                   setMode('register');
                   setError(null);
                 }}
-                className={`py-2.5 px-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`py-2.5 px-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
                   mode === 'register'
                     ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-md shadow-emerald-500/20'
                     : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
@@ -803,8 +1054,9 @@ export const AuthModal: React.FC = () => {
             <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 mb-4 text-xs font-semibold">
               <button
                 type="button"
+                disabled={isLoading}
                 onClick={() => setMethod('email')}
-                className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer ${
+                className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                   method === 'email'
                     ? 'bg-slate-800 text-emerald-400 font-bold shadow-sm border border-slate-700'
                     : 'text-slate-400 hover:text-slate-200'
@@ -816,8 +1068,9 @@ export const AuthModal: React.FC = () => {
 
               <button
                 type="button"
+                disabled={isLoading}
                 onClick={() => setMethod('phone')}
-                className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer ${
+                className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                   method === 'phone'
                     ? 'bg-slate-800 text-emerald-400 font-bold shadow-sm border border-slate-700'
                     : 'text-slate-400 hover:text-slate-200'
@@ -965,14 +1218,26 @@ export const AuthModal: React.FC = () => {
                     Adresse E-mail Officielle *
                   </label>
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                    <Mail className={`w-4 h-4 absolute left-3 top-2.5 transition-colors ${
+                      error && (error.toLowerCase().includes('e-mail') || error.toLowerCase().includes('adresse') || error.toLowerCase().includes('aucun compte') || error.toLowerCase().includes('introuvable'))
+                        ? 'text-rose-400'
+                        : 'text-slate-500'
+                    }`} />
                     <input
                       type="email"
                       required
+                      disabled={isLoading}
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (error) setError(null);
+                      }}
                       placeholder="jeanluc.mpoy@kinshasa-prestige.cd"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      className={`w-full bg-slate-950 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
+                        error && (error.toLowerCase().includes('e-mail') || error.toLowerCase().includes('adresse') || error.toLowerCase().includes('aucun compte') || error.toLowerCase().includes('introuvable'))
+                          ? 'border-2 border-rose-500 ring-2 ring-rose-500/30 text-rose-100 focus:border-rose-400'
+                          : 'border border-slate-800 focus:border-emerald-500'
+                      }`}
                     />
                   </div>
                 </div>
@@ -1067,16 +1332,34 @@ export const AuthModal: React.FC = () => {
                   Mot de Passe Sécurisé *
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <Lock className={`w-4 h-4 absolute left-3 top-2.5 transition-colors ${
+                    error && (error.toLowerCase().includes('mot de passe') || error.toLowerCase().includes('incorrect'))
+                      ? 'text-rose-400'
+                      : 'text-slate-500'
+                  }`} />
                   <input
                     type="password"
                     required
+                    disabled={isLoading}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError(null);
+                    }}
                     placeholder="••••••••"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    className={`w-full bg-slate-950 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
+                      error && (error.toLowerCase().includes('mot de passe') || error.toLowerCase().includes('incorrect'))
+                        ? 'border-2 border-rose-500 ring-2 ring-rose-500/30 text-rose-100 focus:border-rose-400'
+                        : 'border border-slate-800 focus:border-emerald-500'
+                    }`}
                   />
                 </div>
+                {error && (error.toLowerCase().includes('mot de passe') || error.toLowerCase().includes('incorrect')) && (
+                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3 h-3 shrink-0 text-rose-400" />
+                    <span>Mot de passe erroné. Veuillez vérifier vos minuscules/majuscules.</span>
+                  </p>
+                )}
                 {mode === 'register' && strength && (
                   <div className="mt-1.5 space-y-1">
                     <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
@@ -1352,14 +1635,23 @@ export const AuthModal: React.FC = () => {
               )}
 
               <button
+                id="auth-submit-main-button"
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 text-slate-950 font-black text-sm hover:opacity-95 transition-all shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 mt-4 disabled:opacity-50 active:scale-[0.99] cursor-pointer"
+                className={`w-full py-3.5 rounded-2xl font-black text-sm transition-all shadow-xl flex items-center justify-center gap-2 mt-4 cursor-pointer ${
+                  isLoading
+                    ? 'bg-slate-800 text-slate-300 border border-slate-700 cursor-not-allowed opacity-80 shadow-none'
+                    : 'bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 text-slate-950 hover:opacity-95 shadow-emerald-500/25 active:scale-[0.99]'
+                }`}
               >
                 {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
-                    Traitement en cours...
+                  <span className="flex items-center gap-2.5">
+                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400 shrink-0" />
+                    <span className="text-white font-bold">
+                      {mode === 'login'
+                        ? 'Vérification des identifiants en cours...'
+                        : 'Création sécurisée du compte en cours...'}
+                    </span>
                   </span>
                 ) : (
                   <>
@@ -1379,7 +1671,8 @@ export const AuthModal: React.FC = () => {
               <button
                 type="button"
                 onClick={handleReturnHome}
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-98 shadow-sm cursor-pointer"
+                disabled={isLoading}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-98 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Quitter et retourner à la page d'accueil"
               >
                 <Home className="w-4 h-4 text-emerald-400" />
@@ -1390,12 +1683,13 @@ export const AuthModal: React.FC = () => {
                 <span>ESTATIK ® Kinshasa</span>
                 <button
                   type="button"
+                  disabled={isLoading}
                   onClick={() => {
                     setStep('admin_pin');
                     setError(null);
                     setAdminPinInput('');
                   }}
-                  className="flex items-center gap-1.5 text-slate-500 hover:text-amber-400 font-medium transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 text-slate-500 hover:text-amber-400 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Lock className="w-3 h-3 text-slate-500 hover:text-amber-400" />
                   <span>Accès Protégé (PIN)</span>
@@ -1410,6 +1704,7 @@ export const AuthModal: React.FC = () => {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              if (isLoading) return;
               if (verifyAdminPin(adminPinInput)) {
                 handleAdminLogin();
               } else {
@@ -1437,6 +1732,7 @@ export const AuthModal: React.FC = () => {
                 type="password"
                 maxLength={20}
                 required
+                disabled={isLoading}
                 autoComplete="new-password"
                 autoCapitalize="none"
                 autoCorrect="off"
@@ -1448,7 +1744,7 @@ export const AuthModal: React.FC = () => {
                   if (error) setError(null);
                 }}
                 placeholder="••••"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-center text-xl font-mono text-emerald-400 tracking-[0.5em] focus:outline-none focus:border-emerald-500"
+                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-center text-xl font-mono text-emerald-400 tracking-[0.5em] focus:outline-none focus:border-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 autoFocus
               />
             </div>
@@ -1456,28 +1752,39 @@ export const AuthModal: React.FC = () => {
             <div className="flex gap-2.5 pt-2">
               <button
                 type="button"
+                disabled={isLoading}
                 onClick={() => {
                   setStep('form');
                   setError(null);
                 }}
-                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all cursor-pointer"
+                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Retour
               </button>
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:opacity-90 text-slate-950 text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:opacity-90 text-slate-950 text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <ShieldCheck className="w-4 h-4 text-slate-950" />
-                <span>Déverrouiller Admin</span>
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                    <span>Déverrouillage...</span>
+                  </span>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4 text-slate-950" />
+                    <span>Déverrouiller Admin</span>
+                  </>
+                )}
               </button>
             </div>
 
             <button
               type="button"
+              disabled={isLoading}
               onClick={handleReturnHome}
-              className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 pt-2 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 pt-2 flex items-center justify-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
             >
               <Home className="w-3.5 h-3.5" />
               <span>← Retourner à l'Accueil</span>

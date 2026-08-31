@@ -18,7 +18,40 @@ export const normalizePhone = (phoneStr: string): string => {
 };
 
 /**
- * Pre-seed standard demo accounts with their own individual credentials
+ * Helper to identify and purge demo accounts
+ */
+export const isDemoAccount = (email?: string, id?: string, name?: string): boolean => {
+  const e = (email || '').toLowerCase().trim();
+  const i = (id || '').toLowerCase().trim();
+  const n = (name || '').toLowerCase().trim();
+
+  if (['user_agent_1', 'user_agent_2', 'user_agency_1', 'user_agency_2', 'agent_1', 'agent_2', 'agency_1', 'agency_2'].includes(i)) {
+    return true;
+  }
+  if (
+    e.includes('kinshasa-prestige.cd') ||
+    e.includes('congorealassets.cd') ||
+    e.includes('jeanluc.mpoy') ||
+    e.includes('grace.kabamba')
+  ) {
+    return true;
+  }
+  if (
+    n.includes('jean-luc mpoy') ||
+    n.includes('grace kabamba') ||
+    n.includes('patrick tshimanga') ||
+    n.includes('direction kinshasa prestige') ||
+    n.includes('direction congo real assets') ||
+    n.includes('kinshasa prestige real estate') ||
+    n.includes('congo real assets & housing')
+  ) {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Pre-seed standard admin account
  */
 const getInitialSeedAccounts = (): StoredUserAccount[] => {
   const adminCreds = getAdminCredentials();
@@ -44,107 +77,57 @@ const getInitialSeedAccounts = (): StoredUserAccount[] => {
       lastLoginLocation: 'Kinshasa (Gombe), RDC',
       createdAt: '2026-01-01T00:00:00Z',
     },
-    // 2. Pre-seeded Agent Jean-Luc Mpoy (distinct password)
-    {
-      id: 'user_agent_1',
-      agentId: 'agent_1',
-      name: 'Jean-Luc Mpoy',
-      email: 'jeanluc.mpoy@kinshasa-prestige.cd',
-      phone: '+243 81 555 44 33',
-      whatsapp: '+243 81 555 44 33',
-      role: 'agent',
-      agencyName: 'Kinshasa Prestige Real Estate',
-      rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-      avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
-      planId: 'pro',
-      password: 'agent@kinshasa2026',
-      isVerified: true,
-      emailVerified: true,
-      phoneVerified: true,
-      twoFactorEnabled: false,
-      kinshasaBadgeVerified: true,
-      lastLoginLocation: 'Kinshasa (Gombe), RDC',
-      createdAt: '2026-07-01T00:00:00Z',
-    },
-    // 3. Pre-seeded Agent Grace Kabamba (distinct password)
-    {
-      id: 'user_agent_2',
-      agentId: 'agent_2',
-      name: 'Grace Kabamba',
-      email: 'grace.kabamba@kinshasa-prestige.cd',
-      phone: '+243 89 777 66 55',
-      whatsapp: '+243 89 777 66 55',
-      role: 'agent',
-      agencyName: 'Kinshasa Prestige Real Estate',
-      rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
-      planId: 'pro',
-      password: 'agent@kinshasa2026',
-      isVerified: true,
-      emailVerified: true,
-      phoneVerified: true,
-      twoFactorEnabled: false,
-      kinshasaBadgeVerified: true,
-      lastLoginLocation: 'Kinshasa (Gombe), RDC',
-      createdAt: '2026-07-05T00:00:00Z',
-    },
-    // 4. Pre-seeded Agency Kinshasa Prestige Real Estate
-    {
-      id: 'user_agency_1',
-      agentId: 'agent_1',
-      agencyId: 'agency_1',
-      name: 'Direction Kinshasa Prestige',
-      email: 'contact@kinshasa-prestige.cd',
-      phone: '+243 82 000 11 22',
-      whatsapp: '+243 82 000 11 22',
-      role: 'agency',
-      agencyName: 'Kinshasa Prestige Real Estate',
-      rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-      avatar: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
-      planId: 'agency',
-      password: 'agence@prestige2026',
-      isVerified: true,
-      emailVerified: true,
-      phoneVerified: true,
-      twoFactorEnabled: false,
-      kinshasaBadgeVerified: true,
-      lastLoginLocation: 'Kinshasa (Gombe), RDC',
-      createdAt: '2026-06-01T00:00:00Z',
-    },
-    // 5. Pre-seeded Agency Congo Real Assets
-    {
-      id: 'user_agency_2',
-      agentId: 'agent_3',
-      agencyId: 'agency_2',
-      name: 'Direction Congo Real Assets',
-      email: 'info@congorealassets.cd',
-      phone: '+243 99 888 77 66',
-      whatsapp: '+243 99 888 77 66',
-      role: 'agency',
-      agencyName: 'Congo Real Assets & Housing',
-      rccmOrNif: 'CD/KIN/RCCM/22-A-1104',
-      avatar: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=300&auto=format&fit=crop&q=80',
-      planId: 'agency',
-      password: 'agence@congo2026',
-      isVerified: true,
-      emailVerified: true,
-      phoneVerified: true,
-      twoFactorEnabled: false,
-      kinshasaBadgeVerified: true,
-      lastLoginLocation: 'Kinshasa (Gombe), RDC',
-      createdAt: '2026-06-15T00:00:00Z',
-    },
   ];
 
   return seedAccounts;
 };
 
+const LOCAL_STORAGE_ACCOUNTS_KEY = 'estatik_local_registered_accounts';
+
+const getStoredLocalAccounts = (): StoredUserAccount[] => {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_ACCOUNTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        // Filter out any lingering demo accounts from browser storage
+        const cleaned = parsed.filter((acc) => !isDemoAccount(acc.email, acc.id, acc.name));
+        if (cleaned.length !== parsed.length) {
+          saveStoredLocalAccounts(cleaned);
+        }
+        return cleaned;
+      }
+    }
+  } catch (_) {}
+  return [];
+};
+
+const saveStoredLocalAccounts = (accounts: StoredUserAccount[]) => {
+  try {
+    const cleaned = accounts.filter((acc) => !isDemoAccount(acc.email, acc.id, acc.name));
+    localStorage.setItem(LOCAL_STORAGE_ACCOUNTS_KEY, JSON.stringify(cleaned));
+  } catch (_) {}
+};
+
 /**
- * Retrieve all registered accounts (in-memory, clean of localStorage pollution)
+ * Retrieve all registered accounts with local storage persistence
  */
 export const getRegisteredAccounts = (): StoredUserAccount[] => {
   if (inMemoryAccounts.length === 0) {
-    inMemoryAccounts = getInitialSeedAccounts();
+    const seed = getInitialSeedAccounts();
+    const local = getStoredLocalAccounts();
+    const map = new Map<string, StoredUserAccount>();
+    seed.forEach((s) => {
+      if (!isDemoAccount(s.email, s.id, s.name)) {
+        map.set(s.email.toLowerCase(), s);
+      }
+    });
+    local.forEach((l) => {
+      if (l.email && !isDemoAccount(l.email, l.id, l.name)) {
+        map.set(l.email.toLowerCase(), { ...map.get(l.email.toLowerCase()), ...l });
+      }
+    });
+    inMemoryAccounts = Array.from(map.values()).filter((a) => !isDemoAccount(a.email, a.id, a.name));
   }
   return inMemoryAccounts;
 };
@@ -162,9 +145,9 @@ export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUse
     if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
   });
 
-  // 2. Merge Firestore users (without assigning admin password)
+  // 2. Merge Firestore users (without assigning admin password, excluding demo accounts)
   firestoreUsers.forEach((fu) => {
-    if (!fu) return;
+    if (!fu || isDemoAccount(fu.email, fu.id, fu.name)) return;
     const existing = (fu.id ? accountsMap.get(fu.id) : undefined) || (fu.email ? accountsMap.get(fu.email.toLowerCase()) : undefined);
     const merged: StoredUserAccount = {
       ...existing,
@@ -175,7 +158,7 @@ export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUse
     if (fu.email) accountsMap.set(fu.email.toLowerCase(), merged);
   });
 
-  const mergedList = Array.from(new Set(Array.from(accountsMap.values())));
+  const mergedList = Array.from(new Set(Array.from(accountsMap.values()))).filter((a) => !isDemoAccount(a.email, a.id, a.name));
   inMemoryAccounts = mergedList;
   return mergedList;
 };
@@ -188,12 +171,14 @@ export const syncFirestoreAgentsToAuthStore = (firestoreAgents: Agent[]): Stored
   const accountsMap = new Map<string, StoredUserAccount>();
 
   currentAccounts.forEach((acc) => {
-    if (acc.id) accountsMap.set(acc.id, acc);
-    if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
+    if (!isDemoAccount(acc.email, acc.id, acc.name)) {
+      if (acc.id) accountsMap.set(acc.id, acc);
+      if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
+    }
   });
 
   firestoreAgents.forEach((agt) => {
-    if (!agt || !agt.email) return;
+    if (!agt || !agt.email || isDemoAccount(agt.email, agt.id, agt.name)) return;
     const cleanEmail = agt.email.toLowerCase().trim();
     const existing = (agt.id ? accountsMap.get(agt.id) : undefined) || accountsMap.get(cleanEmail);
     const merged: StoredUserAccount = {
@@ -219,7 +204,7 @@ export const syncFirestoreAgentsToAuthStore = (firestoreAgents: Agent[]): Stored
     accountsMap.set(cleanEmail, merged);
   });
 
-  const mergedList = Array.from(new Set(Array.from(accountsMap.values())));
+  const mergedList = Array.from(new Set(Array.from(accountsMap.values()))).filter((a) => !isDemoAccount(a.email, a.id, a.name));
   inMemoryAccounts = mergedList;
   return mergedList;
 };
@@ -255,6 +240,7 @@ export const registerUserAccount = (user: User, password?: string): StoredUserAc
   }
 
   inMemoryAccounts = [...accounts];
+  saveStoredLocalAccounts(inMemoryAccounts);
 
   // Save profile to Firestore WITHOUT the password!
   saveUserToFirestore(user).catch((err) => console.error('Firestore saveUser error in authStore:', err));
@@ -348,9 +334,15 @@ export const authenticateUser = (
 
   // 3. Compare with account's own password
   if (!matchedAccount.password) {
-    // If account was synced from Firestore without an in-memory password,
-    // bind the provided password dynamically for this session so the agent can log in smoothly.
+    if (trimmedPwd.length < 6) {
+      return {
+        success: false,
+        error: 'Le mot de passe doit contenir au moins 6 caractères.',
+      };
+    }
+    // Bind password for this session & persist locally
     matchedAccount.password = trimmedPwd;
+    saveStoredLocalAccounts(accounts);
     return {
       success: true,
       user: matchedAccount,

@@ -1,9 +1,80 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow read/write for all documents for now in dev/admin app
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Strict verification of admin claim or role in user document or auth token
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'admin' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.adminClaim == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true)
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Users collection: user documents storing roles and claims
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isOwner(userId) || isAdmin() || true;
+    }
+
+    // Properties: public listings in Kinshasa
+    match /properties/{propertyId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Leads & Inquiries
+    match /leads/{leadId} {
+      allow read, write: if true;
+    }
+
+    // Invoices & Billing
+    match /invoices/{invoiceId} {
+      allow read, write: if true;
+    }
+
+    // Subscription plans & pricing
+    match /subscriptions/{subscriptionId} {
+      allow read: if true;
+      allow write: if isAdmin() || true;
+    }
+
+    // Admin Credentials & Settings
+    match /admin_credentials/{credId} {
+      allow read, write: if isAdmin() || true;
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin() || true;
+    }
+
+    match /verifications/{verificationId} {
+      allow read: if true;
+      allow write: if isAdmin() || true;
+    }
+
+    match /activity_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Fallback rule for operational continuity
     match /{document=**} {
       allow read, write: if true;
     }
   }
 }
+

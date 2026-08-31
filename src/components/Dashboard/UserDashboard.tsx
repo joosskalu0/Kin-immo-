@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { initialSubscriptionPlans } from '../../data/mockData';
 import { Property, LeadRequest, User } from '../../types';
@@ -11,7 +11,11 @@ import { PaymentReminderBanner } from './PaymentReminderBanner';
 import { TagManagerSettingsModal } from './TagManagerSettingsModal';
 import { AdminPlansPricingManager } from './AdminPlansPricingManager';
 import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
-import { saveUserToFirestore } from '../../lib/firebase';
+import {
+  saveUserToFirestore,
+  verifyUserAdminInFirestore,
+  AdminClaimVerificationResult,
+} from '../../lib/firebase';
 import {
   Home,
   Building2,
@@ -33,6 +37,7 @@ import {
   Upload,
   Shield,
   ShieldCheck,
+  ShieldAlert,
   BadgeCheck,
   KeyRound,
   Zap,
@@ -47,11 +52,105 @@ import {
   Clock,
   Camera,
   UploadCloud,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface UserDashboardProps {
   onReturnHome?: () => void;
 }
+
+/**
+ * Protected Admin Route / Feature component
+ * Explicitly verifies that the user possesses an active 'admin' claim
+ * or field in their Firestore document before rendering administrative tools.
+ */
+interface ProtectedAdminFeatureProps {
+  isChecking: boolean;
+  isVerified: boolean;
+  featureName: string;
+  onGoToAnalytics: () => void;
+  onRetry: () => void;
+  children: React.ReactNode;
+}
+
+const ProtectedAdminFeature: React.FC<ProtectedAdminFeatureProps> = ({
+  isChecking,
+  isVerified,
+  featureName,
+  onGoToAnalytics,
+  onRetry,
+  children,
+}) => {
+  if (isChecking) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center space-y-4 max-w-xl mx-auto shadow-2xl">
+        <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto animate-spin">
+          <RefreshCw className="w-7 h-7" />
+        </div>
+        <h3 className="text-lg font-black text-white">Vérification de Sécurité Firestore</h3>
+        <p className="text-xs text-slate-400 leading-relaxed max-w-md mx-auto">
+          Contrôle d'accès en cours : vérification de l'autorisation et du claim <code className="text-emerald-400 font-mono">admin</code> dans votre document Firestore...
+        </p>
+      </div>
+    );
+  }
+
+  if (!isVerified) {
+    return (
+      <div className="bg-slate-900 border border-rose-500/30 rounded-3xl p-8 sm:p-10 text-center space-y-6 max-w-xl mx-auto my-6 shadow-2xl relative overflow-hidden">
+        <div className="absolute -top-12 -right-12 w-32 h-32 bg-rose-500/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="w-16 h-16 rounded-3xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto shadow-lg shadow-rose-500/10">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+
+        <div className="space-y-2">
+          <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[11px] font-black uppercase tracking-wider">
+            Accès Protégé • Non Autorisé
+          </span>
+          <h3 className="text-xl font-black text-white">
+            Autorisation Administrateur Firestore Requise
+          </h3>
+          <p className="text-xs text-slate-300 leading-relaxed max-w-md mx-auto">
+            La fonctionnalité <strong className="text-white">« {featureName} »</strong> est strictement réservée aux administrateurs.
+            Aucun document utilisateur avec le claim <code className="text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded font-mono">adminClaim: true</code> ou le rôle <code className="text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded font-mono">role: 'admin'</code> n'a été validé dans la base Firestore pour ce compte.
+          </p>
+        </div>
+
+        <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800 text-left text-xs space-y-1.5">
+          <div className="flex items-center gap-2 text-slate-300 font-semibold">
+            <Lock className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            <span>Contrôle d'accès basé sur les claims Firestore (RBAC)</span>
+          </div>
+          <p className="text-[11px] text-slate-400 pl-5 leading-relaxed">
+            L'accès non autorisé est systématiquement bloqué au niveau du composant et de la base de données Firestore pour prévenir toute escalade de privilèges.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onGoToAnalytics}
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all flex items-center justify-center gap-2"
+          >
+            <Building2 className="w-4 h-4 text-emerald-400" />
+            <span>Retour à Mes Annonces</span>
+          </button>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs hover:opacity-95 transition-all flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20"
+          >
+            <RefreshCw className="w-4 h-4 text-slate-950" />
+            <span>Vérifier à nouveau</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
 
 export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) => {
   const {
@@ -78,13 +177,61 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
     allUsers,
     subscriptionPlans,
     pricingDisplayCurrency,
-    cdfExchangeRate
+    cdfExchangeRate,
   } = useApp();
 
-  const isAdmin = user?.role === 'admin';
-  const [activeTab, setActiveTab] = useState<'analytics' | 'verification' | 'billing' | 'invitations' | 'admin_settings' | 'listings' | 'my_invoices' | 'leads' | 'saved' | 'plans' | 'csv' | 'gtm_manager'>(
-    isAdmin ? 'admin_settings' : 'analytics'
-  );
+  // Explicit real-time Firestore claim verification
+  const [isCheckingAdmin, setIsCheckingAdmin] = useState(true);
+  const [isFirestoreAdminVerified, setIsFirestoreAdminVerified] = useState(false);
+  const [adminVerificationDetails, setAdminVerificationDetails] = useState<AdminClaimVerificationResult | null>(null);
+
+  const runAdminVerification = async () => {
+    if (!user) {
+      setIsCheckingAdmin(false);
+      setIsFirestoreAdminVerified(false);
+      return;
+    }
+    setIsCheckingAdmin(true);
+    try {
+      const result = await verifyUserAdminInFirestore(user);
+      setIsFirestoreAdminVerified(result.isAdmin);
+      setAdminVerificationDetails(result);
+
+      // If user is currently on an admin-exclusive tab and not verified in Firestore, redirect to safe tab
+      const adminOnlyTabs = ['admin_settings', 'billing', 'verification', 'gtm_manager'];
+      if (!result.isAdmin && adminOnlyTabs.includes(activeTab)) {
+        setActiveTab('analytics');
+      }
+    } catch (err) {
+      console.warn('Admin claim verification failed:', err);
+      setIsFirestoreAdminVerified(false);
+    } finally {
+      setIsCheckingAdmin(false);
+    }
+  };
+
+  useEffect(() => {
+    runAdminVerification();
+  }, [user?.id, user?.email, user?.role]);
+
+  // Strict administrative rights: MUST have passed Firestore document claim check!
+  const isAdmin = !isCheckingAdmin && isFirestoreAdminVerified;
+
+  const [activeTab, setActiveTab] = useState<
+    | 'analytics'
+    | 'verification'
+    | 'billing'
+    | 'invitations'
+    | 'admin_settings'
+    | 'listings'
+    | 'my_invoices'
+    | 'leads'
+    | 'saved'
+    | 'plans'
+    | 'csv'
+    | 'gtm_manager'
+  >(user?.role === 'admin' ? 'admin_settings' : 'analytics');
+
   const [csvTextInput, setCsvTextInput] = useState('');
   const [selectedPlanSuccess, setSelectedPlanSuccess] = useState<string | null>(null);
   const [isTagManagerModalOpen, setIsTagManagerModalOpen] = useState(false);
@@ -102,6 +249,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
+  const [isPinVerifying, setIsPinVerifying] = useState(false);
 
   // Profile photo upload from gallery
   const profilePhotoInputRef = useRef<HTMLInputElement>(null);
@@ -137,19 +285,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
     reader.readAsDataURL(file);
   };
 
-  const handleVerifyAdminPin = (e: React.FormEvent) => {
+  const handleVerifyAdminPin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (verifyAdminPin(pinInput)) {
-      handleSwitchToAdmin();
+    if (!verifyAdminPin(pinInput)) {
+      setPinError('Code PIN Administrateur incorrect. Accès refusé.');
+      return;
+    }
+
+    setIsPinVerifying(true);
+    setPinError(null);
+    try {
+      await handleSwitchToAdmin();
       setShowPinModal(false);
       setPinInput('');
-      setPinError(null);
-    } else {
-      setPinError('Code PIN Administrateur incorrect. Accès refusé.');
+    } catch (err: any) {
+      setPinError(err?.message || "Erreur de validation du document administrateur dans Firestore.");
+    } finally {
+      setIsPinVerifying(false);
     }
   };
 
-  const handleSwitchToAdmin = () => {
+  const handleSwitchToAdmin = async () => {
     const creds = getAdminCredentials();
     const adminProfile: User = {
       id: 'usr_admin_001',
@@ -169,7 +325,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       lastLoginLocation: 'Kinshasa (Gombe), RDC',
       createdAt: new Date().toISOString(),
     };
+
+    // 1. Explicitly persist into Firestore with admin claim fields
+    await saveUserToFirestore(adminProfile);
+
+    // 2. Explicitly verify the Firestore document
+    const verification = await verifyUserAdminInFirestore(adminProfile);
+    if (!verification.isAdmin) {
+      throw new Error("Échec d'enregistrement ou de vérification du claim administrateur dans Firestore.");
+    }
+
     setUser(adminProfile);
+    setIsFirestoreAdminVerified(true);
+    setAdminVerificationDetails(verification);
     setActiveTab('admin_settings');
   };
 
@@ -534,13 +702,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       {/* Navigation Tabs */}
       <div className="flex border-b border-slate-800 gap-2 overflow-x-auto text-xs font-semibold">
         {[
-          ...(isAdmin || activeTab === 'verification'
+          ...(isAdmin
             ? [{ id: 'verification', label: `🛡️ Audit Badges Agents (${pendingVerificationsCount > 0 ? `${pendingVerificationsCount} en attente` : 'Conforme'})`, icon: ShieldCheck }]
             : []),
-          ...(isAdmin || activeTab === 'admin_settings'
+          ...(isAdmin
             ? [{ id: 'admin_settings', label: 'Sécurité & Identifiants Admin', icon: KeyRound }]
             : []),
-          ...(isAdmin || activeTab === 'billing'
+          ...(isAdmin
             ? [{ id: 'billing', label: 'Facturation & Encaissements Admin', icon: Receipt }]
             : []),
           { id: 'invitations', label: '🔗 Inviter des Agents & Agences', icon: UserPlus },
@@ -556,7 +724,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           { id: 'my_invoices', label: `Mes Factures & Réglements (${myInvoices.length})`, icon: Receipt },
           { id: 'leads', label: `CRM Leads & Demandes (${leads.length})`, icon: Users },
           { id: 'saved', label: `Alertes & Recherches (${savedSearches.length})`, icon: Bell },
-          { id: 'plans', label: 'Formules & Abonnements', icon: CreditCard },
+          { id: 'plans', label: isAdmin ? 'Gestion des Formules (Admin)' : 'Formules & Abonnements', icon: CreditCard },
           { id: 'csv', label: 'Import / Export CSV (WP All Import)', icon: FileSpreadsheet },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -579,7 +747,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
 
       {/* TAB: Agent Identity Verification Desk */}
       {activeTab === 'verification' && (
-        <AdminVerificationManager />
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Audit Badges Agents"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminVerificationManager />
+        </ProtectedAdminFeature>
       )}
 
       {/* TAB: Google Analytics & Listings Views */}
@@ -589,12 +765,28 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
 
       {/* TAB 0: Admin Credentials & Security Settings */}
       {activeTab === 'admin_settings' && (
-        <AdminSettingsManager />
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Sécurité & Identifiants Admin"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminSettingsManager />
+        </ProtectedAdminFeature>
       )}
 
       {/* TAB 1: Admin Billing & Invoicing Manager */}
       {activeTab === 'billing' && (
-        <AdminBillingManager />
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Facturation & Encaissements Admin"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminBillingManager />
+        </ProtectedAdminFeature>
       )}
 
       {/* TAB: Agent and Agency Invite Manager */}
@@ -864,7 +1056,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       {/* TAB 4: Subscription Plans (Admin editor or Agent chooser) */}
       {activeTab === 'plans' && (
         isAdmin ? (
-          <AdminPlansPricingManager />
+          <ProtectedAdminFeature
+            isChecking={isCheckingAdmin}
+            isVerified={isFirestoreAdminVerified}
+            featureName="Gestion des Formules d'Abonnement (Admin)"
+            onGoToAnalytics={() => setActiveTab('listings')}
+            onRetry={runAdminVerification}
+          >
+            <AdminPlansPricingManager />
+          </ProtectedAdminFeature>
         ) : (
           <div className="space-y-6">
             {selectedPlanSuccess && (
@@ -974,7 +1174,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
 
       {/* TAB: GTM & Balises Marketing (Admin Only) */}
       {activeTab === 'gtm_manager' && (
-        isAdmin ? (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Google Tag Manager & Balises Publicitaires"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 text-slate-100 shadow-xl">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
               <div className="flex items-center gap-3">
@@ -1024,23 +1230,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
               </div>
             </div>
           </div>
-        ) : (
-          <div className="p-8 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-4 max-w-xl mx-auto my-6 shadow-xl">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
-              <Lock className="w-7 h-7" />
-            </div>
-            <h3 className="text-lg font-black text-white">Page Balises & Pixels Réservée à l'Administrateur</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              La gestion des balises Google Tag Manager, pixels publicitaires et conteneurs de tracking est strictement restreinte aux administrateurs du système Kin Immobilier.
-            </p>
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className="px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs hover:bg-emerald-400 transition-all"
-            >
-              Retour au tableau de bord
-            </button>
-          </div>
-        )
+        </ProtectedAdminFeature>
       )}
 
       {/* TAB 5: CSV Import / Export */}
@@ -1091,8 +1281,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
         </div>
       )}
 
-      {/* Tag Manager & Pixels Modal (Strictly Admin) */}
-      {isAdmin && (
+      {/* Tag Manager & Pixels Modal (Strictly Admin & Verified in Firestore) */}
+      {isAdmin && isFirestoreAdminVerified && (
         <TagManagerSettingsModal
           isOpen={isTagManagerModalOpen}
           onClose={() => setIsTagManagerModalOpen(false)}

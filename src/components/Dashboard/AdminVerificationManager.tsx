@@ -74,17 +74,13 @@ export const AdminVerificationManager: React.FC = () => {
       const nameLower = (name || '').toLowerCase();
       const roleLower = (role || '').toLowerCase();
       const idLower = (id || '').toLowerCase();
+      // Only filter out dedicated system admin accounts, never real user or agent accounts
       return (
-        roleLower === 'admin' ||
-        emailLower === 'joosskalu72@gmail.com' ||
-        emailLower === 'admin@immocraft.cd' ||
-        emailLower === 'admin@estatik.com' ||
         idLower === 'usr_admin_001' ||
         idLower === 'user_admin' ||
-        idLower === 'admin' ||
-        nameLower.includes('administrateur') ||
-        nameLower === 'admin' ||
-        nameLower === 'admin immocraft'
+        emailLower === 'admin@immocraft.cd' ||
+        emailLower === 'admin@estatik.com' ||
+        (nameLower.includes('administrateur système') && roleLower === 'admin')
       );
     };
 

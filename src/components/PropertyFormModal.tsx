@@ -32,6 +32,7 @@ import {
   ExternalLink,
   Loader2,
   Check,
+  AlertTriangle,
 } from 'lucide-react';
 import { SAMPLE_REAL_ESTATE_VIDEOS, detectVideoType } from '../utils/videoHelpers';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
@@ -165,9 +166,14 @@ export const PropertyFormModal: React.FC = () => {
 
   if (!isSubmitPropertyOpen) return null;
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isCompressingImages, setIsCompressingImages] = useState(false);
+
   const handleClose = () => {
     setIsSubmitPropertyOpen(false);
     setEditingProperty(null);
+    setSubmitError(null);
     setStep(1);
   };
 
@@ -178,21 +184,77 @@ export const PropertyFormModal: React.FC = () => {
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressImageFile = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      if (file.type === 'image/svg+xml' || file.type === 'image/gif') {
+        const r = new FileReader();
+        r.onload = (e) => resolve((e.target?.result as string) || '');
+        r.onerror = () => resolve('');
+        r.readAsDataURL(file);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        if (!dataUrl) return resolve('');
+
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const maxDimension = 1280;
+
+            if (width > maxDimension || height > maxDimension) {
+              if (width > height) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              } else {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              const compressed = canvas.toDataURL('image/jpeg', 0.75);
+              resolve(compressed);
+            } else {
+              resolve(dataUrl);
+            }
+          } catch {
+            resolve(dataUrl);
+          }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        if (result) {
-          setImageUrls((prev) => [...prev, result]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
+    setIsCompressingImages(true);
+    try {
+      const fileList = Array.from(files);
+      const results = await Promise.all(fileList.map((f) => compressImageFile(f)));
+      const valid = results.filter((url) => typeof url === 'string' && url.length > 0);
+      setImageUrls((prev) => [...prev, ...valid]);
+    } catch (err) {
+      console.error('Error compressing images:', err);
+    } finally {
+      setIsCompressingImages(false);
+      e.target.value = '';
+    }
   };
 
   const handleRemoveImage = (index: number) => {
@@ -258,7 +320,7 @@ export const PropertyFormModal: React.FC = () => {
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const propertyData: Property = {
@@ -312,13 +374,21 @@ export const PropertyFormModal: React.FC = () => {
       published: true,
     };
 
-    if (editingProperty) {
-      updateProperty(propertyData);
-    } else {
-      addProperty(propertyData);
+    try {
+      if (editingProperty) {
+        await updateProperty(propertyData);
+      } else {
+        await addProperty(propertyData);
+      }
+      setIsSubmitting(false);
+      handleClose();
+    } catch (err: any) {
+      console.error('Error saving property:', err);
+      setIsSubmitting(false);
+      setSubmitError(
+        err?.message || "Une erreur est survenue lors de l'enregistrement de l'annonce dans la base de données. Veuillez vérifier la connexion ou la taille des photos."
+      );
     }
-
-    handleClose();
   };
 
   return (
@@ -354,6 +424,17 @@ export const PropertyFormModal: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Submit Error Banner */}
+        {submitError && (
+          <div className="p-4 bg-red-500/15 border-b border-red-500/30 text-red-300 text-xs flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-red-200">Erreur de publication</p>
+              <p className="mt-0.5">{submitError}</p>
+            </div>
+          </div>
+        )}
 
         {/* Step Indicator */}
         <div className="flex border-b border-slate-800 bg-slate-950/60 overflow-x-auto text-xs">
@@ -962,6 +1043,13 @@ export const PropertyFormModal: React.FC = () => {
                   </label>
                 </div>
 
+                {isCompressingImages && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-2 text-emerald-400 text-xs font-semibold animate-pulse">
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    <span>Optimisation et compression HD des photos en cours...</span>
+                  </div>
+                )}
+
                 {/* URL input fallback */}
                 <div className="flex gap-2 pt-1">
                   <input
@@ -1297,9 +1385,17 @@ export const PropertyFormModal: React.FC = () => {
             ) : (
               <button
                 type="submit"
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold hover:scale-[1.02] transition-transform shadow-lg shadow-emerald-500/20"
+                disabled={isSubmitting || isCompressingImages}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold hover:scale-[1.02] active:scale-95 transition-transform shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                {editingProperty ? 'Mettre à Jour l\'Annonce' : 'Publier la Propriété'}
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>{editingProperty ? 'Mise à jour en cours...' : 'Publication en cours...'}</span>
+                  </>
+                ) : (
+                  <span>{editingProperty ? "Mettre à Jour l'Annonce" : 'Publier la Propriété'}</span>
+                )}
               </button>
             )}
           </div>

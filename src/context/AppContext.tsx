@@ -102,8 +102,8 @@ interface AppContextType {
   deleteCustomField: (id: string) => void;
 
   properties: Property[];
-  addProperty: (property: Property) => void;
-  updateProperty: (property: Property) => void;
+  addProperty: (property: Property) => Promise<void> | void;
+  updateProperty: (property: Property) => Promise<void> | void;
   deleteProperty: (id: string) => void;
 
   agents: Agent[];
@@ -411,7 +411,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Subscribe to real-time updates from Firestore
     const unsubProperties = subscribeToProperties((firestoreProps) => {
       if (Array.isArray(firestoreProps)) {
-        setProperties(firestoreProps);
+        setProperties((currentLocalProps) => {
+          if (firestoreProps.length === 0 && currentLocalProps.length > 0) {
+            return currentLocalProps;
+          }
+          // Merge: Firestore is authority, but preserve newly created local properties (last 2 minutes) if Firestore hasn't indexed them yet
+          const firestoreIds = new Set(firestoreProps.map((p) => p.id));
+          const recentLocalNew = currentLocalProps.filter((p) => {
+            if (firestoreIds.has(p.id)) return false;
+            const createdTs = new Date(p.createdAt || 0).getTime();
+            return Date.now() - createdTs < 120000;
+          });
+          return [...recentLocalNew, ...firestoreProps];
+        });
       }
     });
 
@@ -516,14 +528,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Properties Actions
-  const addProperty = (property: Property) => {
-    setProperties((prev) => [property, ...prev]);
-    savePropertyToFirestore(property).catch((err) => console.error('Firestore save property error:', err));
+  const addProperty = async (property: Property) => {
+    setProperties((prev) => {
+      const exists = prev.some((p) => p.id === property.id);
+      return exists ? prev.map((p) => (p.id === property.id ? property : p)) : [property, ...prev];
+    });
+    try {
+      await savePropertyToFirestore(property);
+    } catch (err) {
+      console.error('Firestore save property error:', err);
+      // Revert if saving completely failed
+      setProperties((prev) => prev.filter((p) => p.id !== property.id));
+      throw err;
+    }
   };
 
-  const updateProperty = (property: Property) => {
+  const updateProperty = async (property: Property) => {
     setProperties((prev) => prev.map((p) => (p.id === property.id ? property : p)));
-    savePropertyToFirestore(property).catch((err) => console.error('Firestore update property error:', err));
+    try {
+      await savePropertyToFirestore(property);
+    } catch (err) {
+      console.error('Firestore update property error:', err);
+      throw err;
+    }
   };
 
   const deleteProperty = (id: string) => {

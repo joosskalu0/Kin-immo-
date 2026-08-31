@@ -80,17 +80,13 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
       const nameLower = (name || '').toLowerCase();
       const roleLower = (role || '').toLowerCase();
       const idLower = (id || '').toLowerCase();
+      // Only filter out the dedicated system admin accounts, never real user or agent accounts
       return (
-        roleLower === 'admin' ||
-        emailLower === 'joosskalu72@gmail.com' ||
-        emailLower === 'admin@immocraft.cd' ||
-        emailLower === 'admin@estatik.com' ||
         idLower === 'usr_admin_001' ||
         idLower === 'user_admin' ||
-        idLower === 'admin' ||
-        nameLower.includes('administrateur') ||
-        nameLower === 'admin' ||
-        nameLower === 'admin immocraft'
+        emailLower === 'admin@immocraft.cd' ||
+        emailLower === 'admin@estatik.com' ||
+        (nameLower.includes('administrateur système') && roleLower === 'admin')
       );
     };
 
@@ -220,7 +216,109 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
     return activePropsCount;
   };
 
-  const filteredAgencies = agencies.filter((agency) => {
+  const combinedAgenciesList = React.useMemo(() => {
+    const map = new Map<string, Agency>();
+
+    // 1. Add all agencies from Firestore collection
+    agencies.forEach((ag) => {
+      if (ag && ag.name) {
+        map.set(ag.id, ag);
+        map.set(ag.name.toLowerCase().trim(), ag);
+      }
+    });
+
+    // 2. Add users whose role is 'agency'
+    (allUsers || []).forEach((u) => {
+      if (u.role === 'agency' && u.name) {
+        const agencyName = u.agencyName || u.name;
+        const key = agencyName.toLowerCase().trim();
+        if (!map.has(key)) {
+          const newAgency: Agency = {
+            id: u.agencyId || `agency_${u.id}`,
+            name: agencyName,
+            logo: u.avatar || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
+            address: (u as any).address || 'Kinshasa, RDC',
+            city: 'Kinshasa',
+            commune: (u as any).commune || 'Gombe',
+            phone: u.phone || '+243 81 000 00 00',
+            whatsapp: u.whatsapp || u.phone || '+243 81 000 00 00',
+            email: u.email || '',
+            website: (u as any).website || '',
+            managerName: u.name,
+            rccm: u.rccmOrNif || 'CD/KIN/RCCM/24-B-03912',
+            agentsCount: 1,
+            description: `Agence immobilière enregistrée sur Immocraft Kinshasa. Gestion et transactions immobilières.`,
+            specialties: ['Achat & Vente', 'Location', 'Conseil Immobilier'],
+            isVerified: Boolean(u.isVerified || u.kinshasaBadgeVerified),
+            verificationStatus: (u.verificationStatus as any) || (u.isVerified ? 'verified' : 'unverified'),
+            subscriptionStatus: 'Active',
+            planId: 'agency',
+            createdAt: u.createdAt || new Date().toISOString(),
+          };
+          map.set(newAgency.id, newAgency);
+          map.set(key, newAgency);
+        }
+      }
+    });
+
+    // 3. Include agencies represented by registered agents in combinedAgentsList
+    combinedAgentsList.forEach((agt) => {
+      if (agt.agencyName && agt.agencyName.trim().length > 1) {
+        const cleanName = agt.agencyName.trim();
+        const key = cleanName.toLowerCase();
+        const existing = map.get(key);
+
+        if (!existing) {
+          const generatedAgency: Agency = {
+            id: agt.agencyId || `agency_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+            name: cleanName,
+            logo: agt.avatar || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
+            address: `${(agt as any).commune || 'Gombe'}, Kinshasa, RDC`,
+            city: 'Kinshasa',
+            commune: (agt as any).commune || 'Gombe',
+            phone: agt.phone || '+243 81 000 00 00',
+            whatsapp: agt.whatsapp || agt.phone || '+243 81 000 00 00',
+            email: agt.email || '',
+            website: '',
+            managerName: agt.name,
+            rccm: agt.rccmOrNif || 'CD/KIN/RCCM/24-B-03912',
+            agentsCount: 1,
+            description: `Agence immobilière partenaire à Kinshasa. Équipe d'agents agréés au service de vos projets immobiliers.`,
+            specialties: ['Transactions Résidentielles', 'Location Haut Standing', 'Conseil'],
+            isVerified: Boolean(agt.isVerified),
+            verificationStatus: (agt.verificationStatus as any) || (agt.isVerified ? 'verified' : 'unverified'),
+            subscriptionStatus: 'Active',
+            planId: 'agency',
+            createdAt: new Date().toISOString(),
+          };
+          map.set(generatedAgency.id, generatedAgency);
+          map.set(key, generatedAgency);
+        } else {
+          if (agt.phone && !existing.phone) existing.phone = agt.phone;
+          if (agt.whatsapp && !existing.whatsapp) existing.whatsapp = agt.whatsapp;
+          if (agt.email && !existing.email) existing.email = agt.email;
+        }
+      }
+    });
+
+    const uniqueAgencies: Agency[] = [];
+    const seenAgencyIds = new Set<string>();
+    for (const ag of map.values()) {
+      if (!seenAgencyIds.has(ag.id)) {
+        seenAgencyIds.add(ag.id);
+        const realCount = combinedAgentsList.filter(
+          (a) => a.agencyId === ag.id || (a.agencyName && a.agencyName.toLowerCase().trim() === ag.name.toLowerCase().trim())
+        ).length;
+        uniqueAgencies.push({
+          ...ag,
+          agentsCount: Math.max(ag.agentsCount || 0, realCount || 1),
+        });
+      }
+    }
+    return uniqueAgencies;
+  }, [agencies, allUsers, combinedAgentsList]);
+
+  const filteredAgencies = combinedAgenciesList.filter((agency) => {
     // Regular users do not see hidden agencies
     if (!isAdmin && agency.isHidden) return false;
     if (verificationFilter === 'hidden_only' && !agency.isHidden) return false;
