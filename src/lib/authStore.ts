@@ -149,10 +149,12 @@ export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUse
   firestoreUsers.forEach((fu) => {
     if (!fu || isDemoAccount(fu.email, fu.id, fu.name)) return;
     const existing = (fu.id ? accountsMap.get(fu.id) : undefined) || (fu.email ? accountsMap.get(fu.email.toLowerCase()) : undefined);
+    const resolvedPassword = fu.password || fu.accessPin || existing?.password || undefined;
     const merged: StoredUserAccount = {
       ...existing,
       ...fu,
-      password: existing?.password, // Retain own password if present, never overwrite with admin password
+      password: resolvedPassword,
+      accessPin: resolvedPassword,
     };
     if (fu.id) accountsMap.set(fu.id, merged);
     if (fu.email) accountsMap.set(fu.email.toLowerCase(), merged);
@@ -160,6 +162,7 @@ export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUse
 
   const mergedList = Array.from(new Set(Array.from(accountsMap.values()))).filter((a) => !isDemoAccount(a.email, a.id, a.name));
   inMemoryAccounts = mergedList;
+  saveStoredLocalAccounts(mergedList);
   return mergedList;
 };
 
@@ -434,6 +437,55 @@ export const updateAccountPassword = (
     password: newPassword.trim(),
   };
   inMemoryAccounts = [...accounts];
+  saveStoredLocalAccounts(inMemoryAccounts);
 
   return { success: true };
+};
+
+/**
+ * Admin directly resets/changes any user password and saves to Firestore
+ */
+export const adminResetUserPassword = async (
+  userIdOrEmail: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> => {
+  const cleanKey = userIdOrEmail.trim().toLowerCase();
+  const accounts = getRegisteredAccounts();
+  const idx = accounts.findIndex(
+    (a) => a.id.toLowerCase() === cleanKey || (a.email && a.email.toLowerCase() === cleanKey)
+  );
+
+  if (idx < 0) {
+    return { success: false, error: "Utilisateur introuvable." };
+  }
+
+  const account = accounts[idx];
+  const updatedAccount: StoredUserAccount = {
+    ...account,
+    password: newPassword.trim(),
+    accessPin: newPassword.trim(),
+  };
+
+  accounts[idx] = updatedAccount;
+  inMemoryAccounts = [...accounts];
+  saveStoredLocalAccounts(inMemoryAccounts);
+
+  try {
+    await saveUserToFirestore(updatedAccount);
+  } catch (e: any) {
+    console.warn("Firestore save user password error:", e);
+  }
+
+  return { success: true };
+};
+
+/**
+ * Admin creates or updates a user/agent account with custom credentials
+ */
+export const adminCreateOrUpdateUserAccount = async (
+  user: User,
+  password?: string
+): Promise<StoredUserAccount> => {
+  const account = registerUserAccount(user, password);
+  return account;
 };

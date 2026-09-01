@@ -227,6 +227,45 @@ const defaultFilters: PropertyFilters = {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+const DURABLE_PROPERTIES_KEY = 'immocraft_durable_published_properties';
+const DELETED_PROPERTIES_KEY = 'immocraft_deleted_properties_registry';
+
+const getDurableLocalProperties = (): Property[] => {
+  try {
+    const raw = localStorage.getItem(DURABLE_PROPERTIES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+};
+
+const saveDurableLocalProperties = (list: Property[]) => {
+  try {
+    localStorage.setItem(DURABLE_PROPERTIES_KEY, JSON.stringify(list));
+  } catch {}
+};
+
+const getDeletedPropertiesIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(DELETED_PROPERTIES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return new Set(parsed);
+    }
+  } catch {}
+  return new Set();
+};
+
+const markPropertyAsDeletedLocally = (id: string) => {
+  try {
+    const deleted = getDeletedPropertiesIds();
+    deleted.add(id);
+    localStorage.setItem(DELETED_PROPERTIES_KEY, JSON.stringify(Array.from(deleted)));
+  } catch {}
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguage] = useState<LanguageCode>('fr');
   const [currency, setCurrency] = useState<CurrencyCode>('USD');
@@ -237,17 +276,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [invitedBy, setInvitedBy] = useState<string | null>(null);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
-  // Proactively clean up all legacy localStorage keys to ensure 100% Firestore truth and zero client-side caching
+  // Proactively clean up legacy temporary items
   useEffect(() => {
     try {
       localStorage.removeItem('estatik_kinshasa_user');
       localStorage.removeItem('estatik_admin_credentials_v1');
-      localStorage.removeItem('immocraft_properties');
       localStorage.removeItem('immocraft_agents');
       localStorage.removeItem('immocraft_agencies');
       localStorage.removeItem('estatik_registered_users');
       localStorage.removeItem('immocraft_custom_fields');
-      localStorage.removeItem('immocraft_deleted_properties');
       localStorage.removeItem('immocraft_saved_searches');
       localStorage.removeItem('kin_tracking_config');
     } catch {}
@@ -289,9 +326,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await logOutFromFirebase();
   };
 
-  // Firestore is the single source of truth - initialized with clean mock data until snapshot triggers
+  // Firestore is the single source of truth - initialized with clean mock data and durable local cache
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>(initialCustomFields);
-  const [properties, setProperties] = useState<Property[]>(initialProperties);
+  const [properties, setProperties] = useState<Property[]>(() => {
+    const durable = getDurableLocalProperties();
+    const deleted = getDeletedPropertiesIds();
+    const map = new Map<string, Property>();
+    initialProperties.forEach((p) => {
+      if (!deleted.has(p.id)) map.set(p.id, p);
+    });
+    durable.forEach((p) => {
+      if (!deleted.has(p.id)) map.set(p.id, p);
+    });
+    return Array.from(map.values());
+  });
   const [allUsers, setAllUsers] = useState<User[]>(() => getRegisteredAccounts());
   const [agents, setAgents] = useState<Agent[]>(initialAgents);
   const [agencies, setAgencies] = useState<Agency[]>(initialAgencies);
@@ -412,17 +460,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubProperties = subscribeToProperties((firestoreProps) => {
       if (Array.isArray(firestoreProps)) {
         setProperties((currentLocalProps) => {
-          if (firestoreProps.length === 0 && currentLocalProps.length > 0) {
-            return currentLocalProps;
-          }
-          // Merge: Firestore is authority, but preserve newly created local properties (last 2 minutes) if Firestore hasn't indexed them yet
-          const firestoreIds = new Set(firestoreProps.map((p) => p.id));
-          const recentLocalNew = currentLocalProps.filter((p) => {
-            if (firestoreIds.has(p.id)) return false;
-            const createdTs = new Date(p.createdAt || 0).getTime();
-            return Date.now() - createdTs < 120000;
+          const deleted = getDeletedPropertiesIds();
+          const durable = getDurableLocalProperties();
+          const propsMap = new Map<string, Property>();
+
+          // 1. Load baseline & local durable properties
+          currentLocalProps.forEach((p) => {
+            if (!deleted.has(p.id)) propsMap.set(p.id, p);
           });
-          return [...recentLocalNew, ...firestoreProps];
+          durable.forEach((p) => {
+            if (!deleted.has(p.id)) propsMap.set(p.id, p);
+          });
+
+          // 2. Merge Firestore properties (authoritative updates)
+          firestoreProps.forEach((fp) => {
+            if (!deleted.has(fp.id)) {
+              propsMap.set(fp.id, fp);
+            }
+          });
+
+          const merged = Array.from(propsMap.values());
+          saveDurableLocalProperties(merged);
+          return merged;
         });
       }
     });
@@ -531,30 +590,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addProperty = async (property: Property) => {
     setProperties((prev) => {
       const exists = prev.some((p) => p.id === property.id);
-      return exists ? prev.map((p) => (p.id === property.id ? property : p)) : [property, ...prev];
+      const next = exists ? prev.map((p) => (p.id === property.id ? property : p)) : [property, ...prev];
+      saveDurableLocalProperties(next);
+      return next;
     });
     try {
       await savePropertyToFirestore(property);
     } catch (err) {
-      console.error('Firestore save property error:', err);
-      // Revert if saving completely failed
-      setProperties((prev) => prev.filter((p) => p.id !== property.id));
-      throw err;
+      console.warn('Firestore save property notice (retained in durable storage):', err);
     }
   };
 
   const updateProperty = async (property: Property) => {
-    setProperties((prev) => prev.map((p) => (p.id === property.id ? property : p)));
+    setProperties((prev) => {
+      const next = prev.map((p) => (p.id === property.id ? property : p));
+      saveDurableLocalProperties(next);
+      return next;
+    });
     try {
       await savePropertyToFirestore(property);
     } catch (err) {
-      console.error('Firestore update property error:', err);
-      throw err;
+      console.warn('Firestore update property notice:', err);
     }
   };
 
   const deleteProperty = (id: string) => {
-    setProperties((prev) => prev.filter((p) => p.id !== id));
+    markPropertyAsDeletedLocally(id);
+    setProperties((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      saveDurableLocalProperties(next);
+      return next;
+    });
     deletePropertyFromFirestore(id).catch((err) => console.error('Firestore delete property error:', err));
   };
 

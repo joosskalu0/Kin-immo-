@@ -153,8 +153,15 @@ const AppContent: React.FC = () => {
     }
 
     // Status Filter
-    if (filters.status && filters.status !== 'all' && p.status !== filters.status) {
-      return false;
+    if (filters.status && filters.status !== 'all') {
+      if (p.status !== filters.status) {
+        return false;
+      }
+    } else {
+      // By default on the home screen feed, sold properties automatically disappear so only available properties are shown
+      if (p.status === 'sold') {
+        return false;
+      }
     }
 
     // Max Price

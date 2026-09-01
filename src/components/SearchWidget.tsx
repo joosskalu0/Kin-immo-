@@ -66,10 +66,10 @@ export const SearchWidget: React.FC = () => {
       {/* Property Status Tabs */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
         {[
-          { id: 'all', label: 'Tous' },
+          { id: 'all', label: 'Tous les Biens Disponibles' },
           { id: 'for-sale', label: 'A Vendre' },
           { id: 'for-rent', label: 'A Louer' },
-          { id: 'sold', label: 'Biens Vendus' },
+          { id: 'sold', label: 'Archives Biens Vendus' },
           { id: 'open-house', label: 'Portes Ouvertes' },
         ].map((tab) => (
           <button

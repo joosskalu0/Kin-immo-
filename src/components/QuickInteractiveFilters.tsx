@@ -6,51 +6,53 @@ export const QuickInteractiveFilters: React.FC = () => {
   const { properties, filters, setFilters, resetFilters } = useApp();
 
   // Calculate live counts for each quick filter
+  const availableProperties = properties.filter((p) => p.status !== 'sold');
+
   const counts = {
-    all: properties.length,
-    titreFoncier: properties.filter((p) => 
+    all: availableProperties.length,
+    titreFoncier: availableProperties.filter((p) => 
       p.customFields?.titre_foncier === 'Certificat d\'Enregistrement (Garanti)' ||
       p.customFields?.titre_foncier === 'Livret de Logeur' ||
       p.description?.toLowerCase().includes('titre foncier') ||
       p.description?.toLowerCase().includes('certificat d\'enregistrement')
     ).length,
-    solarWater: properties.filter((p) => 
+    solarWater: availableProperties.filter((p) => 
       p.customFields?.solaire_groupe === 'Oui (100% Autonome)' ||
       p.customFields?.solaire_groupe === 'Groupe électrogène automatique' ||
       p.description?.toLowerCase().includes('solaire') ||
       p.description?.toLowerCase().includes('groupe')
     ).length,
-    forage: properties.filter((p) => 
+    forage: availableProperties.filter((p) => 
       p.customFields?.forage_eau === 'Oui (Forage + Cuve + Supresseur)' ||
       p.customFields?.forage_eau === 'Forage privé avec traitement' ||
       p.description?.toLowerCase().includes('forage') ||
       p.description?.toLowerCase().includes('cuve')
     ).length,
-    pool: properties.filter((p) => 
+    pool: availableProperties.filter((p) => 
       p.amenities?.includes('Piscine') ||
       p.description?.toLowerCase().includes('piscine')
     ).length,
-    gombe: properties.filter((p) => 
+    gombe: availableProperties.filter((p) => 
       (p.commune?.toLowerCase().includes('gombe')) ||
       (p.address?.toLowerCase().includes('gombe'))
     ).length,
-    ngaliema: properties.filter((p) => 
+    ngaliema: availableProperties.filter((p) => 
       (p.commune?.toLowerCase().includes('ngaliema')) ||
       (p.address?.toLowerCase().includes('ngaliema')) ||
       (p.quartier?.toLowerCase().includes('macampagne')) ||
       (p.address?.toLowerCase().includes('macampagne'))
     ).length,
-    luxury: properties.filter((p) => 
+    luxury: availableProperties.filter((p) => 
       p.price >= 3000 ||
       p.featured ||
       p.title.toLowerCase().includes('luxe') ||
       p.title.toLowerCase().includes('standing')
     ).length,
-    affordableRent: properties.filter((p) => 
+    affordableRent: availableProperties.filter((p) => 
       p.status === 'for-rent' && p.price <= 1500
     ).length,
-    forSale: properties.filter((p) => p.status === 'for-sale').length,
-    forRent: properties.filter((p) => p.status === 'for-rent').length,
+    forSale: availableProperties.filter((p) => p.status === 'for-sale').length,
+    forRent: availableProperties.filter((p) => p.status === 'for-rent').length,
   };
 
   const isFilterActive = (type: string) => {

@@ -242,6 +242,8 @@ export interface User {
   identityDocNumber?: string;
   createdAt?: string;
   lastLoginLocation?: string;
+  password?: string;
+  accessPin?: string;
 }
 
 export interface PropertyFilters {

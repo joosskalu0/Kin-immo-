@@ -6,6 +6,7 @@ import { AgentInviteManager } from './AgentInviteManager';
 import { AdminBillingManager } from './AdminBillingManager';
 import { AdminSettingsManager } from './AdminSettingsManager';
 import { AdminVerificationManager } from './AdminVerificationManager';
+import { AdminUserPasswordsManager } from './AdminUserPasswordsManager';
 import { PropertyAnalyticsView } from './PropertyAnalyticsView';
 import { PaymentReminderBanner } from './PaymentReminderBanner';
 import { TagManagerSettingsModal } from './TagManagerSettingsModal';
@@ -198,7 +199,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       setAdminVerificationDetails(result);
 
       // If user is currently on an admin-exclusive tab and not verified in Firestore, redirect to safe tab
-      const adminOnlyTabs = ['admin_settings', 'billing', 'verification', 'gtm_manager'];
+      const adminOnlyTabs = ['admin_settings', 'admin_users', 'billing', 'verification', 'gtm_manager'];
       if (!result.isAdmin && adminOnlyTabs.includes(activeTab)) {
         setActiveTab('analytics');
       }
@@ -220,6 +221,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
   const [activeTab, setActiveTab] = useState<
     | 'analytics'
     | 'verification'
+    | 'admin_users'
     | 'billing'
     | 'invitations'
     | 'admin_settings'
@@ -230,7 +232,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
     | 'plans'
     | 'csv'
     | 'gtm_manager'
-  >(user?.role === 'admin' ? 'admin_settings' : 'analytics');
+  >(user?.role === 'admin' ? 'admin_users' : 'analytics');
 
   const [csvTextInput, setCsvTextInput] = useState('');
   const [selectedPlanSuccess, setSelectedPlanSuccess] = useState<string | null>(null);
@@ -706,6 +708,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
             ? [{ id: 'verification', label: `🛡️ Audit Badges Agents (${pendingVerificationsCount > 0 ? `${pendingVerificationsCount} en attente` : 'Conforme'})`, icon: ShieldCheck }]
             : []),
           ...(isAdmin
+            ? [{ id: 'admin_users', label: '👥 Comptes & Mots de Passe (Admin)', icon: Users }]
+            : []),
+          ...(isAdmin
             ? [{ id: 'admin_settings', label: 'Sécurité & Identifiants Admin', icon: KeyRound }]
             : []),
           ...(isAdmin
@@ -755,6 +760,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           onRetry={runAdminVerification}
         >
           <AdminVerificationManager />
+        </ProtectedAdminFeature>
+      )}
+
+      {/* TAB: Admin User Passwords and Accounts Manager */}
+      {activeTab === 'admin_users' && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Comptes Utilisateurs & Mots de Passe"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminUserPasswordsManager />
         </ProtectedAdminFeature>
       )}
 

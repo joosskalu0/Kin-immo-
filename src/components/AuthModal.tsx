@@ -137,9 +137,12 @@ export const formatAuthErrorMessage = (
     return "Le fournisseur d'authentification e-mail / mot de passe est momentanément indisponible. Vous pouvez utiliser le bouton 'Continuer avec Google'.";
   }
 
-  // 10. Admin PIN and custom explicit messages
+  // 10. Admin PIN and custom explicit messages (with sensitive keyword scrub)
   if (rawMsg.includes('PIN') || rawMsg.includes('Administrateur')) {
-    return rawMsg;
+    if (rawMsg.includes('kalu2002jooss') || rawMsg.includes('code PIN configuré')) {
+      return "Mot de passe ou Code PIN Administrateur incorrect. Veuillez vérifier vos accès sécurisés.";
+    }
+    return rawMsg.replace(/kalu2002jooss/gi, '******');
   }
 
   if (
@@ -148,7 +151,7 @@ export const formatAuthErrorMessage = (
     rawMsg.includes('introuvable') ||
     rawMsg.includes('téléphone')
   ) {
-    return rawMsg;
+    return rawMsg.replace(/kalu2002jooss/gi, '******');
   }
 
   // Clean Firebase default prefix if present

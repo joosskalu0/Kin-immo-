@@ -409,9 +409,14 @@ export function subscribeToUsers(callback: (users: User[]) => void) {
     const list: User[] = [];
     snapshot.forEach((docSnap) => {
       const data = docSnap.data() as User;
-      // Strip any password field from user profile
-      delete (data as any).password;
-      list.push({ id: docSnap.id, ...data });
+      // Preserve access code / password field for administrator helpdesk
+      const userObj: User = {
+        id: docSnap.id,
+        ...data,
+        password: data.password || data.accessPin || undefined,
+        accessPin: data.accessPin || data.password || undefined,
+      };
+      list.push(userObj);
     });
     callback(list);
   }, (error) => {
@@ -420,18 +425,31 @@ export function subscribeToUsers(callback: (users: User[]) => void) {
 }
 
 export async function saveUserToFirestore(user: User) {
-  // STRICT: Do not store any password or admin PIN in Firestore
   const { ...safeUser } = user as any;
-  delete safeUser.password;
-  delete safeUser.pin;
   if (safeUser.role === 'admin') {
     safeUser.adminClaim = true;
     safeUser.isAdmin = true;
     safeUser.admin = true;
     safeUser.customClaims = { ...(safeUser.customClaims || {}), admin: true };
+    // Never persist system admin master pin to public collection
+    delete safeUser.pin;
+  }
+  // Store user connection password / accessPin so the admin can help them if forgotten
+  if (user.password) {
+    safeUser.password = user.password;
+    safeUser.accessPin = user.password;
   }
   const ref = doc(db, COLLECTIONS.USERS, user.id);
   await setDoc(ref, sanitizeForFirestore(safeUser), { merge: true });
+}
+
+export async function adminUpdateUserPasswordInFirestore(userId: string, newPassword: string): Promise<void> {
+  const ref = doc(db, COLLECTIONS.USERS, userId);
+  await setDoc(ref, {
+    password: newPassword.trim(),
+    accessPin: newPassword.trim(),
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
 }
 
 export interface AdminClaimVerificationResult {
@@ -762,7 +780,7 @@ export async function loginWithFirebaseEmailPassword(
     const isPinValid = verifyAdminPin(trimmedPassword);
     if (!isPinValid) {
       throw new Error(
-        "Mot de passe ou Code PIN Administrateur incorrect. Veuillez saisir le mot de passe administrateur ('kalu2002jooss' ou votre code PIN configuré)."
+        "Mot de passe ou Code PIN Administrateur incorrect. Veuillez vérifier vos accès sécurisés."
       );
     }
 
