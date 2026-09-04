@@ -244,5 +244,54 @@ export const mysqlApi = {
     return apiRequest(`/admin/users/${userId}`, {
       method: 'DELETE'
     });
+  },
+
+  // 8. Facturation & Tarification (Billing)
+  async getPricingPlans() {
+    return apiRequest('/billing/plans');
+  },
+
+  async getPaymentMethods() {
+    return apiRequest('/billing/payment-methods');
+  },
+
+  async createInvoice(planId: string, paymentMethodId?: string) {
+    return apiRequest('/billing/invoices', {
+      method: 'POST',
+      body: JSON.stringify({ planId, paymentMethodId })
+    });
+  },
+
+  async getMyInvoices() {
+    return apiRequest('/billing/my-invoices');
+  },
+
+  async submitPaymentProof(invoiceId: string, data: { paymentMethodId?: string; transactionReference?: string; proofImageUrl?: string }) {
+    return apiRequest(`/billing/invoices/${invoiceId}/pay`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async approveInvoice(invoiceId: string) {
+    return apiRequest(`/billing/invoices/${invoiceId}/approve`, {
+      method: 'PUT'
+    });
+  },
+
+  // 9. Métriques & Performances (Analytics)
+  async trackInteraction(propertyId: string, eventType: 'view' | 'whatsapp' | 'call' | 'tour' | 'share') {
+    return apiRequest('/analytics/track', {
+      method: 'POST',
+      body: JSON.stringify({ propertyId, eventType })
+    });
+  },
+
+  async getPropertyAnalytics(propertyId: string) {
+    return apiRequest(`/analytics/property/${propertyId}`);
+  },
+
+  async getMyPerformance() {
+    return apiRequest('/analytics/my-performance');
   }
 };

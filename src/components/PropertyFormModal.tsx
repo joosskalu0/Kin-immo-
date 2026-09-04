@@ -50,6 +50,9 @@ export const PropertyFormModal: React.FC = () => {
   } = useApp();
 
   const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isCompressingImages, setIsCompressingImages] = useState(false);
 
   // Form State
   const [title, setTitle] = useState('');
@@ -165,10 +168,6 @@ export const PropertyFormModal: React.FC = () => {
   }, [editingProperty, customFields]);
 
   if (!isSubmitPropertyOpen) return null;
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isCompressingImages, setIsCompressingImages] = useState(false);
 
   const handleClose = () => {
     setIsSubmitPropertyOpen(false);

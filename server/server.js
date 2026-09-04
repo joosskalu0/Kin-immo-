@@ -14,6 +14,8 @@ const agenciesRoutes = require('./routes/agencies');
 const favoritesRoutes = require('./routes/favorites');
 const messagesRoutes = require('./routes/messages');
 const adminRoutes = require('./routes/admin');
+const billingRoutes = require('./routes/billing');
+const analyticsRoutes = require('./routes/analytics');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -74,6 +76,8 @@ app.use('/api/agencies', agenciesRoutes);
 app.use('/api/favorites', favoritesRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/billing', billingRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Gestion des routes inexistantes (404)
 app.use((req, res) => {
