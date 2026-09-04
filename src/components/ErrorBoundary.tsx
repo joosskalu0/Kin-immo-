@@ -38,13 +38,15 @@ export class ErrorBoundary extends Component<Props, State> {
   private handleReload = () => {
     try {
       localStorage.clear();
+      sessionStorage.clear();
     } catch (e) {}
-    window.location.reload();
+    window.location.href = '/';
   };
 
   private handleReset = () => {
     try {
       localStorage.clear();
+      sessionStorage.clear();
     } catch (e) {}
     this.setState({ hasError: false, error: null, errorInfo: null });
   };
