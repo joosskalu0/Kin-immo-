@@ -226,6 +226,44 @@ export const mysqlApi = {
     return apiRequest('/admin/stats');
   },
 
+  async adminGetUsers(role?: string, search?: string) {
+    const params = new URLSearchParams();
+    if (role) params.set('role', role);
+    if (search) params.set('search', search);
+    const qs = params.toString();
+    return apiRequest(`/admin/users${qs ? `?${qs}` : ''}`);
+  },
+
+  async adminCreateUser(userData: {
+    name: string;
+    email: string;
+    password: string;
+    role: string;
+    phone?: string;
+    whatsapp?: string;
+    agencyName?: string;
+    isVerified?: boolean;
+  }) {
+    return apiRequest('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(userData)
+    });
+  },
+
+  async adminUpdateUser(userId: string, data: any) {
+    return apiRequest(`/admin/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async adminResetUserPassword(userId: string, newPassword: string) {
+    return apiRequest(`/admin/users/${userId}/reset-password`, {
+      method: 'PUT',
+      body: JSON.stringify({ newPassword })
+    });
+  },
+
   async updateUserRole(userId: string, role: string) {
     return apiRequest(`/admin/users/${userId}/role`, {
       method: 'PUT',
@@ -244,6 +282,71 @@ export const mysqlApi = {
     return apiRequest(`/admin/users/${userId}`, {
       method: 'DELETE'
     });
+  },
+
+  // Admin Properties
+  async adminGetProperties(params?: { status?: string; commune?: string; search?: string; isFeatured?: boolean }) {
+    const sp = new URLSearchParams();
+    if (params?.status) sp.set('status', params.status);
+    if (params?.commune) sp.set('commune', params.commune);
+    if (params?.search) sp.set('search', params.search);
+    if (params?.isFeatured !== undefined) sp.set('isFeatured', String(params.isFeatured));
+    const qs = sp.toString();
+    return apiRequest(`/admin/properties${qs ? `?${qs}` : ''}`);
+  },
+
+  async adminUpdatePropertyStatus(propertyId: string, data: { status?: string; published?: boolean; isFeatured?: boolean }) {
+    return apiRequest(`/admin/properties/${propertyId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async adminDeleteProperty(propertyId: string) {
+    return apiRequest(`/admin/properties/${propertyId}`, {
+      method: 'DELETE'
+    });
+  },
+
+  // Admin Agents
+  async adminGetAgents() {
+    return apiRequest('/admin/agents');
+  },
+
+  async adminUpdateAgent(agentId: string, data: any) {
+    return apiRequest(`/admin/agents/${agentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async adminDeleteAgent(agentId: string) {
+    return apiRequest(`/admin/agents/${agentId}`, {
+      method: 'DELETE'
+    });
+  },
+
+  // Admin Agencies
+  async adminGetAgencies() {
+    return apiRequest('/admin/agencies');
+  },
+
+  async adminUpdateAgency(agencyId: string, data: any) {
+    return apiRequest(`/admin/agencies/${agencyId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async adminDeleteAgency(agencyId: string) {
+    return apiRequest(`/admin/agencies/${agencyId}`, {
+      method: 'DELETE'
+    });
+  },
+
+  // Admin Invoices
+  async adminGetInvoices() {
+    return apiRequest('/admin/invoices');
   },
 
   // 8. Facturation & Tarification (Billing)

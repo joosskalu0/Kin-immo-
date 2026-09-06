@@ -23,6 +23,7 @@ import { KinshasaNeighborhoodsRadar } from './components/KinshasaNeighborhoodsRa
 import { CompareDock } from './components/CompareDock';
 import { InteractiveAssistantModal } from './components/InteractiveAssistantModal';
 import { LiveActivityTicker } from './components/LiveActivityTicker';
+import { AdminPortal } from './components/Admin/AdminPortal';
 import {
   Home,
   Building2,
@@ -45,15 +46,19 @@ const AppContent: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
+        const pathname = window.location.pathname;
+        if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+          return 'admin';
+        }
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        if (tab && ['home', 'map', 'agents', 'shortcodes', 'dashboard', 'wishlist'].includes(tab)) {
+        if (tab && ['home', 'map', 'agents', 'shortcodes', 'dashboard', 'wishlist', 'admin'].includes(tab)) {
           return tab;
         }
       } catch {}
     }
     return 'home';
-  }); // 'home' | 'map' | 'agents' | 'shortcodes' | 'dashboard' | 'wishlist'
+  }); // 'home' | 'map' | 'agents' | 'shortcodes' | 'dashboard' | 'wishlist' | 'admin'
   const [viewLayout, setViewLayout] = useState<'grid' | 'split'>('grid');
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
@@ -66,7 +71,8 @@ const AppContent: React.FC = () => {
       const url = new URL(window.location.href);
       url.searchParams.delete('tab');
       url.searchParams.delete('property');
-      window.history.pushState({}, '', url.pathname + (url.search ? url.search : ''));
+      const targetPath = url.pathname === '/admin' ? '/' : url.pathname;
+      window.history.pushState({}, '', targetPath + (url.search ? url.search : ''));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {}
   };
@@ -76,9 +82,14 @@ const AppContent: React.FC = () => {
 
     const handleTabPopState = () => {
       try {
+        const pathname = window.location.pathname;
+        if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+          setCurrentTab('admin');
+          return;
+        }
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        if (tab && ['home', 'map', 'agents', 'shortcodes', 'dashboard', 'wishlist'].includes(tab)) {
+        if (tab && ['home', 'map', 'agents', 'shortcodes', 'dashboard', 'wishlist', 'admin'].includes(tab)) {
           setCurrentTab(tab);
         }
       } catch {}
@@ -96,8 +107,20 @@ const AppContent: React.FC = () => {
       shortcodes: 'Galerie des Shortcodes & Widgets',
       dashboard: 'Tableau de Bord & Gestion Immobilière',
       wishlist: 'Mes Favoris Sauvegardés',
+      admin: 'Panneau d’Administration Sécurisé - Kinimmo',
     };
     trackPageView(tabTitles[currentTab] || `Kinshasa Immo - ${currentTab}`, `/${currentTab}`);
+    
+    // Mettre à jour l'historique de navigation si l'onglet est admin
+    if (typeof window !== 'undefined') {
+      try {
+        if (currentTab === 'admin' && window.location.pathname !== '/admin') {
+          window.history.pushState({}, '', '/admin');
+        } else if (currentTab !== 'admin' && window.location.pathname === '/admin') {
+          window.history.pushState({}, '', '/');
+        }
+      } catch {}
+    }
   }, [currentTab]);
 
   // Filter Properties Logic
@@ -204,6 +227,15 @@ const AppContent: React.FC = () => {
   });
 
   const propertyToShare = properties.find((p) => p.id === sharePropertyId) || null;
+
+  // Si l'utilisateur est sur la route ou l'onglet d'administration /admin
+  if (currentTab === 'admin') {
+    return (
+      <div className="min-h-screen bg-slate-950 font-sans selection:bg-emerald-500 selection:text-slate-950">
+        <AdminPortal onReturnHome={handleGoHome} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">

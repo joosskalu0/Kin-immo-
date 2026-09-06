@@ -303,5 +303,15 @@ VALUES
   ('pm_rawbank', 'bank_transfer', 'KINIMMO RDC - Rawbank Kinshasa Gombe', '01002-00012345678-90', NULL, 'Virement bancaire ou versement au guichet Rawbank. Joindre le bordereau de versement comme preuve.', TRUE)
 ON DUPLICATE KEY UPDATE `account_name` = VALUES(`account_name`);
 
+-- ----------------------------------------------------------
+-- DONNÉES PAR DÉFAUT : Compte Administrateur Initial
+-- Email : admin@kinimmo.cd
+-- Mot de passe par défaut : AdminKinshasa2026!
+-- ----------------------------------------------------------
+INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `phone`, `whatsapp`, `role`, `agency_name`, `is_verified`, `kinshasa_badge_verified`, `plan_id`, `subscription_status`)
+VALUES
+  ('user_admin_root', 'Direction Kinimmo Gombe', 'admin@kinimmo.cd', '$2a$10$cIn5.dYgsXFnnotEEeDgh.0LULnf.4dlyjvveyvO/goJosg1Ik8jW', '+243 810 000 001', '+243 810 000 001', 'admin', 'Direction Générale Kinimmo', TRUE, TRUE, 'enterprise', 'Active')
+ON DUPLICATE KEY UPDATE `role` = 'admin', `is_verified` = TRUE;
+
 -- Réactivation des vérifications de clés étrangères
 SET FOREIGN_KEY_CHECKS = 1;
