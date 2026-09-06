@@ -30,7 +30,12 @@ import {
   Database,
   SlidersHorizontal,
   ChevronRight,
-  Home
+  Home,
+  Settings,
+  Globe,
+  Sliders,
+  CreditCard,
+  Server
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { mysqlApi, clearStoredToken } from '../../services/mysqlApi';
@@ -48,7 +53,7 @@ interface AdminDashboardProps {
   onReturnHome: () => void;
 }
 
-type TabType = 'overview' | 'properties' | 'agents' | 'agencies' | 'users' | 'invoices';
+type TabType = 'overview' | 'properties' | 'agents' | 'agencies' | 'users' | 'settings';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
@@ -59,7 +64,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [isLoading, setIsLoading] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<'connected' | 'demo'>('connected');
+  const [backendStatus, setBackendStatus] = useState<'connected' | 'disconnected'>('connected');
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Data states
@@ -69,6 +74,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [agenciesList, setAgenciesList] = useState<any[]>([]);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [invoicesList, setInvoicesList] = useState<any[]>([]);
+
+  // Platform & Configuration states
+  const [siteSettings, setSiteSettings] = useState({
+    siteName: 'Kin Immobilier (Kinimmo)',
+    domainUrl: 'https://www.kinimmo.com',
+    adminUrl: 'https://www.kinimmo.com/admin',
+    contactEmail: 'contact@kinimmo.cd',
+    supportPhone: '+243 810 000 001',
+    exchangeRate: 2850,
+    defaultCurrency: 'USD',
+    autoApproveProperties: false,
+    requireCertifiedBadge: true,
+  });
+  const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'currency' | 'billing' | 'server'>('general');
 
   // Search & Filter states
   const [propertySearch, setPropertySearch] = useState('');
@@ -99,20 +118,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Chargement des données d'administration
+  // Chargement des données d'administration réelles depuis MySQL
   const loadAllAdminData = async () => {
     setIsLoading(true);
     try {
-      // 1. Statistiques
+      // 1. Statistiques réelles
       const statsRes = await mysqlApi.getAdminStats();
       if (statsRes.success && statsRes.data?.stats) {
         setAdminStats(statsRes.data.stats);
         setBackendStatus('connected');
       } else {
-        setBackendStatus('demo');
+        setBackendStatus('disconnected');
       }
 
-      // 2. Propriétés
+      // 2. Propriétés réelles
       const propRes = await mysqlApi.adminGetProperties();
       if (propRes.success && propRes.data?.properties) {
         setPropertiesList(propRes.data.properties);
@@ -122,160 +141,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           agent_name: p.agent?.name || p.agent_name || 'Agent Kinshasa',
           published: p.published !== false
         })));
+      } else {
+        setPropertiesList([]);
       }
 
-      // 3. Agents
+      // 3. Agents réels
       const agentRes = await mysqlApi.adminGetAgents();
       if (agentRes.success && agentRes.data?.agents) {
         setAgentsList(agentRes.data.agents);
       } else if (contextAgents && contextAgents.length > 0) {
         setAgentsList(contextAgents);
+      } else {
+        setAgentsList([]);
       }
 
-      // 4. Agences
+      // 4. Agences réelles
       const agenciesRes = await mysqlApi.adminGetAgencies();
       if (agenciesRes.success && agenciesRes.data?.agencies) {
         setAgenciesList(agenciesRes.data.agencies);
       } else {
-        // Mock agences locales Kinshasa
-        setAgenciesList([
-          {
-            id: 'ag_1',
-            name: 'Immo RDC Prestige Gombe',
-            city: 'Kinshasa',
-            commune: 'Gombe',
-            phone: '+243 810 111 222',
-            email: 'contact@immordcprestige.cd',
-            manager_name: 'Alain Mukendi',
-            rccm: 'CD/KIN/RCCM/18-B-01234',
-            nif: 'A1928374M',
-            is_verified: 1,
-            subscription_status: 'Active',
-            agents_count: 5,
-            listings_count: 24
-          },
-          {
-            id: 'ag_2',
-            name: 'Agence Immobilière Ngaliema & Fils',
-            city: 'Kinshasa',
-            commune: 'Ngaliema',
-            phone: '+243 890 333 444',
-            email: 'ngaliema.immo@gmail.com',
-            manager_name: 'Sophie Kazadi',
-            rccm: 'CD/KIN/RCCM/20-B-05678',
-            nif: 'B9876543Z',
-            is_verified: 1,
-            subscription_status: 'Active',
-            agents_count: 3,
-            listings_count: 12
-          },
-          {
-            id: 'ag_3',
-            name: 'Kin Habitat Solutions',
-            city: 'Kinshasa',
-            commune: 'Limete',
-            phone: '+243 990 555 666',
-            email: 'info@kinhabitatsolutions.cd',
-            manager_name: 'David Ilunga',
-            rccm: 'CD/KIN/RCCM/22-B-09876',
-            nif: 'C5432109X',
-            is_verified: 0,
-            subscription_status: 'Active',
-            agents_count: 2,
-            listings_count: 8
-          }
-        ]);
+        setAgenciesList([]);
       }
 
-      // 5. Utilisateurs
+      // 5. Utilisateurs réels
       const usersRes = await mysqlApi.adminGetUsers();
       if (usersRes.success && usersRes.data?.users) {
         setUsersList(usersRes.data.users);
       } else {
-        setUsersList([
-          {
-            id: 'user_admin_root',
-            name: adminUser.name,
-            email: adminUser.email,
-            role: 'admin',
-            phone: '+243 810 000 001',
-            whatsapp: '+243 810 000 001',
-            is_verified: 1,
-            plan_id: 'enterprise',
-            created_at: new Date().toISOString()
-          },
-          {
-            id: 'user_agent_1',
-            name: 'Christian Ilunga',
-            email: 'christian.ilunga@kinimmo.cd',
-            role: 'agent',
-            phone: '+243 820 444 555',
-            whatsapp: '+243 820 444 555',
-            is_verified: 1,
-            plan_id: 'pro',
-            created_at: '2026-02-15T10:00:00Z'
-          },
-          {
-            id: 'user_agency_1',
-            name: 'Directrice Immo Prestige',
-            email: 'direction@immordcprestige.cd',
-            role: 'agency',
-            agency_name: 'Immo RDC Prestige Gombe',
-            phone: '+243 810 111 222',
-            is_verified: 1,
-            plan_id: 'agency',
-            created_at: '2026-01-20T12:00:00Z'
-          },
-          {
-            id: 'user_client_1',
-            name: 'Jean-Paul Mwamba',
-            email: 'jp.mwamba@gmail.com',
-            role: 'user',
-            phone: '+243 840 777 888',
-            is_verified: 0,
-            plan_id: 'starter',
-            created_at: '2026-03-01T08:30:00Z'
-          }
-        ]);
+        setUsersList([]);
       }
 
-      // 6. Factures
+      // 6. Factures réelles
       const invRes = await mysqlApi.adminGetInvoices();
       if (invRes.success && invRes.data?.invoices) {
         setInvoicesList(invRes.data.invoices);
       } else {
-        setInvoicesList([
-          {
-            id: 'inv_101',
-            invoice_number: 'FAC-KIN-948201',
-            user_name: 'Christian Ilunga',
-            user_email: 'christian.ilunga@kinimmo.cd',
-            plan_name: 'Pro Courtier Kinshasa',
-            amount: 29.00,
-            amount_cdf: 81200,
-            payment_provider: 'mpesa',
-            transaction_reference: 'MPESA-TX-8392019',
-            status: 'paid',
-            created_at: '2026-03-02T14:20:00Z'
-          },
-          {
-            id: 'inv_102',
-            invoice_number: 'FAC-KIN-948202',
-            user_name: 'Directrice Immo Prestige',
-            user_email: 'direction@immordcprestige.cd',
-            plan_name: 'Agence Immobilière Partenaire',
-            amount: 79.00,
-            amount_cdf: 221200,
-            payment_provider: 'bank_transfer',
-            transaction_reference: 'RAW-VIR-736291',
-            status: 'pending',
-            created_at: '2026-03-04T09:15:00Z'
-          }
-        ]);
+        setInvoicesList([]);
       }
     } catch (error) {
-      console.warn('Mode hors-ligne / démo pour le panneau admin', error);
-      setBackendStatus('demo');
+      console.warn('Erreur lors du chargement des données MySQL', error);
+      setBackendStatus('disconnected');
     } finally {
       setIsLoading(false);
     }
@@ -509,11 +414,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-mono font-semibold ${
               backendStatus === 'connected'
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
             }`}
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>{backendStatus === 'connected' ? 'MySQL Connecté' : 'Mode Local / Démo'}</span>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                backendStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'
+              }`}
+            />
+            <span>{backendStatus === 'connected' ? 'MySQL Connecté' : 'MySQL Hors-Ligne'}</span>
           </div>
 
           <button
@@ -562,7 +471,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <Layers className="w-4 h-4" />
-          <span>Vue d'ensemble</span>
+          <span>Tableau de bord</span>
         </button>
 
         <button
@@ -610,24 +519,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <Key className="w-4 h-4" />
-          <span>Utilisateurs & Rôles ({usersList.length})</span>
+          <span>Utilisateurs ({usersList.length})</span>
         </button>
 
         <button
-          onClick={() => setActiveTab('invoices')}
+          onClick={() => setActiveTab('settings')}
           className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'invoices'
+            activeTab === 'settings'
               ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
           }`}
         >
-          <DollarSign className="w-4 h-4" />
-          <span>Facturation & Souscriptions</span>
+          <Settings className="w-4 h-4" />
+          <span>Paramètres</span>
         </button>
       </nav>
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-8">
+        {backendStatus === 'disconnected' && (
+          <div className="p-4 sm:p-5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-start sm:items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <p className="font-bold text-white">Serveur MySQL Inaccessible</p>
+                <p className="text-rose-300/90 text-[11px] mt-0.5">
+                  L'API Node.js / MySQL n'a pas répondu. Assurez-vous que l'application backend est bien démarrée sur votre hébergement Hostinger et que les identifiants MySQL dans <code>server/.env</code> sont corrects.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={loadAllAdminData}
+              disabled={isLoading}
+              className="px-3.5 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 rounded-xl text-white font-bold text-xs shrink-0 transition-colors"
+            >
+              Réessayer la connexion
+            </button>
+          </div>
+        )}
+
         {/* ==================================================== */}
         {/* TAB 1 : VUE D'ENSEMBLE (OVERVIEW)                     */}
         {/* ==================================================== */}
@@ -740,7 +670,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
 
                   <button
-                    onClick={() => setActiveTab('invoices')}
+                    onClick={() => {
+                      setActiveTab('settings');
+                      setSettingsSubTab('billing');
+                    }}
                     className="w-full py-3 px-4 rounded-xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700/60 text-xs font-bold text-slate-200 flex items-center justify-between transition-colors"
                   >
                     <span className="flex items-center gap-2">
@@ -1189,80 +1122,382 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ==================================================== */}
-        {/* TAB 6 : FACTURATION ET SOUSCRIPTIONS (INVOICES)       */}
+        {/* TAB 6 : PARAMÈTRES DU SYSTÈME & DU SITE (SETTINGS)    */}
         {/* ==================================================== */}
-        {activeTab === 'invoices' && (
+        {activeTab === 'settings' && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
-              <h3 className="text-base font-black text-white">Facturation & Preuves de Paiement Kinshasa</h3>
-              <p className="text-xs text-slate-400">Validation manuelle des transferts M-Pesa, Airtel Money, Orange Money et Rawbank</p>
-            </div>
+            {/* Header & Domaines Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-black text-white flex items-center gap-2.5">
+                    <Settings className="w-5 h-5 text-emerald-400" />
+                    <span>Paramètres de Kin Immobilier</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Gestion globale du portail public, de la monnaie (USD/CDF), des abonnements et de l'infrastructure
+                  </p>
+                </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-950/80 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th className="py-4 px-6">N° Facture</th>
-                      <th className="py-4 px-4">Courtier / Agence</th>
-                      <th className="py-4 px-4">Forfait</th>
-                      <th className="py-4 px-4">Montant (USD / CDF)</th>
-                      <th className="py-4 px-4">Mode / Référence</th>
-                      <th className="py-4 px-4">Statut</th>
-                      <th className="py-4 px-6 text-right">Validation</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {invoicesList.map(inv => (
-                      <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3.5 px-6 font-mono font-bold text-white">{inv.invoice_number}</td>
-                        <td className="py-3.5 px-4">
-                          <div className="font-semibold text-slate-200">{inv.user_name}</div>
-                          <div className="text-[11px] text-slate-400 font-mono">{inv.user_email}</div>
-                        </td>
-                        <td className="py-3.5 px-4 font-semibold text-slate-300">{inv.plan_name || 'Pro Courtier'}</td>
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-emerald-400">${inv.amount} USD</div>
-                          {inv.amount_cdf && <div className="text-[11px] text-slate-400">{inv.amount_cdf?.toLocaleString()} CDF</div>}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold uppercase text-slate-300">{inv.payment_provider || 'Mobile Money'}</div>
-                          {inv.transaction_reference && (
-                            <div className="text-[10px] font-mono text-slate-400">Ref: {inv.transaction_reference}</div>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                              inv.status === 'paid'
-                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                                : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                            }`}
-                          >
-                            {inv.status === 'paid' ? 'Payé' : 'En attente'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-6 text-right">
-                          {inv.status !== 'paid' ? (
-                            <button
-                              onClick={() => handleApproveInvoice(inv.id)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors"
-                            >
-                              Valider le paiement
-                            </button>
-                          ) : (
-                            <span className="text-xs text-emerald-400 font-bold flex items-center justify-end gap-1">
-                              <CheckCircle2 className="w-4 h-4" />
-                              Validé
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold">
+                    Domaine : www.kinimmo.com
+                  </span>
+                </div>
+              </div>
+
+              {/* URL Access Architecture Card */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800/80">
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-xs font-bold text-white">
+                      <Globe className="w-4 h-4 text-emerald-400" />
+                      <span>Site Public des Visiteurs</span>
+                    </div>
+                    <div className="text-xs font-mono text-emerald-400 font-bold">https://www.kinimmo.com</div>
+                    <p className="text-[11px] text-slate-400">Accès ouvert pour rechercher des villas, appartements et terrains à Kinshasa.</p>
+                  </div>
+                  <button
+                    onClick={onReturnHome}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                    title="Ouvrir le site public"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-emerald-500/30 flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-xs font-bold text-white">
+                      <Lock className="w-4 h-4 text-amber-400" />
+                      <span>Portail d'Administration Sécurisé</span>
+                    </div>
+                    <div className="text-xs font-mono text-amber-400 font-bold">https://www.kinimmo.com/admin</div>
+                    <p className="text-[11px] text-slate-400">Espace réservé à la direction pour gérer les propriétés, agents, agences et paramètres.</p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider">
+                    Session Active
+                  </span>
+                </div>
+              </div>
+
+              {/* Sub-Tabs Selector */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-2 border-t border-slate-800/60 scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('general')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                    settingsSubTab === 'general'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      : 'bg-slate-800/60 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Identité & Contacts
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('currency')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                    settingsSubTab === 'currency'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      : 'bg-slate-800/60 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Taux USD / CDF & Monnaies
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('billing')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                    settingsSubTab === 'billing'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      : 'bg-slate-800/60 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Facturation & Souscriptions ({invoicesList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('server')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                    settingsSubTab === 'server'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      : 'bg-slate-800/60 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Hébergement Hostinger & MySQL
+                </button>
               </div>
             </div>
+
+            {/* SUBTAB 1 : IDENTITÉ & CONTACTS */}
+            {settingsSubTab === 'general' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">Identité du Portail Kinshasa</h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1.5">Nom de la Plateforme</label>
+                    <input
+                      type="text"
+                      value={siteSettings.siteName}
+                      onChange={(e) => setSiteSettings({ ...siteSettings, siteName: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1.5">Email de Contact Officiel</label>
+                    <input
+                      type="email"
+                      value={siteSettings.contactEmail}
+                      onChange={(e) => setSiteSettings({ ...siteSettings, contactEmail: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1.5">Ligne d'Assistance WhatsApp Kinshasa</label>
+                    <input
+                      type="text"
+                      value={siteSettings.supportPhone}
+                      onChange={(e) => setSiteSettings({ ...siteSettings, supportPhone: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1.5">Modération des Annonces</label>
+                    <div className="pt-1.5 flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        id="auto_approve_toggle"
+                        checked={!siteSettings.autoApproveProperties}
+                        onChange={(e) => setSiteSettings({ ...siteSettings, autoApproveProperties: !e.target.checked })}
+                        className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-emerald-500 h-4 w-4"
+                      />
+                      <label htmlFor="auto_approve_toggle" className="text-slate-300 cursor-pointer">
+                        Exiger l'approbation manuelle de l'administrateur avant publication
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => showNotification('success', 'Paramètres de contact mis à jour')}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-lg shadow-emerald-600/20"
+                  >
+                    Enregistrer les modifications
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* SUBTAB 2 : TAUX DE CHANGE ET MONNAIES */}
+            {settingsSubTab === 'currency' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+                <div>
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider">Taux de Change & Multi-Devises RDC</h4>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Gérez la conversion automatique entre le Dollar Américain (USD) et le Franc Congolais (CDF) pour les annonces et paiements.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-400">1 Dollar Américain (USD) =</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={siteSettings.exchangeRate}
+                        onChange={(e) => setSiteSettings({ ...siteSettings, exchangeRate: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono font-bold text-base focus:outline-none focus:border-emerald-500"
+                      />
+                      <span className="font-bold text-emerald-400 text-xs">CDF</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500">Taux officiel appliqué à Kinshasa</p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-400">Devise Principale du Site</span>
+                    <select
+                      value={siteSettings.defaultCurrency}
+                      onChange={(e) => setSiteSettings({ ...siteSettings, defaultCurrency: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs font-bold focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="USD">USD ($) - Dollar Américain</option>
+                      <option value="CDF">CDF (FC) - Franc Congolais</option>
+                    </select>
+                    <p className="text-[10px] text-slate-500">Devise de référence par défaut</p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-400">Exemple de Conversion</span>
+                    <div className="pt-1 text-xs text-slate-300">
+                      <div>500 USD = <strong className="text-emerald-400">{(500 * siteSettings.exchangeRate).toLocaleString()} CDF</strong></div>
+                      <div className="mt-1">1 200 USD = <strong className="text-emerald-400">{(1200 * siteSettings.exchangeRate).toLocaleString()} CDF</strong></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => showNotification('success', `Taux de change actualisé à 1 USD = ${siteSettings.exchangeRate} CDF`)}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-lg shadow-emerald-600/20"
+                  >
+                    Enregistrer le taux du jour
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* SUBTAB 3 : FACTURATION & SOUSCRIPTIONS */}
+            {settingsSubTab === 'billing' && (
+              <div className="space-y-6">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                  <h4 className="text-base font-black text-white">Facturation & Preuves de Paiement Kinshasa</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">Validation manuelle des forfaits agents et agences (M-Pesa, Airtel Money, Orange Money, Rawbank)</p>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+                  {invoicesList.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                      <DollarSign className="w-8 h-8 text-slate-600 mx-auto" />
+                      <p className="font-bold text-slate-300">Aucune facture enregistrée pour le moment.</p>
+                      <p className="text-[11px] text-slate-500">Les demandes de souscription des courtiers et agences apparaîtront automatiquement ici.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs text-slate-300">
+                        <thead className="bg-slate-950/80 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
+                          <tr>
+                            <th className="py-4 px-6">N° Facture</th>
+                            <th className="py-4 px-4">Courtier / Agence</th>
+                            <th className="py-4 px-4">Forfait</th>
+                            <th className="py-4 px-4">Montant (USD / CDF)</th>
+                            <th className="py-4 px-4">Mode / Référence</th>
+                            <th className="py-4 px-4">Statut</th>
+                            <th className="py-4 px-6 text-right">Validation</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {invoicesList.map(inv => (
+                            <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
+                              <td className="py-3.5 px-6 font-mono font-bold text-white">{inv.invoice_number}</td>
+                              <td className="py-3.5 px-4">
+                                <div className="font-semibold text-slate-200">{inv.user_name}</div>
+                                <div className="text-[11px] text-slate-400 font-mono">{inv.user_email}</div>
+                              </td>
+                              <td className="py-3.5 px-4 font-semibold text-slate-300">{inv.plan_name || 'Pro Courtier'}</td>
+                              <td className="py-3.5 px-4">
+                                <div className="font-bold text-emerald-400">${inv.amount} USD</div>
+                                {inv.amount_cdf && <div className="text-[11px] text-slate-400">{inv.amount_cdf?.toLocaleString()} CDF</div>}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <div className="font-bold uppercase text-slate-300">{inv.payment_provider || 'Mobile Money'}</div>
+                                {inv.transaction_reference && (
+                                  <div className="text-[10px] font-mono text-slate-400">Ref: {inv.transaction_reference}</div>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span
+                                  className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                    inv.status === 'paid'
+                                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                      : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                                  }`}
+                                >
+                                  {inv.status === 'paid' ? 'Payé' : 'En attente'}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-6 text-right">
+                                {inv.status !== 'paid' ? (
+                                  <button
+                                    onClick={() => handleApproveInvoice(inv.id)}
+                                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors"
+                                  >
+                                    Valider le paiement
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-emerald-400 font-bold flex items-center justify-end gap-1">
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    Validé
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SUBTAB 4 : HÉBERGEMENT HOSTINGER & MYSQL */}
+            {settingsSubTab === 'server' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+                <div>
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider">Infrastructure Hostinger & Base MySQL</h4>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Vérification de l'état de l'environnement de production sur votre serveur Hostinger.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                    <span className="text-slate-400 font-bold text-[11px]">Serveur Base de Données</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${backendStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+                      <span className="font-bold text-white">MySQL (Hostinger)</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-mono">Hôte: localhost:3306</div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                    <span className="text-slate-400 font-bold text-[11px]">Serveur API Backend</span>
+                    <div className="flex items-center gap-2">
+                      <Server className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold text-white">Node.js Express</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-mono">Port API: 5000</div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                    <span className="text-slate-400 font-bold text-[11px]">Sécurité & Authentification</span>
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-amber-400" />
+                      <span className="font-bold text-white">JWT + Bcrypt (10 rounds)</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-mono">Zero-leak frontend</div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 text-xs text-slate-400 space-y-1 leading-relaxed">
+                  <p className="font-bold text-slate-300">Rappels pour Hostinger :</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-400">
+                    <li>Le site public et le panneau admin sont servis depuis le dossier <code>public_html/</code> avec le fichier <code>.htaccess</code>.</li>
+                    <li>L'API tourne sur Node.js dans son propre répertoire sécurisé avec le fichier <code>.env</code> contenant le mot de passe MySQL.</li>
+                    <li>Vous pouvez accéder à <strong>phpMyAdmin</strong> à tout moment depuis le hPanel pour consulter ou exporter les tables MySQL.</li>
+                  </ul>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={loadAllAdminData}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-2 transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Tester la connexion MySQL</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

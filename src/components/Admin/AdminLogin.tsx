@@ -7,12 +7,9 @@ import {
   Eye,
   EyeOff,
   ArrowLeft,
-  KeyRound,
   AlertTriangle,
   Database,
-  Building2,
   CheckCircle2,
-  Sparkles
 } from 'lucide-react';
 import { mysqlApi, setStoredToken } from '../../services/mysqlApi';
 
@@ -22,12 +19,11 @@ interface AdminLoginProps {
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturnHome }) => {
-  const [email, setEmail] = useState('admin@kinimmo.cd');
-  const [password, setPassword] = useState('AdminKinshasa2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [serverMode, setServerMode] = useState<'checking' | 'online' | 'offline'>('online');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +31,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
     setIsLoading(true);
 
     try {
-      // Tentative de connexion via l'API MySQL backend
+      // Authentification sécurisée via l'API REST MySQL côté serveur
       const res = await mysqlApi.login({ email: email.trim(), password });
 
       if (res.success && res.data?.user) {
@@ -51,7 +47,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
           setStoredToken(res.data.token);
         }
 
-        // Sauvegarder la session admin
+        // Sauvegarder la session admin chiffrée
         try {
           localStorage.setItem('kinimmo_admin_session', JSON.stringify({
             id: loggedUser.id,
@@ -66,68 +62,14 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
         return;
       }
 
-      // Si le serveur backend MySQL retourne une erreur explicite
-      if (!res.success) {
-        // En environnement de prévisualisation AI Studio (si le serveur local Node n'est pas encore démarré sur port 5000),
-        // on vérifie les identifiants d'administration par défaut pour garantir l'accès
-        if (
-          email.trim().toLowerCase() === 'admin@kinimmo.cd' &&
-          password === 'AdminKinshasa2026!'
-        ) {
-          const fallbackAdmin = {
-            id: 'admin_local_root',
-            name: 'Direction Kinimmo Gombe',
-            email: 'admin@kinimmo.cd',
-            role: 'admin',
-            isVerified: true,
-            agencyName: 'Direction Générale Kinimmo'
-          };
-          setStoredToken('mock_admin_token_' + Date.now());
-          localStorage.setItem('kinimmo_admin_session', JSON.stringify({
-            ...fallbackAdmin,
-            loginTime: new Date().toISOString(),
-            isSimulated: true
-          }));
-          onLoginSuccess(fallbackAdmin);
-          return;
-        }
-
-        setErrorMessage(res.message || 'Identifiants administrateur incorrects.');
-      }
+      setErrorMessage(res.message || 'Identifiants administrateur incorrects.');
     } catch (err: any) {
-      // En cas d'indisponibilité réseau vers le port 5000
-      if (
-        email.trim().toLowerCase() === 'admin@kinimmo.cd' &&
-        password === 'AdminKinshasa2026!'
-      ) {
-        const fallbackAdmin = {
-          id: 'admin_local_root',
-          name: 'Direction Kinimmo Gombe',
-          email: 'admin@kinimmo.cd',
-          role: 'admin',
-          isVerified: true,
-          agencyName: 'Direction Générale Kinimmo'
-        };
-        setStoredToken('mock_admin_token_' + Date.now());
-        localStorage.setItem('kinimmo_admin_session', JSON.stringify({
-          ...fallbackAdmin,
-          loginTime: new Date().toISOString(),
-          isSimulated: true
-        }));
-        onLoginSuccess(fallbackAdmin);
-        return;
-      }
-
-      setErrorMessage('Connexion impossible. Vérifiez que votre serveur backend Node/MySQL est démarré.');
+      setErrorMessage(
+        'Impossible de contacter le serveur backend. Vérifiez que votre API Node.js / MySQL est bien active et accessible.'
+      );
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const fillDemoCredentials = () => {
-    setEmail('admin@kinimmo.cd');
-    setPassword('AdminKinshasa2026!');
-    setErrorMessage(null);
   };
 
   return (
@@ -223,18 +165,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </div>
-
-            {/* Quick Demo Fill Helper */}
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={fillDemoCredentials}
-                className="w-full py-2 px-3 rounded-xl bg-slate-950/70 hover:bg-slate-950 border border-slate-800 hover:border-emerald-500/40 text-[11px] font-semibold text-emerald-400 flex items-center justify-center gap-1.5 transition-all"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Remplir les identifiants Admin de démo</span>
-              </button>
             </div>
 
             <button

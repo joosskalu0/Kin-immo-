@@ -19,7 +19,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onReturnHome }) => {
       const savedAdminStr = localStorage.getItem('kinimmo_admin_session');
       if (savedAdminStr) {
         const parsed = JSON.parse(savedAdminStr);
-        if (parsed && (parsed.role === 'admin' || parsed.email === 'admin@kinimmo.cd')) {
+        if (parsed && parsed.role === 'admin') {
           setAdminUser(parsed);
           setIsInitializing(false);
           return;
@@ -27,7 +27,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onReturnHome }) => {
       }
 
       // Si l'utilisateur dans AppContext a déjà le rôle admin
-      if (user && (user.role === 'admin' || user.email === 'admin@kinimmo.cd')) {
+      if (user && user.role === 'admin') {
         setAdminUser({
           id: user.id,
           name: user.name,
