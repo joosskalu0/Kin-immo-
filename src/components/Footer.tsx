@@ -67,22 +67,6 @@ export const Footer: React.FC = () => {
                 Brochures & Fiches PDF Imprimables
               </a>
             </li>
-            <li className="pt-1">
-              <button
-                onClick={() => {
-                  try {
-                    window.history.pushState({}, '', '/admin');
-                    window.dispatchEvent(new PopStateEvent('popstate'));
-                  } catch {
-                    window.location.href = '/admin';
-                  }
-                }}
-                className="hover:text-emerald-400 text-emerald-400/90 font-bold transition-colors flex items-center gap-1.5"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                Accès Panneau d’Administration (/admin)
-              </button>
-            </li>
           </ul>
         </div>
 

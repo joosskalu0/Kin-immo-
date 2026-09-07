@@ -224,18 +224,6 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
             </button>
 
             <button
-              onClick={() => setCurrentTab('admin')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                currentTab === 'admin'
-                  ? 'bg-slate-900 text-emerald-400 border border-emerald-500/40 shadow-sm'
-                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Admin</span>
-            </button>
-
-            <button
               onClick={() => setIsFieldsBuilderOpen(true)}
               className="ml-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition-all flex items-center gap-1 shadow-sm"
             >
@@ -529,21 +517,6 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                 >
                   <UserIcon className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>Tableau de Bord</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCurrentTab('admin');
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 col-span-2 ${
-                    currentTab === 'admin'
-                      ? 'bg-slate-900 text-emerald-400 border border-emerald-500/40 shadow-sm'
-                      : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300'
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Portail Administrateur (/admin)</span>
                 </button>
               </div>
 
