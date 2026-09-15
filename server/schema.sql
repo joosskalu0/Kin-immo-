@@ -282,6 +282,48 @@ CREATE TABLE IF NOT EXISTS `property_analytics` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------------------------------------
+-- 12. Table des Critères & Champs Personnalisés (custom_fields)
+-- Fields Builder Engine - Géré STRICTEMENT par l'administrateur
+-- Non visible et non modifiable par les utilisateurs ordinaires
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `custom_fields` (
+  `id` VARCHAR(64) NOT NULL,
+  `field_key` VARCHAR(100) NOT NULL UNIQUE,
+  `label_fr` VARCHAR(255) NOT NULL,
+  `label_en` VARCHAR(255) DEFAULT NULL,
+  `label_ln` VARCHAR(255) DEFAULT NULL,
+  `label_sw` VARCHAR(255) DEFAULT NULL,
+  `type` ENUM('text', 'number', 'boolean', 'select', 'multiselect', 'area', 'contact', 'private') NOT NULL DEFAULT 'text',
+  `field_group` ENUM('specs', 'financial', 'legal', 'features', 'contact', 'general') NOT NULL DEFAULT 'specs',
+  `field_options` JSON DEFAULT NULL,
+  `unit` VARCHAR(50) DEFAULT NULL,
+  `required` BOOLEAN NOT NULL DEFAULT FALSE,
+  `is_private` BOOLEAN NOT NULL DEFAULT FALSE,
+  `show_in_search` BOOLEAN NOT NULL DEFAULT TRUE,
+  `icon` VARCHAR(100) DEFAULT 'Zap',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_custom_fields_group` (`field_group`),
+  INDEX `idx_custom_fields_search` (`show_in_search`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------------------------------------
+-- DONNÉES PAR DÉFAUT : Critères Personnalisés Spécifiques Kinshasa
+-- ----------------------------------------------------------
+INSERT INTO `custom_fields` (`id`, `field_key`, `label_fr`, `label_en`, `type`, `field_group`, `field_options`, `unit`, `required`, `is_private`, `show_in_search`, `icon`)
+VALUES
+  ('field_distance_fleuve', 'distance_fleuve', 'Proximité Fleuve Congo / Centre Gombe', 'Congo River / Gombe Proximity', 'text', 'general', NULL, 'm / km', FALSE, FALSE, TRUE, 'Compass'),
+  ('field_eau_forage', 'eau_forage', 'Approvisionnement en Eau & Forage', 'Water Supply & Borehole', 'select', 'specs', '["Régideso 24/7", "Forage privé avec surpresseur", "Cuve citerne réserve 5000L", "Mixte Régideso + Forage"]', NULL, FALSE, FALSE, TRUE, 'Droplet'),
+  ('field_electricite_autonomie', 'electricite_autonomie', 'Électricité & Autonomie (Groupe / Solaire)', 'Electricity & Solar Autonomy', 'select', 'specs', '["SNEL + Groupe électrogène automatique", "Système Solaire Hybride avec Batteries", "SNEL stable ligne prioritaire Gombe", "Groupe de secours agence"]', NULL, FALSE, FALSE, TRUE, 'Zap'),
+  ('field_titre_foncier', 'titre_foncier_type', 'Type de Titre Foncier Certifié RDC', 'Certified Land Title Type', 'select', 'legal', '["Certificat d\\'Enregistrement Inattaquable", "Contrat de Concession Ordinaire", "Arrêté Ministériel d\\'Attribution"]', NULL, TRUE, FALSE, TRUE, 'FileText'),
+  ('field_securite_gardiennage', 'securite_gardiennage', 'Sécurité & Gardiennage Kinshasa', 'Security & Guarding Services', 'multiselect', 'features', '["Gardiennage armé 24/7 (Delta / Top Sécurité)", "Clôture électrifiée haute tension", "Vidéosurveillance CCTV HD", "Interphone & Portail motorisé"]', NULL, FALSE, FALSE, TRUE, 'ShieldCheck'),
+  ('field_climatisation_type', 'climatisation_type', 'Type de Climatisation', 'Air Conditioning Type', 'select', 'features', '["Split Inverter dans toutes les pièces", "Climatisation centrale", "Pré-installation câblée", "Ventilateurs de plafond"]', NULL, FALSE, FALSE, TRUE, 'Wind'),
+  ('field_commission_agence', 'commission_agence_pourcent', 'Taux Commission Agence RDC (%)', 'Agency Commission Rate (%)', 'number', 'financial', NULL, '%', FALSE, TRUE, FALSE, 'Percent'),
+  ('field_contact_cadastre', 'contact_cadastre_reference', 'Référence Cadastrale / Notaire', 'Cadastral Reference / Notary', 'contact', 'legal', NULL, NULL, FALSE, TRUE, FALSE, 'UserCheck')
+ON DUPLICATE KEY UPDATE `label_fr` = VALUES(`label_fr`);
+
+-- ----------------------------------------------------------
 -- DONNÉES PAR DÉFAUT : Formules de Tarification Kinshasa
 -- ----------------------------------------------------------
 INSERT INTO `pricing_plans` (`id`, `name`, `description`, `price_usd`, `price_cdf`, `billing_period`, `max_listings`, `max_featured_listings`, `has_verified_badge`, `has_crm_leads`, `has_priority_support`, `is_active`)

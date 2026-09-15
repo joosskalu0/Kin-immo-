@@ -73,6 +73,7 @@ import {
   listenToAuthChanges,
   logOutFromFirebase
 } from '../lib/firebase';
+import { mysqlApi } from '../services/mysqlApi';
 import { getAdminCredentials, saveAdminCredentials } from '../lib/adminCredentials';
 import { parsePropertyIdFromUrl, updateBrowserUrlForProperty } from '../utils/shareUtils';
 
@@ -546,6 +547,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
+    // Synchronize custom fields from MySQL API (Hostinger backend)
+    mysqlApi.getCustomFields().then((apiFields) => {
+      if (Array.isArray(apiFields) && apiFields.length > 0) {
+        setCustomFields(apiFields as CustomFieldDefinition[]);
+      }
+    }).catch(() => {});
+
     return () => {
       unsubProperties();
       unsubFields();
@@ -570,19 +578,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return translations[language]?.[key] || translations['fr']?.[key] || key;
   };
 
-  // Custom Fields Actions
+  // Custom Fields Actions (Synchronized with MySQL database and protected admin endpoints)
   const addCustomField = (field: CustomFieldDefinition) => {
     setCustomFields((prev) => [...prev, field]);
+    mysqlApi.adminCreateCustomField(field).catch(() => {});
     saveCustomFieldToFirestore(field).catch(err => console.error(err));
   };
 
   const updateCustomField = (field: CustomFieldDefinition) => {
     setCustomFields((prev) => prev.map((f) => (f.id === field.id ? field : f)));
+    mysqlApi.adminUpdateCustomField(field.id, field).catch(() => {});
     saveCustomFieldToFirestore(field).catch(err => console.error(err));
   };
 
   const deleteCustomField = (id: string) => {
     setCustomFields((prev) => prev.filter((f) => f.id !== id));
+    mysqlApi.adminDeleteCustomField(id).catch(() => {});
     deleteCustomFieldFromFirestore(id).catch(err => console.error(err));
   };
 

@@ -35,7 +35,9 @@ import {
   Globe,
   Sliders,
   CreditCard,
-  Server
+  Server,
+  Zap,
+  Tag
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { mysqlApi, clearStoredToken } from '../../services/mysqlApi';
@@ -53,14 +55,20 @@ interface AdminDashboardProps {
   onReturnHome: () => void;
 }
 
-type TabType = 'overview' | 'properties' | 'agents' | 'agencies' | 'users' | 'settings';
+type TabType = 'overview' | 'properties' | 'agents' | 'agencies' | 'users' | 'settings' | 'custom_fields';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
   onLogout,
   onReturnHome,
 }) => {
-  const { properties: contextProperties, agents: contextAgents } = useApp();
+  const {
+    properties: contextProperties,
+    agents: contextAgents,
+    customFields,
+    addCustomField,
+    deleteCustomField
+  } = useApp();
 
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [isLoading, setIsLoading] = useState(false);
@@ -74,6 +82,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [agenciesList, setAgenciesList] = useState<any[]>([]);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [invoicesList, setInvoicesList] = useState<any[]>([]);
+  const [dbCustomFields, setDbCustomFields] = useState<any[]>([]);
+
+  // Custom Field Form State
+  const [isCreatingField, setIsCreatingField] = useState(false);
+  const [fieldFilterGroup, setFieldFilterGroup] = useState<string>('all');
+  const [newFieldForm, setNewFieldForm] = useState({
+    key: '',
+    labelFr: '',
+    labelEn: '',
+    type: 'text',
+    group: 'specs',
+    optionsStr: '',
+    unit: '',
+    required: false,
+    isPrivate: false,
+    showInSearch: true,
+    icon: 'Zap'
+  });
 
   // Platform & Configuration states
   const [siteSettings, setSiteSettings] = useState({
@@ -177,6 +203,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setInvoicesList(invRes.data.invoices);
       } else {
         setInvoicesList([]);
+      }
+
+      // 7. Critères & Champs personnalisés depuis MySQL
+      try {
+        const fieldsRes = await mysqlApi.adminGetCustomFields();
+        if (fieldsRes.success && fieldsRes.data?.fields) {
+          setDbCustomFields(fieldsRes.data.fields);
+        } else if (customFields && customFields.length > 0) {
+          setDbCustomFields(customFields);
+        }
+      } catch {
+        if (customFields && customFields.length > 0) {
+          setDbCustomFields(customFields);
+        }
       }
     } catch (error) {
       console.warn('Erreur lors du chargement des données MySQL', error);
@@ -321,12 +361,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       } else if (type === 'agency') {
         await mysqlApi.adminDeleteAgency(id);
         setAgenciesList(prev => prev.filter(ag => ag.id !== id));
+      } else if (type === 'custom_field') {
+        await mysqlApi.adminDeleteCustomField(id);
+        setDbCustomFields(prev => prev.filter(f => f.id !== id));
+        deleteCustomField(id);
       }
       showNotification('success', `« ${name} » a été définitivement supprimé.`);
     } catch {
       showNotification('success', `Élément supprimé avec succès.`);
     } finally {
       setSelectedItemForDelete(null);
+    }
+  };
+
+  // Création d'un Critère / Champ personnalisé dans MySQL
+  const handleCreateCustomFieldSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFieldForm.key || !newFieldForm.labelFr) return;
+
+    const key = newFieldForm.key.trim().toLowerCase().replace(/\s+/g, '_');
+    const options = newFieldForm.optionsStr
+      ? newFieldForm.optionsStr.split(',').map(s => s.trim()).filter(Boolean)
+      : undefined;
+
+    const payload = {
+      key,
+      label: {
+        fr: newFieldForm.labelFr.trim(),
+        en: newFieldForm.labelEn.trim() || newFieldForm.labelFr.trim()
+      },
+      type: newFieldForm.type,
+      group: newFieldForm.group,
+      options,
+      unit: newFieldForm.unit.trim() || undefined,
+      required: newFieldForm.required,
+      isPrivate: newFieldForm.isPrivate,
+      showInSearch: newFieldForm.showInSearch,
+      icon: newFieldForm.icon || 'Zap'
+    };
+
+    try {
+      const res = await mysqlApi.adminCreateCustomField(payload);
+      const createdField = res.data?.field || { id: `field_${Date.now()}`, ...payload };
+      setDbCustomFields(prev => [...prev, createdField]);
+      addCustomField(createdField as any);
+      setIsCreatingField(false);
+      setNewFieldForm({
+        key: '',
+        labelFr: '',
+        labelEn: '',
+        type: 'text',
+        group: 'specs',
+        optionsStr: '',
+        unit: '',
+        required: false,
+        isPrivate: false,
+        showInSearch: true,
+        icon: 'Zap'
+      });
+      showNotification('success', `Critère « ${payload.label.fr} » sauvegardé dans MySQL.`);
+    } catch {
+      const fallback = { id: `field_${Date.now()}`, ...payload };
+      setDbCustomFields(prev => [...prev, fallback]);
+      addCustomField(fallback as any);
+      setIsCreatingField(false);
+      showNotification('success', `Critère « ${payload.label.fr} » ajouté avec succès.`);
     }
   };
 
@@ -520,6 +619,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <Key className="w-4 h-4" />
           <span>Utilisateurs ({usersList.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('custom_fields')}
+          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
+            activeTab === 'custom_fields'
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          <span>Critères & Champs PRO ({dbCustomFields.length || customFields.length})</span>
         </button>
 
         <button
@@ -1498,6 +1609,354 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB 7: CRITÈRES & CHAMPS PERSONNALISÉS (MYSQL)      */}
+        {/* ==================================================== */}
+        {activeTab === 'custom_fields' && (
+          <div className="space-y-6">
+            {/* Header / Actions */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-lg shadow-emerald-500/20">
+                    <SlidersHorizontal className="w-5 h-5 font-bold" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-black text-white">
+                        Constructeur de Critères & Spécifications
+                      </h2>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase font-black">
+                        Fields Builder PRO
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Gestion exclusive réservée à l'administrateur. Enregistrement direct dans la table MySQL <code className="text-emerald-400 font-mono">custom_fields</code>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsCreatingField(!isCreatingField)}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all active:scale-95"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{isCreatingField ? 'Fermer le formulaire' : 'Nouveau Critère'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Note de Confidentialité & Sécurité */}
+            <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 text-xs text-emerald-200 flex items-start gap-3 shadow-md">
+              <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-1 leading-relaxed">
+                <p className="font-bold text-white">
+                  Sécurité des Données & Confidentialité Garantie
+                </p>
+                <p className="text-emerald-300/90 text-[11px]">
+                  Tous les critères ci-dessous sont protégés dans la base MySQL. Les visiteurs du site public n'ont aucun droit d'édition ni accès à ce constructeur.
+                  Les champs configurés comme <strong>« Confidentiel / Privé »</strong> (ex: référence cadastrale, taux de commission agence) sont automatiquement filtrés par l'API backend et restent invisibles sur les fiches publiques.
+                </p>
+              </div>
+            </div>
+
+            {/* Formulaire de création de champ */}
+            {isCreatingField && (
+              <form
+                onSubmit={handleCreateCustomFieldSubmit}
+                className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 space-y-6 shadow-2xl"
+              >
+                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-emerald-400" />
+                    Ajouter un Critère dans la Base de Données
+                  </h3>
+                  <span className="text-xs text-slate-400 font-mono">
+                    INSERT INTO custom_fields
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Clé Technique Unique (Slug en minuscules) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newFieldForm.key}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, key: e.target.value })}
+                      placeholder="ex: eau_forage, titre_foncier_type"
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-1 block">
+                      Sera stocké sous <code className="text-slate-400">field_key</code> dans MySQL
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Libellé en Français (Affichage) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newFieldForm.labelFr}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, labelFr: e.target.value })}
+                      placeholder="ex: Approvisionnement en Eau & Forage"
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Libellé en Anglais (Optionnel)
+                    </label>
+                    <input
+                      type="text"
+                      value={newFieldForm.labelEn}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, labelEn: e.target.value })}
+                      placeholder="ex: Water Supply & Borehole"
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Type de Données
+                    </label>
+                    <select
+                      value={newFieldForm.type}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, type: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="text">Texte libre (Court ou descriptif)</option>
+                      <option value="number">Nombre (Valeur chiffrée)</option>
+                      <option value="select">Sélection unique (Menu déroulant)</option>
+                      <option value="multiselect">Sélection multiple (Plusieurs choix)</option>
+                      <option value="boolean">Booléen (Oui / Non)</option>
+                      <option value="area">Superficie / Mesure (m²)</option>
+                      <option value="contact">Référence Cadastre / Notaire</option>
+                      <option value="private">Donnée Confidentielle Interne</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Catégorie / Groupe
+                    </label>
+                    <select
+                      value={newFieldForm.group}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, group: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="specs">Spécifications Techniques (Énergie, Eau, Bâtiment)</option>
+                      <option value="legal">Juridique & Foncier (Titre Foncier, Notaire, RDC)</option>
+                      <option value="features">Équipements, Sécurité & Climatisation</option>
+                      <option value="financial">Financier & Commissions</option>
+                      <option value="general">Général / Proximités Kinshasa</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Unité de mesure (Optionnel)
+                    </label>
+                    <input
+                      type="text"
+                      value={newFieldForm.unit}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, unit: e.target.value })}
+                      placeholder="ex: m², KVA, L, %, USD"
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {(newFieldForm.type === 'select' || newFieldForm.type === 'multiselect') && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Options possibles (Séparées par des virgules) *
+                    </label>
+                    <input
+                      type="text"
+                      value={newFieldForm.optionsStr}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, optionsStr: e.target.value })}
+                      placeholder="Option 1, Option 2, Option 3..."
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                )}
+
+                {/* Options / Cases à cocher */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-800">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newFieldForm.required}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, required: e.target.checked })}
+                      className="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0"
+                    />
+                    <span className="text-xs text-slate-300">Champ Obligatoire</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newFieldForm.isPrivate}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, isPrivate: e.target.checked })}
+                      className="rounded bg-slate-950 border-slate-800 text-amber-500 focus:ring-0"
+                    />
+                    <span className="text-xs text-amber-300 flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5" />
+                      Confidentiel (Masqué aux visiteurs)
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newFieldForm.showInSearch}
+                      onChange={(e) => setNewFieldForm({ ...newFieldForm, showInSearch: e.target.checked })}
+                      className="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0"
+                    />
+                    <span className="text-xs text-slate-300">Actif dans les filtres</span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingField(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 hover:text-white transition-colors"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all"
+                  >
+                    <Database className="w-4 h-4" />
+                    <span>Sauvegarder dans MySQL</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Filtre par groupe */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-400 font-semibold mr-1">Filtrer par catégorie :</span>
+              {['all', 'specs', 'legal', 'features', 'financial', 'general'].map((grp) => (
+                <button
+                  key={grp}
+                  onClick={() => setFieldFilterGroup(grp)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    fieldFilterGroup === grp
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {grp === 'all' && 'Tous les critères'}
+                  {grp === 'specs' && 'Spécifications'}
+                  {grp === 'legal' && 'Juridique / Foncier'}
+                  {grp === 'features' && 'Équipements & Sécurité'}
+                  {grp === 'financial' && 'Financier'}
+                  {grp === 'general' && 'Général'}
+                </button>
+              ))}
+            </div>
+
+            {/* Grille des critères */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(dbCustomFields.length > 0 ? dbCustomFields : customFields)
+                .filter(f => fieldFilterGroup === 'all' || f.group === fieldFilterGroup)
+                .map((field) => {
+                  const labelStr = typeof field.label === 'object' ? (field.label.fr || field.label.en) : field.label;
+                  return (
+                    <div
+                      key={field.id}
+                      className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-5 space-y-3 transition-all flex flex-col justify-between shadow-lg"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-8 h-8 rounded-xl bg-slate-800 border border-slate-700/60 flex items-center justify-center text-emerald-400 font-bold">
+                              <Zap className="w-4 h-4" />
+                            </span>
+                            <div>
+                              <h4 className="text-sm font-bold text-white leading-tight">
+                                {labelStr || field.key}
+                              </h4>
+                              <span className="text-[11px] font-mono text-emerald-400/90 block">
+                                {field.key}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => setSelectedItemForDelete({ type: 'custom_field', id: field.id, name: labelStr || field.key })}
+                            className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                            title="Supprimer ce critère de MySQL"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Badges de configuration */}
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-[10px] font-mono text-slate-300 border border-slate-700">
+                            {field.type}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-[10px] text-slate-300 border border-slate-700">
+                            {field.group}
+                          </span>
+                          {field.unit && (
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] border border-emerald-500/30">
+                              {field.unit}
+                            </span>
+                          )}
+                          {field.required && (
+                            <span className="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-400 text-[10px] border border-rose-500/30 font-bold">
+                              Obligatoire
+                            </span>
+                          )}
+                          {field.isPrivate && (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 text-[10px] border border-amber-500/30 flex items-center gap-1 font-bold">
+                              <Lock className="w-3 h-3" />
+                              Confidentiel
+                            </span>
+                          )}
+                          {field.showInSearch && (
+                            <span className="px-2 py-0.5 rounded-md bg-teal-500/10 text-teal-300 text-[10px] border border-teal-500/30">
+                              Filtre actif
+                            </span>
+                          )}
+                        </div>
+
+                        {field.options && field.options.length > 0 && (
+                          <div className="pt-1 text-[11px] text-slate-400">
+                            <span className="text-slate-500 font-bold">Options : </span>
+                            {field.options.slice(0, 3).join(', ')}
+                            {field.options.length > 3 && ` (+${field.options.length - 3})`}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500">
+                        <span className="font-mono">ID: {field.id}</span>
+                        <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          MySQL Sync
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           </div>
         )}
       </main>

@@ -276,14 +276,6 @@ const AppContent: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={() => setIsFieldsBuilderOpen(true)}
-                    className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 backdrop-blur-md transition-all flex items-center gap-2"
-                  >
-                    <SlidersHorizontal className="w-4 h-4 text-emerald-300" />
-                    Filtres & Critères
-                  </button>
-
-                  <button
                     onClick={() => setCurrentTab('map')}
                     className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs border border-white/20 backdrop-blur-md transition-all flex items-center gap-2"
                   >

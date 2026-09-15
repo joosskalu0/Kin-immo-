@@ -353,6 +353,35 @@ export const mysqlApi = {
     return apiRequest('/admin/invoices');
   },
 
+  // Custom Fields (Fields Builder Engine PRO)
+  async getCustomFields() {
+    return apiRequest('/custom-fields');
+  },
+
+  async adminGetCustomFields() {
+    return apiRequest('/admin/custom-fields');
+  },
+
+  async adminCreateCustomField(data: any) {
+    return apiRequest('/admin/custom-fields', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async adminUpdateCustomField(id: string, data: any) {
+    return apiRequest(`/admin/custom-fields/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async adminDeleteCustomField(id: string) {
+    return apiRequest(`/admin/custom-fields/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
   // 8. Facturation & Tarification (Billing)
   async getPricingPlans() {
     return apiRequest('/billing/plans');

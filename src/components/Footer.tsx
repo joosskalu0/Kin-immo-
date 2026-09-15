@@ -39,13 +39,10 @@ export const Footer: React.FC = () => {
           <h4 className="text-white font-semibold text-sm mb-4">Outils & Services Pro</h4>
           <ul className="space-y-2.5 text-xs">
             <li>
-              <button
-                onClick={() => setIsFieldsBuilderOpen(true)}
-                className="hover:text-emerald-400 transition-colors flex items-center gap-1.5 text-left"
-              >
+              <a href="#properties" className="hover:text-emerald-400 transition-colors flex items-center gap-1.5 text-left">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                Filtres & Critères Personnalisés
-              </button>
+                Catalogue des Propriétés Vérifiées
+              </a>
             </li>
             <li>
               <a href="#map" className="hover:text-emerald-400 transition-colors">

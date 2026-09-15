@@ -128,12 +128,9 @@ export const ShortcodesGallery: React.FC<ShortcodesGalleryProps> = ({ onReturnHo
             <Zap className="w-5 h-5 text-emerald-400" />
             Module : Critères & Spécifications des Propriétés
           </h3>
-          <button
-            onClick={() => setIsFieldsBuilderOpen(true)}
-            className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/30 transition-all flex items-center gap-1.5"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" /> Personnaliser les Critères
-          </button>
+          <span className="px-3 py-1 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Critères Certifiés Kinshasa
+          </span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 grid grid-cols-1 md:grid-cols-3 gap-4">

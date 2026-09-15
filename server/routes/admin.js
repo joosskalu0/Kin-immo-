@@ -38,4 +38,10 @@ router.delete('/agencies/:id', adminController.deleteAgency);
 // 6. Gestion des factures / souscriptions
 router.get('/invoices', adminController.getInvoices);
 
+// 7. Gestion des critères & champs personnalisés (Fields Builder)
+router.get('/custom-fields', adminController.getCustomFields);
+router.post('/custom-fields', adminController.createCustomField);
+router.put('/custom-fields/:id', adminController.updateCustomField);
+router.delete('/custom-fields/:id', adminController.deleteCustomField);
+
 module.exports = router;

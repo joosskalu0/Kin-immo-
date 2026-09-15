@@ -549,6 +549,184 @@ async function getInvoices(req, res, next) {
   }
 }
 
+// ==========================================
+// 6. GESTION DES CHAMPS PERSONNALISÉS (CUSTOM FIELDS)
+// ==========================================
+
+/**
+ * Récupérer tous les champs personnalisés définis dans MySQL
+ * GET /api/admin/custom-fields
+ */
+async function getCustomFields(req, res, next) {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM custom_fields ORDER BY created_at ASC');
+    const fields = rows.map(r => ({
+      id: r.id,
+      key: r.field_key,
+      label: {
+        fr: r.label_fr,
+        en: r.label_en || r.label_fr,
+        ln: r.label_ln,
+        sw: r.label_sw
+      },
+      type: r.type,
+      group: r.field_group,
+      options: typeof r.field_options === 'string' ? JSON.parse(r.field_options) : r.field_options,
+      unit: r.unit,
+      required: Boolean(r.required),
+      isPrivate: Boolean(r.is_private),
+      showInSearch: Boolean(r.show_in_search),
+      icon: r.icon || 'Zap',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
+
+    res.json({ success: true, fields });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Créer un nouveau champ personnalisé dans MySQL
+ * POST /api/admin/custom-fields
+ */
+async function createCustomField(req, res, next) {
+  try {
+    const {
+      key,
+      label,
+      type = 'text',
+      group = 'specs',
+      options,
+      unit,
+      required = false,
+      isPrivate = false,
+      showInSearch = true,
+      icon = 'Zap'
+    } = req.body;
+
+    if (!key || !label?.fr) {
+      return res.status(400).json({ success: false, message: 'La clé et le libellé en français sont obligatoires.' });
+    }
+
+    const fieldKey = key.trim().toLowerCase().replace(/\s+/g, '_');
+    const id = `field_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+    const labelFr = label.fr.trim();
+    const labelEn = label.en || labelFr;
+    const optionsJson = options ? JSON.stringify(options) : null;
+
+    await pool.execute(
+      `INSERT INTO custom_fields (
+        id, field_key, label_fr, label_en, type, field_group, field_options, unit, required, is_private, show_in_search, icon
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        fieldKey,
+        labelFr,
+        labelEn,
+        type,
+        group,
+        optionsJson,
+        unit || null,
+        required ? 1 : 0,
+        isPrivate ? 1 : 0,
+        showInSearch ? 1 : 0,
+        icon || 'Zap'
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Champ personnalisé créé avec succès.',
+      field: {
+        id,
+        key: fieldKey,
+        label: { fr: labelFr, en: labelEn },
+        type,
+        group,
+        options,
+        unit,
+        required,
+        isPrivate,
+        showInSearch,
+        icon
+      }
+    });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, message: 'Un champ avec cette clé technique existe déjà.' });
+    }
+    next(error);
+  }
+}
+
+/**
+ * Mettre à jour un champ personnalisé
+ * PUT /api/admin/custom-fields/:id
+ */
+async function updateCustomField(req, res, next) {
+  try {
+    const { id } = req.params;
+    const {
+      label,
+      type,
+      group,
+      options,
+      unit,
+      required,
+      isPrivate,
+      showInSearch,
+      icon
+    } = req.body;
+
+    const [existing] = await pool.execute('SELECT * FROM custom_fields WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'Champ introuvable.' });
+    }
+
+    const labelFr = label?.fr || existing[0].label_fr;
+    const labelEn = label?.en || existing[0].label_en;
+    const fieldType = type || existing[0].type;
+    const fieldGroup = group || existing[0].field_group;
+    const optionsJson = options !== undefined ? JSON.stringify(options) : existing[0].field_options;
+    const fieldUnit = unit !== undefined ? unit : existing[0].unit;
+    const isRequired = required !== undefined ? (required ? 1 : 0) : existing[0].required;
+    const isPriv = isPrivate !== undefined ? (isPrivate ? 1 : 0) : existing[0].is_private;
+    const isSearch = showInSearch !== undefined ? (showInSearch ? 1 : 0) : existing[0].show_in_search;
+    const fieldIcon = icon || existing[0].icon;
+
+    await pool.execute(
+      `UPDATE custom_fields SET
+        label_fr = ?, label_en = ?, type = ?, field_group = ?, field_options = ?,
+        unit = ?, required = ?, is_private = ?, show_in_search = ?, icon = ?
+       WHERE id = ?`,
+      [labelFr, labelEn, fieldType, fieldGroup, optionsJson, fieldUnit, isRequired, isPriv, isSearch, fieldIcon, id]
+    );
+
+    res.json({ success: true, message: 'Champ mis à jour avec succès.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Supprimer un champ personnalisé
+ * DELETE /api/admin/custom-fields/:id
+ */
+async function deleteCustomField(req, res, next) {
+  try {
+    const { id } = req.params;
+    const [result] = await pool.execute('DELETE FROM custom_fields WHERE id = ?', [id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Champ introuvable.' });
+    }
+    res.json({ success: true, message: 'Champ supprimé de la base de données.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getStats,
   // Users
@@ -572,5 +750,10 @@ module.exports = {
   updateAgency,
   deleteAgency,
   // Invoices
-  getInvoices
+  getInvoices,
+  // Custom Fields
+  getCustomFields,
+  createCustomField,
+  updateCustomField,
+  deleteCustomField
 };

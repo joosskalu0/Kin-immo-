@@ -222,14 +222,6 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
               <UserIcon className="w-3.5 h-3.5" />
               Mon Espace
             </button>
-
-            <button
-              onClick={() => setIsFieldsBuilderOpen(true)}
-              className="ml-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition-all flex items-center gap-1 shadow-sm"
-            >
-              <SlidersHorizontal className="w-3 h-3 text-emerald-700" />
-              Champs Custom
-            </button>
           </nav>
 
           {/* Right Action Tools */}
@@ -530,17 +522,6 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                 >
                   <PlusCircle className="w-4 h-4" />
                   <span>Publier une Annonce</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsFieldsBuilderOpen(true);
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full py-3 rounded-2xl bg-slate-100 border border-slate-200 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 active:scale-98 transition-all"
-                >
-                  <SlidersHorizontal className="w-4 h-4" />
-                  <span>Filtres & Critères Personnalisés</span>
                 </button>
               </div>
             </div>
