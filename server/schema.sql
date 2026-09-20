@@ -329,9 +329,9 @@ ON DUPLICATE KEY UPDATE `label_fr` = VALUES(`label_fr`);
 INSERT INTO `pricing_plans` (`id`, `name`, `description`, `price_usd`, `price_cdf`, `billing_period`, `max_listings`, `max_featured_listings`, `has_verified_badge`, `has_crm_leads`, `has_priority_support`, `is_active`)
 VALUES
   ('starter', 'Starter Particulier', 'Idéal pour publier vos premières annonces sans engagement.', 0.00, 0.00, 'monthly', 3, 0, FALSE, FALSE, FALSE, TRUE),
-  ('pro', 'Pro Courtier Kinshasa', 'Pour courtiers indépendants actifs à Kinshasa avec badge vérifié.', 29.00, 81200.00, 'monthly', 25, 3, TRUE, TRUE, FALSE, TRUE),
-  ('agency', 'Agence Immobilière Partenaire', 'Visibilité maximale pour agences avec agents illimités et CRM.', 79.00, 221200.00, 'monthly', 100, 10, TRUE, TRUE, TRUE, TRUE),
-  ('enterprise', 'Groupe & Promoteur Immobilier', 'Accompagnement VIP, mise en avant garantie et intégration sur mesure.', 149.00, 417200.00, 'monthly', 500, 30, TRUE, TRUE, TRUE, TRUE)
+  ('pro', 'Pro Courtier Kinshasa', 'Pour courtiers indépendants actifs à Kinshasa avec badge vérifié.', 04.00, 10000.00, 'monthly', 25, 3, TRUE, TRUE, FALSE, TRUE),
+  ('agency', 'Agence Immobilière Partenaire', 'Visibilité maximale pour agences avec agents illimités et CRM.', 09.00, 20000.00, 'monthly', 100, 10, TRUE, TRUE, TRUE, TRUE),
+  ('enterprise', 'Groupe & Promoteur Immobilier', 'Accompagnement VIP, mise en avant garantie et intégration sur mesure.', 25.00, 53000.00, 'monthly', 500, 30, TRUE, TRUE, TRUE, TRUE)
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 -- ----------------------------------------------------------
@@ -341,7 +341,7 @@ INSERT INTO `payment_methods` (`id`, `provider`, `account_name`, `account_number
 VALUES
   ('pm_mpesa', 'mpesa', 'KINIMMO SARL - Vodacom M-Pesa', '+243 810 000 000', '123456', 'Envoyer le montant exact via M-Pesa puis insérer le code de transaction ou téléverser la capture du SMS.', TRUE),
   ('pm_airtel', 'airtel', 'KINIMMO SARL - Airtel Money', '+243 990 000 000', '789012', 'Paiement direct via Airtel Money RDC. Indiquer votre numéro de facture en référence.', TRUE),
-  ('pm_orange', 'orange', 'KINIMMO SARL - Orange Money', '+243 890 000 000', '345678', 'Paiement via Orange Money Kinshasa.', TRUE),
+  ('pm_orange', 'orange', 'KINIMMO SARL - Orange Money', '+243 845294616', '345678', 'Paiement via Orange Money Kinshasa.', TRUE),
   ('pm_rawbank', 'bank_transfer', 'KINIMMO RDC - Rawbank Kinshasa Gombe', '01002-00012345678-90', NULL, 'Virement bancaire ou versement au guichet Rawbank. Joindre le bordereau de versement comme preuve.', TRUE)
 ON DUPLICATE KEY UPDATE `account_name` = VALUES(`account_name`);
 
