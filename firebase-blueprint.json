@@ -133,10 +133,91 @@
         "id": { "type": "string" },
         "platformName": { "type": "string" },
         "commissionRate": { "type": "number" },
-        "defaultCurrency": { "type": "string font" },
+        "defaultCurrency": { "type": "string" },
         "maintenanceMode": { "type": "boolean" },
         "adminEmail": { "type": "string" }
       }
+    },
+    "concierge_requests": {
+      "title": "Concierge Requests",
+      "description": "Real estate concierge search requests and mandates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "project_type": { "type": "string" },
+        "property_type": { "type": "string" },
+        "commune": { "type": "string" },
+        "quartier": { "type": "string" },
+        "budget_min": { "type": "number" },
+        "budget_max": { "type": "number" },
+        "currency": { "type": "string" },
+        "bedrooms": { "type": "number" },
+        "bathrooms": { "type": "number" },
+        "parking": { "type": "boolean" },
+        "furnished": { "type": "boolean" },
+        "services": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" },
+        "full_name": { "type": "string" },
+        "phone": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "email": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["new", "searching", "properties_found", "visit_scheduled", "negotiation", "completed", "cancelled"]
+        },
+        "assigned_agent_id": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["project_type", "property_type", "commune", "budget_max", "full_name", "phone", "email"]
+    },
+    "property_visits": {
+      "title": "Property Visits",
+      "description": "Scheduled concierge property visits with agents",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "request_id": { "type": "string" },
+        "property_id": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "visit_date": { "type": "string" },
+        "visit_time": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["scheduled", "confirmed", "completed", "cancelled", "rescheduled"]
+        },
+        "notes": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["request_id", "visit_date", "status"]
+    }
+  },
+  "firestore": {
+    "/concierge_requests/{requestId}": {
+      "schema": "concierge_requests",
+      "description": "Demandes de conciergerie et mandats de recherche immobilière"
+    },
+    "/property_visits/{visitId}": {
+      "schema": "property_visits",
+      "description": "Visites de biens planifiées pour les demandes de conciergerie"
+    },
+    "/properties/{propertyId}": {
+      "schema": "properties",
+      "description": "Annonces immobilières publiques à Kinshasa"
+    },
+    "/leads/{leadId}": {
+      "schema": "leads",
+      "description": "Demandes de contact et d'informations sur les biens"
+    },
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "Comptes utilisateurs, administrateurs et profils"
+    },
+    "/agents/{agentId}": {
+      "schema": "agents",
+      "description": "Profils des agents immobiliers de Kinshasa"
     }
   }
 }

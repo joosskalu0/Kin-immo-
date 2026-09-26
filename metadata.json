@@ -1,6 +1,6 @@
 {
-  "name": "Kin Immobilier",
-  "description": "Plateforme immobilière professionnelle à Kinshasa et RDC avec architecture full-stack MySQL, panneau d'administration sécurisé (/admin), gestion d'annonces, agents, agences et facturation.",
+  "name": "Kinshasa Immobilier",
+  "description": "Portail immobilier de référence à Kinshasa et RDC : Vente, location, gestion locative, terrains titrés et annuaire des agents certifiés.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

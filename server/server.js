@@ -4,6 +4,8 @@ require('dotenv').config();
 
 const pool = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
+const requestLogger = require('./middleware/logger');
+const { apiLimiter } = require('./middleware/rateLimiter');
 
 // Import des routes de l'API
 const authRoutes = require('./routes/auth');
@@ -17,6 +19,11 @@ const adminRoutes = require('./routes/admin');
 const billingRoutes = require('./routes/billing');
 const analyticsRoutes = require('./routes/analytics');
 const customFieldsRoutes = require('./routes/customFields');
+const adsRoutes = require('./routes/ads');
+const adminAdsRoutes = require('./routes/adminAds');
+const showcaseRoutes = require('./routes/showcase');
+const settingsRoutes = require('./routes/settings');
+const conciergeRoutes = require('./routes/concierge');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -47,6 +54,12 @@ app.use(cors({
 // Middlewares pour parser le JSON et les formulaires URL-encoded
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Middleware de journalisation structurée
+app.use(requestLogger);
+
+// Rate Limiter général pour sécuriser l'API
+app.use('/api', apiLimiter);
 
 // Route de diagnostic et de vérification d'état (Healthcheck)
 app.get('/api/health', async (req, res) => {
@@ -80,6 +93,12 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/custom-fields', customFieldsRoutes);
+app.use('/api/ads', adsRoutes);
+app.use('/api/admin/ads', adminAdsRoutes);
+app.use('/api/showcase', showcaseRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/concierge', conciergeRoutes);
+app.use('/api/concierge-requests', conciergeRoutes);
 
 // Gestion des routes inexistantes (404)
 app.use((req, res) => {

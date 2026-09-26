@@ -71,6 +71,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Demandes de Conciergerie Immobilière (concierge_requests)
+    match /concierge_requests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // Visites Immobilières associées (property_visits)
+    match /property_visits/{visitId} {
+      allow read, write: if true;
+    }
+
     // Fallback rule for operational continuity
     match /{document=**} {
       allow read, write: if true;

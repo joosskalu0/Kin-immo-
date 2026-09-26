@@ -132,6 +132,11 @@ async function getProperties(req, res, next) {
       agentWhatsapp: row.agent_whatsapp,
       viewsCount: row.views_count,
       featured: Boolean(row.featured),
+      isPremium: Boolean(row.is_premium),
+      isUrgent: Boolean(row.is_urgent),
+      listingTier: row.listing_tier || (Boolean(row.featured) ? 'featured' : 'free'),
+      boostExpiresAt: row.boost_expires_at || null,
+      refreshBumpAt: row.refresh_bump_at || null,
       published: Boolean(row.published),
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -222,6 +227,11 @@ async function getPropertyById(req, res, next) {
       agentAvatar: row.agent_avatar,
       viewsCount: row.views_count + 1,
       featured: Boolean(row.featured),
+      isPremium: Boolean(row.is_premium),
+      isUrgent: Boolean(row.is_urgent),
+      listingTier: row.listing_tier || (Boolean(row.featured) ? 'featured' : 'free'),
+      boostExpiresAt: row.boost_expires_at || null,
+      refreshBumpAt: row.refresh_bump_at || null,
       published: Boolean(row.published),
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -244,6 +254,34 @@ async function createProperty(req, res, next) {
 
     const p = req.body;
     const propertyId = p.id || `prop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+    // Vérification du quota selon la formule d'abonnement de l'utilisateur
+    if (req.user && req.user.role !== 'admin') {
+      try {
+        const [userRows] = await connection.execute('SELECT plan_id, role FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+        const currentPlanId = userRows[0]?.plan_id || 'starter';
+        const [planRows] = await connection.execute('SELECT max_listings, name FROM pricing_plans WHERE id = ? LIMIT 1', [currentPlanId]);
+        const maxListings = planRows[0]?.max_listings || 3;
+        const planName = planRows[0]?.name || 'Starter Particulier';
+
+        const [countRows] = await connection.execute('SELECT COUNT(*) as cnt FROM properties WHERE agent_id = ?', [req.user.id]);
+        const currentCount = countRows[0]?.cnt || 0;
+
+        if (currentCount >= maxListings) {
+          await connection.rollback();
+          connection.release();
+          return res.status(403).json({
+            success: false,
+            message: `Quota d'annonces atteint (${currentCount}/${maxListings} annonces publiées sous la formule "${planName}"). Veuillez souscrire à une formule supérieure pour continuer à publier.`,
+            upgradeRequired: true,
+            currentCount,
+            maxListings
+          });
+        }
+      } catch (quotaErr) {
+        // En cas d'erreur de requête sur les quotas, ne pas bloquer
+      }
+    }
 
     // Insertion principale
     await connection.execute(

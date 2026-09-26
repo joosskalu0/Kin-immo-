@@ -44,4 +44,8 @@ router.post('/custom-fields', adminController.createCustomField);
 router.put('/custom-fields/:id', adminController.updateCustomField);
 router.delete('/custom-fields/:id', adminController.deleteCustomField);
 
+// 8. Gestion des paramètres & Coordonnées Conciergerie VIP
+router.get('/settings', adminController.getSettings);
+router.put('/settings', adminController.updateSettings);
+
 module.exports = router;

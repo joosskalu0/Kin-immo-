@@ -13,6 +13,7 @@ import {
   LanguageCode,
   Invoice,
   SubscriptionPlan,
+  SiteContactSettings,
 } from '../types';
 
 export interface ConfirmOptions {
@@ -32,6 +33,7 @@ import {
   initialSubscriptionPlans,
 } from '../data/mockData';
 import { translations, languages } from '../utils/i18n';
+import { ArchitecturalSlide, INITIAL_ARCHITECTURAL_SLIDES } from '../types/heroShowcase';
 import Papa from 'papaparse';
 import {
   initGoogleAnalytics,
@@ -206,6 +208,19 @@ interface AppContextType {
   recordPropertyAction: (propertyId: string, action: 'whatsapp' | 'call' | 'lead' | 'share') => void;
 
   requestConfirm: (options: ConfirmOptions) => void;
+
+  // Vitrine d'Exception & Mises en Avant (Hero Showcase Safricode Style)
+  heroSlides: ArchitecturalSlide[];
+  setHeroSlides: React.Dispatch<React.SetStateAction<ArchitecturalSlide[]>>;
+  addHeroSlide: (slide: ArchitecturalSlide) => void;
+  updateHeroSlide: (id: string, slide: Partial<ArchitecturalSlide>) => void;
+  deleteHeroSlide: (id: string) => void;
+  promotePropertyToHero: (propertyId: string) => void;
+  removePropertyFromHero: (propertyId: string) => void;
+
+  // Coordonnées de Contact & Conciergerie VIP
+  contactSettings: SiteContactSettings;
+  updateContactSettings: (newSettings: Partial<SiteContactSettings>) => Promise<{ success: boolean; message?: string }>;
 }
 
 const defaultFilters: PropertyFilters = {
@@ -265,6 +280,39 @@ const markPropertyAsDeletedLocally = (id: string) => {
     deleted.add(id);
     localStorage.setItem(DELETED_PROPERTIES_KEY, JSON.stringify(Array.from(deleted)));
   } catch {}
+};
+
+const HERO_SLIDES_KEY = 'kinimmo_hero_showcase_slides';
+
+const getInitialHeroSlides = (): ArchitecturalSlide[] => {
+  try {
+    const raw = localStorage.getItem(HERO_SLIDES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Hydrater chaque slide avec les coordonnées directes de son agence mandataire
+        // et remplacer tout numéro d'administrateur (+243 84 529 4616) par le numéro WhatsApp propre à l'agence
+        return parsed.map((slide) => {
+          const defaultRef = INITIAL_ARCHITECTURAL_SLIDES.find((d) => d.id === slide.id);
+          const hasAdminNumber = (num?: string) => Boolean(num && num.replace(/[^0-9]/g, '').includes('845294616'));
+
+          const shouldFixWhatsapp = !slide.contactWhatsapp || hasAdminNumber(slide.contactWhatsapp);
+          const shouldFixPhone = !slide.contactPhone || hasAdminNumber(slide.contactPhone);
+
+          return {
+            ...slide,
+            contactName: (!slide.contactName || shouldFixWhatsapp) ? (defaultRef?.contactName || 'Agence Immo Kin Gombe SARL') : slide.contactName,
+            contactRole: (!slide.contactRole || shouldFixWhatsapp) ? (defaultRef?.contactRole || 'Agence Mandataire Exclusif') : slide.contactRole,
+            contactPhone: shouldFixPhone ? (defaultRef?.contactPhone || '+243 82 123 4567') : slide.contactPhone,
+            contactWhatsapp: shouldFixWhatsapp ? (defaultRef?.contactWhatsapp || '+243 82 123 4567') : slide.contactWhatsapp,
+            contactEmail: (!slide.contactEmail || shouldFixWhatsapp) ? (defaultRef?.contactEmail || 'mandats@kinimmo.com') : slide.contactEmail,
+            legalStatus: slide.legalStatus || defaultRef?.legalStatus || 'Titre Foncier & Certificat d’Enregistrement Conforme'
+          };
+        });
+      }
+    }
+  } catch {}
+  return INITIAL_ARCHITECTURAL_SLIDES;
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -377,6 +425,157 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+
+  // Vitrine d'Exception & Mises en Avant (Hero Showcase)
+  const [heroSlides, setHeroSlides] = useState<ArchitecturalSlide[]>(getInitialHeroSlides);
+
+  // Sync slides with MySQL if available
+  useEffect(() => {
+    let isMounted = true;
+    mysqlApi.getHeroSlides().then((remoteSlides) => {
+      if (isMounted && remoteSlides && Array.isArray(remoteSlides) && remoteSlides.length > 0) {
+        setHeroSlides(remoteSlides);
+      }
+    }).catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(HERO_SLIDES_KEY, JSON.stringify(heroSlides));
+    } catch {}
+  }, [heroSlides]);
+
+  const addHeroSlide = (slide: ArchitecturalSlide) => {
+    setHeroSlides((prev) => [slide, ...prev]);
+    mysqlApi.adminCreateHeroSlide(slide).catch(() => {});
+  };
+
+  const updateHeroSlide = (id: string, updated: Partial<ArchitecturalSlide>) => {
+    setHeroSlides((prev) => prev.map((s) => (s.id === id ? { ...s, ...updated } : s)));
+    mysqlApi.adminUpdateHeroSlide(id, updated).catch(() => {});
+  };
+
+  const deleteHeroSlide = (id: string) => {
+    setHeroSlides((prev) => prev.filter((s) => s.id !== id));
+    mysqlApi.adminDeleteHeroSlide(id).catch(() => {});
+  };
+
+  const promotePropertyToHero = (propertyId: string) => {
+    const prop = properties.find((p) => p.id === propertyId);
+    if (!prop) return;
+
+    // Résoudre l'agence ou l'agent mandataire assigné à ce bien
+    const assignedAgent = prop.agentId ? agents.find((a) => a.id === prop.agentId) : null;
+    const assignedAgency = prop.agencyId
+      ? agencies.find((a) => a.id === prop.agencyId || a.name === prop.agencyName)
+      : (assignedAgent?.agencyId ? agencies.find((a) => a.id === assignedAgent.agencyId) : null);
+
+    const hasAdminNumber = (num?: string) => Boolean(num && num.replace(/[^0-9]/g, '').includes('845294616'));
+
+    const directWhatsapp =
+      (assignedAgency?.whatsapp && !hasAdminNumber(assignedAgency.whatsapp) ? assignedAgency.whatsapp : null) ||
+      (assignedAgent?.whatsapp && !hasAdminNumber(assignedAgent.whatsapp) ? assignedAgent.whatsapp : null) ||
+      (prop.contactPhone && !hasAdminNumber(prop.contactPhone) ? prop.contactPhone : null) ||
+      assignedAgency?.phone ||
+      assignedAgent?.phone ||
+      '+243 81 000 0001';
+
+    const directPhone =
+      (assignedAgency?.phone && !hasAdminNumber(assignedAgency.phone) ? assignedAgency.phone : null) ||
+      (assignedAgent?.phone && !hasAdminNumber(assignedAgent.phone) ? assignedAgent.phone : null) ||
+      directWhatsapp;
+
+    const directName = assignedAgency?.name || (assignedAgent ? `${assignedAgent.name} (Agent Mandataire)` : (prop.agencyName || 'Agence Immo Kin Gombe SARL'));
+    const directRole = assignedAgency ? `Agence Partenaire - ${assignedAgency.name}` : (assignedAgent ? `Agent Référent (${assignedAgent.name})` : 'Agence Mandataire Agréée');
+    const directEmail = assignedAgency?.email || assignedAgent?.email || 'mandats@kinimmo.com';
+    const directLegalStatus = prop.customFields?.titre_foncier || 'Certificat d’Enregistrement Notarié & Titre Foncier Conforme';
+
+    const newSlide: ArchitecturalSlide = {
+      id: `slide_prop_${prop.id}`,
+      badgeCategory: prop.category?.toUpperCase() || (prop.status === 'for-sale' ? 'VENTE DE STANDING' : 'LOCATION DE LUXE'),
+      badgeLocation: `${(prop.commune || prop.city || 'KINSHASA').toUpperCase()}`,
+      title: prop.title.toUpperCase(),
+      subTitle: `${(prop.type || 'Résidence').toUpperCase()} D'EXCEPTION • KINSHASA`,
+      description: prop.description || 'Superbe opportunité immobilière de grand standing à Kinshasa avec titre foncier garanti.',
+      image: prop.images?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=1600&auto=format&fit=crop&q=85',
+      propertyType: prop.type,
+      commune: prop.commune || 'Gombe',
+      propertyId: prop.id,
+      isActive: true,
+      order: 1,
+      contactName: directName,
+      contactRole: directRole,
+      contactPhone: directPhone,
+      contactWhatsapp: directWhatsapp,
+      contactEmail: directEmail,
+      legalStatus: directLegalStatus,
+      stats: {
+        units: prop.bedrooms ? `${prop.bedrooms} Chambres` : 'Standing',
+        parking: prop.bathrooms ? `${prop.bathrooms} Salles d'eau` : 'Parking Sécurisé',
+        surface: prop.area ? `${prop.area} m²` : '320 m²'
+      },
+      details: {
+        amenities: prop.amenities && prop.amenities.length > 0 ? prop.amenities.slice(0, 5) : [
+          'Sécurité 24/7 & Gardiennage VIP',
+          'Alimentation électrique continue (Groupe & Solaire)',
+          'Titre foncier et certificat vérifié au Cadastre'
+        ],
+        priceInfo: `$${prop.price?.toLocaleString()} ${prop.period === 'month' ? '/ mois' : ''}`,
+        deliveryDate: 'Disponible immédiatement'
+      }
+    };
+
+    setHeroSlides((prev) => [newSlide, ...prev.filter((s) => s.propertyId !== propertyId)]);
+
+    setProperties((prev) =>
+      prev.map((p) => {
+        if (p.id === propertyId) {
+          const currentLabels = p.labels || [];
+          if (!currentLabels.includes('featured')) {
+            return { ...p, labels: [...currentLabels, 'featured'] };
+          }
+        }
+        return p;
+      })
+    );
+  };
+
+  const removePropertyFromHero = (propertyId: string) => {
+    setHeroSlides((prev) => prev.filter((s) => s.propertyId !== propertyId));
+  };
+
+  // Coordonnées de Contact & Conciergerie VIP
+  const [contactSettings, setContactSettings] = useState<SiteContactSettings>(() => {
+    return mysqlApi.getStoredContactSettings();
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    mysqlApi.getContactSettings().then((remoteSettings) => {
+      if (isMounted && remoteSettings) {
+        setContactSettings(remoteSettings);
+      }
+    }).catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const updateContactSettings = async (newSettings: Partial<SiteContactSettings>) => {
+    const merged: SiteContactSettings = {
+      ...contactSettings,
+      ...newSettings,
+      vipConcierge: {
+        ...contactSettings.vipConcierge,
+        ...(newSettings.vipConcierge || {})
+      }
+    };
+    setContactSettings(merged);
+    return await mysqlApi.adminUpdateContactSettings(merged);
+  };
 
   // Deep-linking URL Synchronization & Browser History Navigation
   useEffect(() => {
@@ -506,19 +705,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubAgents = subscribeToAgents((firestoreAgents) => {
-      if (Array.isArray(firestoreAgents)) {
+      if (Array.isArray(firestoreAgents) && firestoreAgents.length > 0) {
         setAgents(firestoreAgents);
         try {
           syncFirestoreAgentsToAuthStore(firestoreAgents);
         } catch (e) {
           console.error('Error syncing firestore agents to auth store:', e);
         }
+      } else {
+        setAgents((prev) => (prev && prev.length > 0 ? prev : initialAgents));
       }
     });
 
     const unsubAgencies = subscribeToAgencies((firestoreAgencies) => {
-      if (Array.isArray(firestoreAgencies)) {
+      if (Array.isArray(firestoreAgencies) && firestoreAgencies.length > 0) {
         setAgencies(firestoreAgencies);
+      } else {
+        setAgencies((prev) => (prev && prev.length > 0 ? prev : initialAgencies));
       }
     });
 
@@ -551,6 +754,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     mysqlApi.getCustomFields().then((apiFields) => {
       if (Array.isArray(apiFields) && apiFields.length > 0) {
         setCustomFields(apiFields as CustomFieldDefinition[]);
+      }
+    }).catch(() => {});
+
+    // Synchronize agencies from MySQL API backend
+    mysqlApi.getAgencies().then((res) => {
+      if (res && res.success && Array.isArray(res.agencies) && res.agencies.length > 0) {
+        setAgencies((prev) => {
+          const map = new Map<string, Agency>();
+          res.agencies.forEach((a: Agency) => map.set(a.id, a));
+          prev.forEach((a) => {
+            if (!map.has(a.id)) map.set(a.id, a);
+          });
+          return Array.from(map.values());
+        });
+      }
+    }).catch(() => {});
+
+    // Synchronize agents from MySQL API backend
+    mysqlApi.getAgents().then((res) => {
+      if (res && res.success && Array.isArray(res.agents) && res.agents.length > 0) {
+        setAgents((prev) => {
+          const map = new Map<string, Agent>();
+          res.agents.forEach((a: Agent) => map.set(a.id, a));
+          prev.forEach((a) => {
+            if (!map.has(a.id)) map.set(a.id, a);
+          });
+          return Array.from(map.values());
+        });
       }
     }).catch(() => {});
 
@@ -1444,6 +1675,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         incrementPropertyViews,
         recordPropertyAction,
         requestConfirm,
+        heroSlides,
+        setHeroSlides,
+        addHeroSlide,
+        updateHeroSlide,
+        deleteHeroSlide,
+        promotePropertyToHero,
+        removePropertyFromHero,
+        contactSettings,
+        updateContactSettings,
       }}
     >
       <div dir={languages.find((l) => l.code === language)?.dir || 'ltr'}>

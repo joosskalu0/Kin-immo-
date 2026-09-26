@@ -37,11 +37,17 @@ import {
   CreditCard,
   Server,
   Zap,
-  Tag
+  Tag,
+  MessageCircle,
+  Check,
+  Compass
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { mysqlApi, clearStoredToken } from '../../services/mysqlApi';
-import { Property } from '../../types';
+import { mysqlApi, clearStoredToken, DEFAULT_CONTACT_SETTINGS } from '../../services/mysqlApi';
+import { Property, SiteContactSettings } from '../../types';
+import { AdminMonetizationManager } from './AdminMonetizationManager';
+import { AdminHeroShowcaseManager } from './AdminHeroShowcaseManager';
+import { AdminConciergerieManager } from './AdminConciergerieManager';
 
 interface AdminDashboardProps {
   adminUser: {
@@ -55,7 +61,7 @@ interface AdminDashboardProps {
   onReturnHome: () => void;
 }
 
-type TabType = 'overview' | 'properties' | 'agents' | 'agencies' | 'users' | 'settings' | 'custom_fields';
+type TabType = 'overview' | 'properties' | 'hero_showcase' | 'agents' | 'agencies' | 'users' | 'settings' | 'custom_fields' | 'monetization' | 'conciergerie';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
@@ -67,7 +73,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     agents: contextAgents,
     customFields,
     addCustomField,
-    deleteCustomField
+    deleteCustomField,
+    heroSlides,
+    promotePropertyToHero,
+    removePropertyFromHero,
+    contactSettings,
+    updateContactSettings
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -102,17 +113,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
 
   // Platform & Configuration states
-  const [siteSettings, setSiteSettings] = useState({
-    siteName: 'Kin Immobilier (Kinimmo)',
-    domainUrl: 'https://www.kinimmo.com',
-    adminUrl: 'https://www.kinimmo.com/admin',
-    contactEmail: 'contact@kinimmo.cd',
-    supportPhone: '+243 810 000 001',
-    exchangeRate: 2850,
-    defaultCurrency: 'USD',
-    autoApproveProperties: false,
-    requireCertifiedBadge: true,
+  const [siteSettings, setSiteSettings] = useState<SiteContactSettings>(() => {
+    return contactSettings || DEFAULT_CONTACT_SETTINGS;
   });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  useEffect(() => {
+    if (contactSettings) {
+      setSiteSettings(contactSettings);
+    }
+  }, [contactSettings]);
+
   const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'currency' | 'billing' | 'server'>('general');
 
   // Search & Filter states
@@ -586,6 +597,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('hero_showcase')}
+          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
+            activeTab === 'hero_showcase'
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-emerald-400" />
+          <span>Mises en Avant & Vitrine Hero</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('conciergerie')}
+          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
+            activeTab === 'conciergerie'
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <Compass className="w-4 h-4 text-emerald-400" />
+          <span>Conciergerie & Mandats</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('agents')}
           className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
             activeTab === 'agents'
@@ -631,6 +666,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <SlidersHorizontal className="w-4 h-4" />
           <span>Critères & Champs PRO ({dbCustomFields.length || customFields.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('monetization')}
+          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
+            activeTab === 'monetization'
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <DollarSign className="w-4 h-4 text-emerald-400" />
+          <span>Monétisation & Régie</span>
         </button>
 
         <button
@@ -918,16 +965,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </select>
                           </td>
                           <td className="py-3.5 px-4">
-                            <button
-                              onClick={() => handleTogglePropertyFeatured(prop.id, Boolean(prop.is_featured || prop.featured))}
-                              className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 ${
-                                (prop.is_featured || prop.featured)
-                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                                  : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
-                              }`}
-                            >
-                              <Star className={`w-3.5 h-3.5 ${(prop.is_featured || prop.featured) ? 'fill-amber-400 text-amber-400' : ''}`} />
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleTogglePropertyFeatured(prop.id, Boolean(prop.is_featured || prop.featured))}
+                                title={prop.is_featured ? 'Retirer des biens en vedette' : 'Mettre en vedette'}
+                                className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 ${
+                                  (prop.is_featured || prop.featured)
+                                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                                    : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
+                                }`}
+                              >
+                                <Star className={`w-3.5 h-3.5 ${(prop.is_featured || prop.featured) ? 'fill-amber-400 text-amber-400' : ''}`} />
+                              </button>
+
+                              {heroSlides.some((s) => s.propertyId === prop.id) ? (
+                                <button
+                                  onClick={() => removePropertyFromHero(prop.id)}
+                                  title="Présent dans la Vitrine Hero (cliquer pour retirer)"
+                                  className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase flex items-center gap-1 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/30 transition-all cursor-pointer"
+                                >
+                                  <Sparkles className="w-3 h-3 text-emerald-400" />
+                                  <span>Vitrine</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    promotePropertyToHero(prop.id);
+                                    setNotification({ type: 'success', message: `Le bien "${prop.title}" est maintenant en Vitrine Hero !` });
+                                  }}
+                                  title="Projeter ce bien dans la Vitrine Hero (Carrousel plein écran)"
+                                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-400 border border-slate-700 text-[10px] font-bold uppercase flex items-center gap-1 transition-all cursor-pointer"
+                                >
+                                  <Sparkles className="w-3 h-3" />
+                                  <span>+ Vitrine</span>
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3.5 px-4">
                             <button
@@ -957,6 +1030,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </table>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB : MISES EN AVANT & VITRINE HERO (SHOWCASE)       */}
+        {/* ==================================================== */}
+        {activeTab === 'hero_showcase' && (
+          <div className="animate-in fade-in duration-300">
+            <AdminHeroShowcaseManager onReturnHome={onReturnHome} />
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB : CONCIERGERIE & MANDATS DE RECHERCHE            */}
+        {/* ==================================================== */}
+        {activeTab === 'conciergerie' && (
+          <div className="animate-in fade-in duration-300">
+            <AdminConciergerieManager />
           </div>
         )}
 
@@ -1341,67 +1432,453 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            {/* SUBTAB 1 : IDENTITÉ & CONTACTS */}
+            {/* SUBTAB 1 : IDENTITÉ, CONTACTS & SERVICE CLIENT VIP */}
             {settingsSubTab === 'general' && (
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">Identité du Portail Kinshasa</h4>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1.5">Nom de la Plateforme</label>
-                    <input
-                      type="text"
-                      value={siteSettings.siteName}
-                      onChange={(e) => setSiteSettings({ ...siteSettings, siteName: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
-                    />
+              <div className="space-y-6">
+                {/* En-tête informatif */}
+                <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-950/60 via-slate-900 to-slate-900 border border-emerald-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/10">
+                      <Phone className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                        <span>Gestion des Contacts & Service Client VIP</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold font-mono">
+                          Synchronisé MySQL
+                        </span>
+                      </h4>
+                      <p className="text-xs text-slate-300 mt-0.5">
+                        Modifiez les coordonnées officielles, la bulle de Conciergerie VIP et le pied de page. Tous les changements sont enregistrés dans le backend et répercutés en temps réel sur le site.
+                      </p>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1.5">Email de Contact Officiel</label>
-                    <input
-                      type="email"
-                      value={siteSettings.contactEmail}
-                      onChange={(e) => setSiteSettings({ ...siteSettings, contactEmail: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
-                    />
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isSavingSettings}
+                      onClick={async () => {
+                        setIsSavingSettings(true);
+                        try {
+                          const res = await updateContactSettings(siteSettings);
+                          showNotification('success', res.message || 'Coordonnées et Service VIP enregistrés dans la base MySQL !');
+                        } catch (err: any) {
+                          showNotification('error', err?.message || 'Erreur lors de l\'enregistrement');
+                        } finally {
+                          setIsSavingSettings(false);
+                        }
+                      }}
+                      className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-emerald-600/30 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                    >
+                      {isSavingSettings ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Database className="w-4 h-4" />
+                      )}
+                      <span>Enregistrer dans MySQL</span>
+                    </button>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1.5">Ligne d'Assistance WhatsApp Kinshasa</label>
-                    <input
-                      type="text"
-                      value={siteSettings.supportPhone}
-                      onChange={(e) => setSiteSettings({ ...siteSettings, supportPhone: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
+                {/* BLOC 1 : CONCIERGERIE PARTENARIATS, AGENCES & RELATIONS B2B */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                          Conciergerie Partenariats, Agences & Relations B2B
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          Configurez l'espace professionnel dédié aux agences immobilières, agents mandataires, promoteurs de programmes neufs et investisseurs.
+                        </p>
+                      </div>
+                    </div>
 
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1.5">Modération des Annonces</label>
-                    <div className="pt-1.5 flex items-center gap-3">
+                    <div className="flex items-center gap-2.5 bg-slate-950 px-3.5 py-1.5 rounded-xl border border-slate-800">
+                      <label htmlFor="vip_enabled_toggle" className="text-xs font-bold text-slate-300 cursor-pointer">
+                        {siteSettings.vipConcierge?.enabled !== false ? 'Conciergerie Active' : 'Conciergerie Désactivée'}
+                      </label>
                       <input
                         type="checkbox"
-                        id="auto_approve_toggle"
-                        checked={!siteSettings.autoApproveProperties}
-                        onChange={(e) => setSiteSettings({ ...siteSettings, autoApproveProperties: !e.target.checked })}
-                        className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-emerald-500 h-4 w-4"
+                        id="vip_enabled_toggle"
+                        checked={siteSettings.vipConcierge?.enabled !== false}
+                        onChange={(e) =>
+                          setSiteSettings({
+                            ...siteSettings,
+                            vipConcierge: {
+                              ...siteSettings.vipConcierge,
+                              enabled: e.target.checked
+                            }
+                          })
+                        }
+                        className="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
                       />
-                      <label htmlFor="auto_approve_toggle" className="text-slate-300 cursor-pointer">
-                        Exiger l'approbation manuelle de l'administrateur avant publication
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+                    {/* Nom / Titre du Service */}
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Titre du Hub Partenaires (En-tête de la bulle)
                       </label>
+                      <input
+                        type="text"
+                        value={siteSettings.vipConcierge?.title || ''}
+                        onChange={(e) =>
+                          setSiteSettings({
+                            ...siteSettings,
+                            vipConcierge: {
+                              ...siteSettings.vipConcierge,
+                              title: e.target.value
+                            }
+                          })
+                        }
+                        placeholder="Ex: Conciergerie Partenariats & Agences"
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {/* Sous-titre / Badge de Disponibilité */}
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Sous-titre / Badge d'Affiliation
+                      </label>
+                      <input
+                        type="text"
+                        value={siteSettings.vipConcierge?.subtitle || ''}
+                        onChange={(e) =>
+                          setSiteSettings({
+                            ...siteSettings,
+                            vipConcierge: {
+                              ...siteSettings.vipConcierge,
+                              subtitle: e.target.value
+                            }
+                          })
+                        }
+                        placeholder="Ex: Relations Professionnelles & Affiliations B2B"
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {/* Ligne Téléphonique Partenariats B2B */}
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Ligne Téléphonique Partenariats & Agences
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={siteSettings.vipConcierge?.phone || ''}
+                          onChange={(e) =>
+                            setSiteSettings({
+                              ...siteSettings,
+                              vipConcierge: {
+                                ...siteSettings.vipConcierge,
+                                phone: e.target.value
+                              }
+                            })
+                          }
+                          placeholder="+243 84 529 4616"
+                          className="flex-1 px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-none focus:border-emerald-500"
+                        />
+                        <a
+                          href={`tel:${(siteSettings.vipConcierge?.phone || '').replace(/\s+/g, '')}`}
+                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-xl flex items-center justify-center font-bold text-xs"
+                          title="Tester l'appel"
+                        >
+                          <Phone className="w-4 h-4" />
+                        </a>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1">Numéro composé lorsque le partenaire clique sur "Ligne Directe".</p>
+                    </div>
+
+                    {/* Numéro WhatsApp Direct Partenariats */}
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Numéro WhatsApp Direct Partenariats (avec indicatif +243)
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={siteSettings.vipConcierge?.whatsapp || ''}
+                          onChange={(e) =>
+                            setSiteSettings({
+                              ...siteSettings,
+                              vipConcierge: {
+                                ...siteSettings.vipConcierge,
+                                whatsapp: e.target.value
+                              }
+                            })
+                          }
+                          placeholder="+243 84 529 4616"
+                          className="flex-1 px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-none focus:border-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const raw = (siteSettings.vipConcierge?.whatsapp || '').replace(/[^0-9]/g, '');
+                            const msg = encodeURIComponent(siteSettings.vipConcierge?.defaultMessage || 'Test');
+                            window.open(`https://wa.me/${raw}?text=${msg}`, '_blank');
+                          }}
+                          className="px-3 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 rounded-xl flex items-center justify-center font-bold text-xs cursor-pointer"
+                          title="Tester l'ouverture WhatsApp"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1">Reçoit les demandes de mandats, catalogues et partenariats.</p>
+                    </div>
+
+                    {/* Email Dédié Partenariats */}
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Email Dédié Partenariats & Agences
+                      </label>
+                      <input
+                        type="email"
+                        value={siteSettings.vipConcierge?.email || ''}
+                        onChange={(e) =>
+                          setSiteSettings({
+                            ...siteSettings,
+                            vipConcierge: {
+                              ...siteSettings.vipConcierge,
+                              email: e.target.value
+                            }
+                          })
+                        }
+                        placeholder="partenariats@kinimmo.com"
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {/* Horaires d'Assistance B2B */}
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Horaires Disponibilité Partenaires
+                      </label>
+                      <input
+                        type="text"
+                        value={siteSettings.vipConcierge?.workingHours || ''}
+                        onChange={(e) =>
+                          setSiteSettings({
+                            ...siteSettings,
+                            vipConcierge: {
+                              ...siteSettings.vipConcierge,
+                              workingHours: e.target.value
+                            }
+                          })
+                        }
+                        placeholder="Ex: 7j/7 • 08h00 - 20h00"
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {/* Message WhatsApp Agences & Agents */}
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Message WhatsApp type pour Agences & Agents
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={siteSettings.vipConcierge?.agentMessage || ''}
+                        onChange={(e) =>
+                          setSiteSettings({
+                            ...siteSettings,
+                            vipConcierge: {
+                              ...siteSettings.vipConcierge,
+                              agentMessage: e.target.value
+                            }
+                          })
+                        }
+                        placeholder="Bonjour KINIMMO Partenariats, je suis une agence/un agent immobilier..."
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white leading-relaxed focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {/* Message WhatsApp Futurs Partenaires & Promoteurs */}
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Message WhatsApp type pour Partenaires & Promoteurs
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={siteSettings.vipConcierge?.partnerMessage || ''}
+                        onChange={(e) =>
+                          setSiteSettings({
+                            ...siteSettings,
+                            vipConcierge: {
+                              ...siteSettings.vipConcierge,
+                              partnerMessage: e.target.value
+                            }
+                          })
+                        }
+                        placeholder="Bonjour KINIMMO Partenariats, je souhaite vous présenter un projet immobilier..."
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white leading-relaxed focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {/* Message d'Accueil / Pitch dans la Bulle */}
+                    <div className="md:col-span-2">
+                      <label className="block font-bold text-slate-300 mb-1.5 uppercase tracking-wider text-[11px]">
+                        Texte d'Accueil / Pitch Présentation Partenaires dans la Bulle
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={siteSettings.vipConcierge?.description || ''}
+                        onChange={(e) =>
+                          setSiteSettings({
+                            ...siteSettings,
+                            vipConcierge: {
+                              ...siteSettings.vipConcierge,
+                              description: e.target.value
+                            }
+                          })
+                        }
+                        placeholder="Vous êtes une agence immobilière agréée, un agent indépendant, un promoteur de programmes neufs ou un propriétaire foncier ? Rejoignez le réseau officiel Kinimmo..."
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white leading-relaxed focus:outline-none focus:border-emerald-500"
+                      />
                     </div>
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-4 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => showNotification('success', 'Paramètres de contact mis à jour')}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-lg shadow-emerald-600/20"
-                  >
-                    Enregistrer les modifications
-                  </button>
+                {/* BLOC 2 : COORDONNÉES GÉNÉRALES & SIÈGE SOCIAL KINSHASA */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
+                  <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
+                    <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center">
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                        Coordonnées Officielles & Siège Social Kinshasa
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Ces coordonnées sont affichées dans le pied de page, les mentions légales et les factures.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5">Nom Officiel de la Plateforme</label>
+                      <input
+                        type="text"
+                        value={siteSettings.siteName}
+                        onChange={(e) => setSiteSettings({ ...siteSettings, siteName: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5">Email de Contact Officiel</label>
+                      <input
+                        type="email"
+                        value={siteSettings.contactEmail}
+                        onChange={(e) => setSiteSettings({ ...siteSettings, contactEmail: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5">Numéro de Téléphone Standard</label>
+                      <input
+                        type="text"
+                        value={siteSettings.supportPhone}
+                        onChange={(e) => setSiteSettings({ ...siteSettings, supportPhone: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1.5">Numéro WhatsApp Standard</label>
+                      <input
+                        type="text"
+                        value={siteSettings.supportWhatsApp}
+                        onChange={(e) => setSiteSettings({ ...siteSettings, supportWhatsApp: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block font-bold text-slate-300 mb-1.5">Adresse Physique du Siège Social à Kinshasa</label>
+                      <input
+                        type="text"
+                        value={siteSettings.officeAddress}
+                        onChange={(e) => setSiteSettings({ ...siteSettings, officeAddress: e.target.value })}
+                        placeholder="Ex: Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC"
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block font-bold text-slate-300 mb-1.5">Horaires d'Ouverture & Permanence</label>
+                      <input
+                        type="text"
+                        value={siteSettings.workingHours}
+                        onChange={(e) => setSiteSettings({ ...siteSettings, workingHours: e.target.value })}
+                        placeholder="Ex: Lundi - Samedi : 08h00 - 18h30 | Urgences VIP 24h/7j"
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block font-bold text-slate-300 mb-1.5">Modération des Annonces</label>
+                      <div className="pt-1 flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="auto_approve_toggle"
+                          checked={!siteSettings.autoApproveProperties}
+                          onChange={(e) => setSiteSettings({ ...siteSettings, autoApproveProperties: !e.target.checked })}
+                          className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
+                        />
+                        <label htmlFor="auto_approve_toggle" className="text-slate-300 cursor-pointer">
+                          Exiger l'approbation manuelle de l'administrateur avant publication en ligne
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions de sauvegarde & réinitialisation */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSiteSettings(DEFAULT_CONTACT_SETTINGS);
+                        showNotification('success', 'Coordonnées réinitialisées aux valeurs recommandées Kinshasa.');
+                      }}
+                      className="text-xs text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                    >
+                      Rétablir les coordonnées d'origine
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSavingSettings}
+                      onClick={async () => {
+                        setIsSavingSettings(true);
+                        try {
+                          const res = await updateContactSettings(siteSettings);
+                          showNotification('success', res.message || 'Paramètres de contact et conciergerie VIP mis à jour dans MySQL !');
+                        } catch (err: any) {
+                          showNotification('error', err?.message || 'Erreur lors de la mise à jour');
+                        } finally {
+                          setIsSavingSettings(false);
+                        }
+                      }}
+                      className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
+                    >
+                      {isSavingSettings ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Check className="w-4 h-4" />
+                      )}
+                      <span>Enregistrer les modifications dans MySQL</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1456,10 +1933,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex justify-end pt-4 border-t border-slate-800">
                   <button
                     type="button"
-                    onClick={() => showNotification('success', `Taux de change actualisé à 1 USD = ${siteSettings.exchangeRate} CDF`)}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-lg shadow-emerald-600/20"
+                    onClick={async () => {
+                      await updateContactSettings({ exchangeRate: siteSettings.exchangeRate, defaultCurrency: siteSettings.defaultCurrency });
+                      showNotification('success', `Taux de change actualisé à 1 USD = ${siteSettings.exchangeRate} CDF et synchronisé dans MySQL !`);
+                    }}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-lg shadow-emerald-600/20 cursor-pointer"
                   >
-                    Enregistrer le taux du jour
+                    Enregistrer le taux du jour dans MySQL
                   </button>
                 </div>
               </div>
@@ -1958,6 +2438,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 })}
             </div>
           </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB 8: MONÉTISATION, FACTURES & RÉGIE PUBLICITAIRE    */}
+        {/* ==================================================== */}
+        {activeTab === 'monetization' && (
+          <AdminMonetizationManager onRefreshStats={loadAllAdminData} />
         )}
       </main>
 

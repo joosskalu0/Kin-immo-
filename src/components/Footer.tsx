@@ -3,7 +3,12 @@ import { Heart, ShieldCheck, Mail, Phone, MapPin, SlidersHorizontal } from 'luci
 import { useApp } from '../context/AppContext';
 
 export const Footer: React.FC = () => {
-  const { setIsFieldsBuilderOpen } = useApp();
+  const { setIsFieldsBuilderOpen, contactSettings } = useApp();
+
+  const officeAddress = contactSettings?.officeAddress || 'Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC';
+  const supportPhone = contactSettings?.supportPhone || '+243 84 529 4616';
+  const contactEmail = contactSettings?.contactEmail || 'joosskalu72@gmail.com';
+  const cleanPhone = supportPhone.replace(/\s+/g, '');
 
   return (
     <footer className="bg-slate-950 border-t border-slate-800 text-slate-400 text-sm mt-16">
@@ -71,17 +76,21 @@ export const Footer: React.FC = () => {
         <div>
           <h4 className="text-white font-semibold text-sm mb-4">Contact & Siège Social</h4>
           <ul className="space-y-2.5 text-xs">
-            <li className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC</span>
+            <li className="flex items-start gap-2">
+              <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <span>{officeAddress}</span>
             </li>
             <li className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>+243 84 529 4616</span>
+              <a href={`tel:${cleanPhone}`} className="hover:text-emerald-400 transition-colors">
+                {supportPhone}
+              </a>
             </li>
             <li className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>joosskalu72@gmail.com</span>
+              <a href={`mailto:${contactEmail}`} className="hover:text-emerald-400 transition-colors">
+                {contactEmail}
+              </a>
             </li>
           </ul>
         </div>

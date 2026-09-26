@@ -727,6 +727,76 @@ async function deleteCustomField(req, res, next) {
   }
 }
 
+/**
+ * 8. GESTION DES PARAMÈTRES & COORDONNÉES VIP
+ * GET /api/admin/settings
+ */
+async function getSettings(req, res, next) {
+  try {
+    // Créer la table si elle n'existe pas encore
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS site_settings (
+        setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
+        setting_value LONGTEXT NOT NULL,
+        category VARCHAR(50) NOT NULL DEFAULT 'general',
+        description VARCHAR(255) DEFAULT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    const [rows] = await pool.execute('SELECT setting_key, setting_value, category, description FROM site_settings');
+    const settings = {};
+    for (const r of rows) {
+      settings[r.setting_key] = r.setting_value;
+    }
+
+    res.json({ success: true, settings });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Mettre à jour les paramètres et coordonnées de contact VIP
+ * PUT /api/admin/settings
+ */
+async function updateSettings(req, res, next) {
+  try {
+    const payload = req.body;
+    if (!payload || typeof payload !== 'object') {
+      return res.status(400).json({ success: false, message: 'Données de configuration invalides.' });
+    }
+
+    // Assurer que la table existe
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS site_settings (
+        setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
+        setting_value LONGTEXT NOT NULL,
+        category VARCHAR(50) NOT NULL DEFAULT 'general',
+        description VARCHAR(255) DEFAULT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    for (const [key, rawValue] of Object.entries(payload)) {
+      const stringValue = typeof rawValue === 'object' ? JSON.stringify(rawValue) : String(rawValue ?? '');
+      await pool.execute(
+        `INSERT INTO site_settings (setting_key, setting_value) 
+         VALUES (?, ?) 
+         ON DUPLICATE KEY UPDATE setting_value = ?`,
+        [key, stringValue, stringValue]
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'Coordonnées de contact et conciergerie VIP enregistrées avec succès dans MySQL.'
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getStats,
   // Users
@@ -755,5 +825,8 @@ module.exports = {
   getCustomFields,
   createCustomField,
   updateCustomField,
-  deleteCustomField
+  deleteCustomField,
+  // Settings & VIP Concierge
+  getSettings,
+  updateSettings
 };

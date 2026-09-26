@@ -99,6 +99,11 @@ export interface Property {
   leadsCount?: number;
   lastViewedAt?: string;
   featured: boolean;
+  isPremium?: boolean;
+  isUrgent?: boolean;
+  listingTier?: 'free' | 'standard' | 'premium' | 'featured';
+  boostExpiresAt?: string;
+  refreshBumpAt?: string;
   published: boolean;
 }
 
@@ -288,6 +293,9 @@ export interface Language {
 export interface SubscriptionPlan {
   id: string;
   name: string;
+  description?: string;
+  category?: 'general' | 'individual' | 'agency' | 'promoter';
+  badge?: string;
   priceMonthly: number; // in USD
   priceMonthlyCDF?: number; // in CDF (Francs Congolais)
   currency: string;
@@ -298,6 +306,95 @@ export interface SubscriptionPlan {
   features: string[];
   recommended?: boolean;
   isActive?: boolean;
+  hasVerifiedBadge?: boolean;
+  hasCrmLeads?: boolean;
+  hasPrioritySupport?: boolean;
+}
+
+export type BoostType = 'featured' | 'premium' | 'urgent' | 'refresh' | 'social_blast';
+
+export interface VisibilityOption {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  boost_type: BoostType;
+  duration_days: number;
+  price_usd: number;
+  price_cdf: number;
+  badge_text?: string;
+  icon: string;
+  is_active: boolean;
+}
+
+export interface ListingBoost {
+  id: string;
+  property_id: string;
+  user_id: string;
+  option_id: string;
+  invoice_id?: string;
+  status: 'pending' | 'active' | 'expired' | 'canceled';
+  starts_at?: string;
+  expires_at?: string;
+  created_at: string;
+  option_name?: string;
+  boost_type?: BoostType;
+  duration_days?: number;
+  badge_text?: string;
+  property_title?: string;
+  property_price?: number;
+  property_commune?: string;
+}
+
+export interface Advertisement {
+  id: string;
+  title: string;
+  description?: string;
+  advertiser_name: string;
+  advertiser_contact?: string;
+  advertiser_phone?: string;
+  advertiser_email?: string;
+  category: 'real_estate' | 'construction' | 'architecture' | 'interior_design' | 'banking' | 'insurance' | 'legal' | 'general';
+  placement: 'home_hero' | 'search_top' | 'sidebar' | 'footer_banner' | 'interstitial';
+  image_url: string;
+  target_url: string;
+  alt_text?: string;
+  price_usd: number;
+  start_date: string;
+  end_date: string;
+  impressions_count: number;
+  clicks_count: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
+export interface AdSenseConfig {
+  enabled: boolean;
+  clientId: string; // e.g. ca-pub-1234567890123456
+  slotHero?: string;
+  slotInFeed?: string;
+  slotSidebar?: string;
+  slotFooter?: string;
+  displayMode: 'sponsors' | 'adsense' | 'hybrid';
+  testMode?: boolean;
+}
+
+export interface MonetizationStats {
+  invoices: {
+    total_invoices?: number;
+    paid_invoices?: number;
+    pending_invoices?: number;
+    total_revenue_usd?: number;
+    total_revenue_cdf?: number;
+    boost_invoices?: number;
+    subscription_invoices?: number;
+  };
+  activeBoosts: number;
+  ads: {
+    active_ads?: number;
+    total_impressions?: number;
+    total_clicks?: number;
+  };
 }
 
 export interface InvoiceItem {
@@ -345,4 +442,168 @@ export interface TrackingConfig {
   isTiktokPixelEnabled: boolean;
   isGoogleAdsEnabled: boolean;
 }
+
+export interface VipConciergeSettings {
+  enabled: boolean;
+  title: string;
+  subtitle: string;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  defaultMessage: string;
+  description: string;
+  workingHours?: string;
+  agentMessage?: string; // Message WhatsApp pré-rempli pour Agences & Agents
+  partnerMessage?: string; // Message WhatsApp pré-rempli pour Partenaires & Promoteurs
+}
+
+export interface SiteContactSettings {
+  siteName: string;
+  contactEmail: string;
+  supportPhone: string;
+  supportWhatsApp: string;
+  officeAddress: string;
+  workingHours: string;
+  exchangeRate: number;
+  defaultCurrency?: string;
+  domainUrl?: string;
+  adminUrl?: string;
+  requireCertifiedBadge?: boolean;
+  autoApproveProperties?: boolean;
+  vipConcierge: VipConciergeSettings;
+}
+
+// Module Conciergerie Immobilière Kinimmo
+export type ConciergerieProjet =
+  | 'Acheter'
+  | 'Louer'
+  | 'Trouver un terrain'
+  | 'Trouver un local commercial'
+  | 'Autre';
+
+export type ConciergerieTypeBien =
+  | 'Appartement'
+  | 'Maison'
+  | 'Villa'
+  | 'Terrain'
+  | 'Bureau'
+  | 'Local commercial'
+  | 'Autre';
+
+export type ConciergerieService =
+  | 'Recherche de biens'
+  | 'Organisation de visites'
+  | 'Accompagnement à la location'
+  | 'Accompagnement à l’achat'
+  | 'Vérification des informations disponibles'
+  | 'Autre';
+
+export type ConciergeRequestStatus =
+  | 'new'
+  | 'searching'
+  | 'properties_found'
+  | 'visit_scheduled'
+  | 'negotiation'
+  | 'completed'
+  | 'cancelled';
+
+/**
+ * Table : concierge_requests
+ * Représente les mandats et demandes de conciergerie immobilière soumises par les clients
+ */
+export interface ConciergeRequest {
+  id: string;
+  user_id?: string | null;
+  project_type: string;
+  property_type: string;
+  commune: string;
+  quartier?: string | null;
+  budget_min?: number | null;
+  budget_max: number;
+  currency: 'USD' | 'CDF' | string;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  parking: boolean;
+  furnished: boolean;
+  services: string[];
+  description?: string | null;
+  full_name: string;
+  phone: string;
+  whatsapp?: string | null;
+  email: string;
+  status: ConciergeRequestStatus;
+  assigned_agent_id?: string | null;
+  created_at: string;
+  updated_at: string;
+
+  // Correspondance automatique avec les annonces de propriétés
+  matched_property_ids?: string[];
+  matched_count?: number;
+  top_match_score?: number;
+
+  // Propriétés de compatibilité et d'enrichissement pour l'interface UI
+  reference?: string;
+  notesAdmin?: string;
+  assigned_agent_name?: string | null;
+  projet?: ConciergerieProjet;
+  typeBien?: ConciergerieTypeBien;
+  localisation?: {
+    commune: string;
+    quartier?: string;
+  };
+  budget?: {
+    min?: number;
+    max: number;
+    devise: 'USD' | 'CDF';
+  };
+  caracteristiques?: {
+    chambres?: number;
+    sallesDeBain?: number;
+    parking: boolean;
+    meuble: boolean;
+  };
+  client?: {
+    nomComplet: string;
+    telephone: string;
+    whatsapp?: string;
+    email: string;
+    message?: string;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type PropertyVisitStatus =
+  | 'scheduled'
+  | 'confirmed'
+  | 'completed'
+  | 'cancelled'
+  | 'rescheduled';
+
+/**
+ * Table : property_visits
+ * Planification et suivi des visites immobilières associées à une demande
+ */
+export interface PropertyVisit {
+  id: string;
+  request_id: string;
+  property_id?: string | null;
+  agent_id?: string | null;
+  visit_date: string;
+  visit_time?: string | null;
+  status: PropertyVisitStatus | string;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+
+  // Métadonnées enrichies d'affichage
+  property_title?: string | null;
+  agent_name?: string | null;
+  client_name?: string | null;
+}
+
+// Alias de type pour assurer la rétrocompatibilité
+export type ConciergeRequestRecord = ConciergeRequest;
+export type PropertyVisitRecord = PropertyVisit;
+export type ConciergerieRequest = ConciergeRequest;
 

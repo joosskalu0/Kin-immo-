@@ -19,11 +19,16 @@ import { AgentInviteModal } from './components/Dashboard/AgentInviteModal';
 import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 import { SocialShareModal } from './components/SocialShareModal';
 import { QuickInteractiveFilters } from './components/QuickInteractiveFilters';
-import { KinshasaNeighborhoodsRadar } from './components/KinshasaNeighborhoodsRadar';
 import { CompareDock } from './components/CompareDock';
 import { InteractiveAssistantModal } from './components/InteractiveAssistantModal';
 import { LiveActivityTicker } from './components/LiveActivityTicker';
 import { AdminPortal } from './components/Admin/AdminPortal';
+import { MonetizationPricingView } from './components/Monetization/MonetizationPricingView';
+import { AdvertisementBanner } from './components/Monetization/AdvertisementBanner';
+import { ArchitecturalHeroSlider } from './components/ArchitecturalHeroSlider';
+import { FloatingConciergeWidget } from './components/FloatingConciergeWidget';
+import { ConciergeriePage } from './components/Conciergerie/ConciergeriePage';
+import { ConciergeriePreviewSection } from './components/Conciergerie/ConciergeriePreviewSection';
 import {
   Home,
   Building2,
@@ -38,6 +43,8 @@ import {
   Zap,
   Bot,
   MessageSquareCode,
+  Car,
+  ShieldCheck,
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -50,15 +57,18 @@ const AppContent: React.FC = () => {
         if (pathname === '/admin' || pathname.startsWith('/admin/')) {
           return 'admin';
         }
+        if (pathname === '/conciergerie' || pathname.startsWith('/conciergerie')) {
+          return 'conciergerie';
+        }
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        if (tab && ['home', 'map', 'agents', 'shortcodes', 'dashboard', 'wishlist', 'admin'].includes(tab)) {
+        if (tab && ['home', 'map', 'agents', 'agencies', 'shortcodes', 'dashboard', 'wishlist', 'admin', 'pricing', 'conciergerie'].includes(tab)) {
           return tab;
         }
       } catch {}
     }
     return 'home';
-  }); // 'home' | 'map' | 'agents' | 'shortcodes' | 'dashboard' | 'wishlist' | 'admin'
+  }); // 'home' | 'map' | 'agents' | 'agencies' | 'shortcodes' | 'dashboard' | 'wishlist' | 'admin' | 'pricing' | 'conciergerie'
   const [viewLayout, setViewLayout] = useState<'grid' | 'split'>('grid');
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
@@ -71,7 +81,7 @@ const AppContent: React.FC = () => {
       const url = new URL(window.location.href);
       url.searchParams.delete('tab');
       url.searchParams.delete('property');
-      const targetPath = url.pathname === '/admin' ? '/' : url.pathname;
+      const targetPath = (url.pathname === '/admin' || url.pathname === '/conciergerie') ? '/' : url.pathname;
       window.history.pushState({}, '', targetPath + (url.search ? url.search : ''));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {}
@@ -87,11 +97,17 @@ const AppContent: React.FC = () => {
           setCurrentTab('admin');
           return;
         }
+        if (pathname === '/conciergerie' || pathname.startsWith('/conciergerie')) {
+          setCurrentTab('conciergerie');
+          return;
+        }
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        if (tab && ['home', 'map', 'agents', 'shortcodes', 'dashboard', 'wishlist', 'admin'].includes(tab)) {
+        if (tab && ['home', 'map', 'agents', 'agencies', 'shortcodes', 'dashboard', 'wishlist', 'admin', 'pricing', 'conciergerie'].includes(tab)) {
           setCurrentTab(tab);
+          return;
         }
+        setCurrentTab('home');
       } catch {}
     };
 
@@ -104,19 +120,24 @@ const AppContent: React.FC = () => {
       home: 'Accueil - Annonces Immobilières Kinshasa',
       map: 'Carte Interactive des Biens - Kinshasa',
       agents: 'Annuaire des Agents & Agences Immobilières',
+      agencies: 'Agences Immobilières Agréées - Kinshasa',
       shortcodes: 'Galerie des Shortcodes & Widgets',
       dashboard: 'Tableau de Bord & Gestion Immobilière',
       wishlist: 'Mes Favoris Sauvegardés',
+      pricing: 'Tarifs & Abonnements - Kinimmo',
+      conciergerie: 'Conciergerie Immobilière - Votre recherche, notre accompagnement | Kinimmo',
       admin: 'Panneau d’Administration Sécurisé - Kinimmo',
     };
     trackPageView(tabTitles[currentTab] || `Kinshasa Immo - ${currentTab}`, `/${currentTab}`);
     
-    // Mettre à jour l'historique de navigation si l'onglet est admin
+    // Mettre à jour l'historique d'URL pour /conciergerie et /admin
     if (typeof window !== 'undefined') {
       try {
         if (currentTab === 'admin' && window.location.pathname !== '/admin') {
           window.history.pushState({}, '', '/admin');
-        } else if (currentTab !== 'admin' && window.location.pathname === '/admin') {
+        } else if (currentTab === 'conciergerie' && window.location.pathname !== '/conciergerie') {
+          window.history.pushState({}, '', '/conciergerie');
+        } else if (currentTab !== 'admin' && currentTab !== 'conciergerie' && (window.location.pathname === '/admin' || window.location.pathname === '/conciergerie')) {
           window.history.pushState({}, '', '/');
         }
       } catch {}
@@ -245,55 +266,26 @@ const AppContent: React.FC = () => {
         onOpenAssistant={() => setIsAssistantOpen(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8 pb-20 lg:pb-8 space-y-6 sm:space-y-8">
+      <main className={`flex-1 w-full ${currentTab === 'conciergerie' ? '' : 'max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8'} pb-20 lg:pb-8 space-y-6 sm:space-y-8`}>
         {/* TAB 1: HOME / PROPERTY LISTINGS */}
         {currentTab === 'home' && (
           <div className="space-y-6 sm:space-y-8">
-            {/* Hero Section */}
-            <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 border border-emerald-800/40 p-6 sm:p-12 shadow-xl text-white">
-              <div className="absolute top-0 right-0 w-1/2 h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-400/20 via-teal-400/10 to-transparent pointer-events-none" />
+            {/* Interactive Luxury Architectural Showcase Slider (Safricode Kinshasa Style) */}
+            <ArchitecturalHeroSlider
+              onExploreCommune={(commune) => {
+                setFilters((prev) => ({ ...prev, commune, searchQuery: '' }));
+              }}
+              onNavigateToAgencies={() => setCurrentTab('agents')}
+            />
 
-              <div className="max-w-2xl space-y-4 relative z-10">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-semibold uppercase tracking-wider">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-300" /> KIN IMMOBILIER • Plateforme Officielle RDC
-                </div>
-
-                <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
-                  Trouvez Votre Bien d'Exception à Kinshasa
-                </h1>
-
-                <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-normal">
-                  Immobilier de luxe et opportunités uniques à Kinshasa (Gombe, Ngaliema, Macampagne, Limete, Kintambo). Filtrez par Titre Foncier, autonomie Solaire/Groupe, Forage d'eau et Sécurité avec carte interactive en direct.
-                </p>
-
-                <div className="pt-2 flex flex-wrap gap-3">
-                  <button
-                    onClick={() => setIsAssistantOpen(true)}
-                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/30 transition-all flex items-center gap-2 active:scale-95"
-                  >
-                    <Bot className="w-4 h-4 text-slate-950" />
-                    <span>Conseiller IA & Recherche Magique</span>
-                  </button>
-
-                  <button
-                    onClick={() => setCurrentTab('map')}
-                    className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs border border-white/20 backdrop-blur-md transition-all flex items-center gap-2"
-                  >
-                    <MapPin className="w-4 h-4 text-emerald-300" />
-                    Carte Interactive
-                  </button>
-                </div>
-              </div>
-            </div>
+            {/* Search Widget - Direct et Simple */}
+            <SearchWidget />
 
             {/* Quick 1-Click Interactive Badges & Filters */}
             <QuickInteractiveFilters />
 
-            {/* Search Widget */}
-            <SearchWidget />
-
-            {/* Interactive Radar of Kinshasa Communes */}
-            <KinshasaNeighborhoodsRadar onOpenMap={() => setCurrentTab('map')} />
+            {/* Pancarte 1 : Dédiée aux Partenaires Immobiliers & Sponsors RDC */}
+            <AdvertisementBanner placement="home_hero" className="shadow-md" />
 
             {/* Explore Popular Kinshasa Communes Section */}
             <div className="space-y-4 pt-4">
@@ -412,8 +404,16 @@ const AppContent: React.FC = () => {
             {/* View Layout Render */}
             {viewLayout === 'grid' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {sortedProperties.map((property) => (
-                  <PropertyCard key={property.id} property={property} onShare={(id) => setSharePropertyId(id)} />
+                {sortedProperties.map((property, idx) => (
+                  <React.Fragment key={property.id}>
+                    <PropertyCard property={property} onShare={(id) => setSharePropertyId(id)} />
+                    {/* Pancarte 2 : Dédiée aux Partenaires Immobiliers Kinimmo au cœur du flux */}
+                    {idx === 2 && (
+                      <div className="col-span-1 md:col-span-2 lg:col-span-3 my-2">
+                        <AdvertisementBanner placement="search_top" className="shadow-sm" />
+                      </div>
+                    )}
+                  </React.Fragment>
                 ))}
               </div>
             ) : (
@@ -422,12 +422,37 @@ const AppContent: React.FC = () => {
                   <PropertyMap properties={sortedProperties} height="h-full" />
                 </div>
                 <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {sortedProperties.map((property) => (
-                    <PropertyCard key={property.id} property={property} onShare={(id) => setSharePropertyId(id)} />
+                  {sortedProperties.map((property, idx) => (
+                    <React.Fragment key={property.id}>
+                      <PropertyCard property={property} onShare={(id) => setSharePropertyId(id)} />
+                      {idx === 1 && (
+                        <div className="col-span-1 sm:col-span-2 my-2">
+                          <AdvertisementBanner placement="search_top" className="shadow-sm" />
+                        </div>
+                      )}
+                    </React.Fragment>
                   ))}
                 </div>
               </div>
             )}
+
+            {/* Aperçu Officiel du Service Conciergerie Immobilière Kinimmo */}
+            <ConciergeriePreviewSection
+              onNavigateToConciergerie={(params) => {
+                if (params) {
+                  try {
+                    const url = new URL(window.location.href);
+                    url.pathname = '/conciergerie';
+                    if (params.projet) url.searchParams.set('projet', params.projet);
+                    if (params.typeBien) url.searchParams.set('type', params.typeBien);
+                    if (params.commune) url.searchParams.set('commune', params.commune);
+                    window.history.pushState({}, '', url.pathname + url.search);
+                  } catch {}
+                }
+                setCurrentTab('conciergerie');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
 
             {/* Meet Our Top-rated Kinshasa Agents Section */}
             <div className="pt-10 space-y-6 border-t border-slate-200">
@@ -544,7 +569,10 @@ const AppContent: React.FC = () => {
         )}
 
         {/* TAB 3: AGENTS DIRECTORY */}
-        {currentTab === 'agents' && <AgentDirectory onReturnHome={handleGoHome} />}
+        {currentTab === 'agents' && <AgentDirectory initialTab="agents" onReturnHome={handleGoHome} />}
+
+        {/* TAB 3B: AGENCIES DIRECTORY */}
+        {currentTab === 'agencies' && <AgentDirectory initialTab="agencies" onReturnHome={handleGoHome} />}
 
         {/* TAB 4: WIDGETS & SHORTCODES */}
         {currentTab === 'shortcodes' && <ShortcodesGallery onReturnHome={handleGoHome} />}
@@ -575,11 +603,31 @@ const AppContent: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* TAB 7: TARIFS, MONÉTISATION & PUBLICITÉ */}
+        {currentTab === 'pricing' && <MonetizationPricingView />}
+
+        {/* TAB 8: CONCIERGERIE IMMOBILIÈRE */}
+        {currentTab === 'conciergerie' && (
+          <ConciergeriePage
+            onReturnHome={handleGoHome}
+            onExploreProperties={() => {
+              setCurrentTab('home');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
       </main>
 
       {/* Global Floating Interactive Controls & Modals */}
       <CompareDock />
       <LiveActivityTicker />
+      <FloatingConciergeWidget
+        onNavigateToConciergerie={() => {
+          setCurrentTab('conciergerie');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
       <InteractiveAssistantModal isOpen={isAssistantOpen} onClose={() => setIsAssistantOpen(false)} />
 
       {/* Floating Interactive AI Assistant Trigger Button */}

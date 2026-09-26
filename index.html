@@ -2,6 +2,60 @@
 <html lang="fr">
   <head>
     <script>
+      // Top-level error suppressor: Prevents cross-origin 3rd-party script failures (GTM, AdSense, AdBlockers) from bubbling
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        if (!msg) return false;
+        var str = typeof msg === 'string' ? msg : (msg.message || '');
+        if (
+          str === 'Script error.' ||
+          str.indexOf('Script error') !== -1 ||
+          str.indexOf('ResizeObserver') !== -1 ||
+          !url ||
+          (typeof url === 'string' && (
+            url.indexOf('googletagmanager') !== -1 ||
+            url.indexOf('google') !== -1 ||
+            url.indexOf('doubleclick') !== -1 ||
+            url.indexOf('facebook') !== -1 ||
+            url.indexOf('tiktok') !== -1 ||
+            url.indexOf('pagead2') !== -1
+          ))
+        ) {
+          return true; // Prevents the error from firing to host
+        }
+        return false;
+      };
+
+      window.addEventListener('error', function(event) {
+        if (!event) return;
+        var msg = event.message || '';
+        var filename = event.filename || '';
+        if (
+          msg === 'Script error.' ||
+          msg.indexOf('Script error') !== -1 ||
+          msg.indexOf('ResizeObserver') !== -1 ||
+          filename.indexOf('googletagmanager') !== -1 ||
+          filename.indexOf('google') !== -1 ||
+          filename.indexOf('doubleclick') !== -1 ||
+          filename.indexOf('facebook') !== -1 ||
+          filename.indexOf('tiktok') !== -1 ||
+          filename.indexOf('pagead2') !== -1
+        ) {
+          if (event.preventDefault) event.preventDefault();
+          if (event.stopPropagation) event.stopPropagation();
+          return true;
+        }
+      }, true);
+
+      window.addEventListener('unhandledrejection', function(event) {
+        if (!event) return;
+        var reason = event.reason;
+        var msg = reason ? (reason.message || String(reason)) : '';
+        if (msg.indexOf('Script error') !== -1 || msg.indexOf('Failed to fetch') !== -1) {
+          if (event.preventDefault) event.preventDefault();
+          return true;
+        }
+      });
+
       // Immediate cleanup of legacy bloated localStorage items to prevent QuotaExceededError
       try {
         ['immocraft_properties', 'immocraft_agents', 'immocraft_agencies', 'estatik_registered_users', 'estatik_kinshasa_user', 'immocraft_custom_fields', 'immocraft_deleted_properties', 'immocraft_saved_searches', 'kin_tracking_config', 'estatik_admin_credentials_v1'].forEach(function(k) {
@@ -26,52 +80,9 @@
     <meta name="twitter:title" content="Kinshasa Immobilier - Plateforme Immobilière & Gestion RDC" />
     <meta name="twitter:description" content="Découvrez les meilleures annonces immobilières à Kinshasa : Villas de standing, appartements modernes, terrains titrés et concessions." />
     <meta name="twitter:image" content="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&h=630&fit=crop" />
-    
-    <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-MBV5CSQR');</script>
-    <!-- End Google Tag Manager -->
-
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-3FYYBC6QQG"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-
-      gtag('config', 'G-3FYYBC6QQG');
-
-      // Safe Error Handler to catch ad-blockers and cross-origin tag errors
-      window.addEventListener('error', function(event) {
-        if (!event) return;
-        var msg = event.message || '';
-        var filename = event.filename || '';
-        if (
-          msg === 'Script error.' ||
-          msg.includes('Script error') ||
-          filename.includes('googletagmanager') ||
-          filename.includes('facebook') ||
-          filename.includes('fbevents') ||
-          filename.includes('tiktok')
-        ) {
-          if (event.preventDefault) event.preventDefault();
-          if (event.stopPropagation) event.stopPropagation();
-          return true;
-        }
-      }, true);
-    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500 selection:text-slate-950">
-    <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MBV5CSQR"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-    <!-- End Google Tag Manager (noscript) -->
-
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-emerald-500 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

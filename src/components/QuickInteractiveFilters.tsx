@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { Sparkles, ShieldCheck, Zap, Droplets, Waves, Building2, Trees, Gem, DollarSign, Tag, Key } from 'lucide-react';
+import { Sparkles, ShieldCheck, Zap, Droplets, Waves, Building2, Trees, Gem, DollarSign, Tag, Key, Car } from 'lucide-react';
 
 export const QuickInteractiveFilters: React.FC = () => {
   const { properties, filters, setFilters, resetFilters } = useApp();
@@ -10,6 +10,10 @@ export const QuickInteractiveFilters: React.FC = () => {
 
   const counts = {
     all: availableProperties.length,
+    garage: availableProperties.filter((p) => 
+      (p.garages && p.garages > 0) ||
+      p.amenities?.some((a) => a.toLowerCase().includes('parking') || a.toLowerCase().includes('garage'))
+    ).length,
     titreFoncier: availableProperties.filter((p) => 
       p.customFields?.titre_foncier === 'Certificat d\'Enregistrement (Garanti)' ||
       p.customFields?.titre_foncier === 'Livret de Logeur' ||
@@ -73,6 +77,8 @@ export const QuickInteractiveFilters: React.FC = () => {
         return filters.status === 'for-sale';
       case 'forRent':
         return filters.status === 'for-rent';
+      case 'garage':
+        return Boolean(filters.amenities?.some((a) => a.toLowerCase().includes('parking') || a.toLowerCase().includes('garage')));
       default:
         return false;
     }
@@ -145,6 +151,18 @@ export const QuickInteractiveFilters: React.FC = () => {
           ...prev,
           status: prev.status === 'for-rent' ? 'all' : 'for-rent',
         }));
+        break;
+      case 'garage':
+        setFilters((prev) => {
+          const currentAmenities = prev.amenities || [];
+          const hasParking = currentAmenities.some((a) => a.toLowerCase().includes('parking'));
+          return {
+            ...prev,
+            amenities: hasParking
+              ? currentAmenities.filter((a) => !a.toLowerCase().includes('parking'))
+              : [...currentAmenities, 'Parking'],
+          };
+        });
         break;
       case 'affordableRent':
         setFilters((prev) => ({
@@ -235,6 +253,14 @@ export const QuickInteractiveFilters: React.FC = () => {
       count: counts.forRent,
       isActive: isFilterActive('forRent'),
       color: 'teal',
+    },
+    {
+      id: 'garage',
+      label: 'Garage & Parking',
+      icon: Car,
+      count: counts.garage,
+      isActive: isFilterActive('garage'),
+      color: 'emerald',
     },
   ];
 

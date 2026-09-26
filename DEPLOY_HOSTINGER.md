@@ -45,7 +45,7 @@ Pour une sécurité maximale :
 3. Cliquez sur l'onglet **Importer** en haut.
 4. Cliquez sur **Choisir un fichier** et sélectionnez `server/schema.sql`.
 5. Cliquez sur **Exécuter** en bas de page.
-   - Les tables (`users`, `properties`, `agents`, `agencies`, `invoices`, `pricing_plans`, etc.) sont créées.
+   - Les tables (`users`, `properties`, `agents`, `agencies`, `invoices`, `pricing_plans`, `hero_showcase_slides`, `site_settings` pour les contacts et la conciergerie VIP, etc.) sont créées.
    - **Important** : Aucune donnée de démonstration ni compte administrateur par défaut n'est injecté.
 
 ---

@@ -1,0 +1,174 @@
+[
+  {
+    "id": "conc_1790418361431_5xf3v",
+    "user_id": null,
+    "project_type": "Louer",
+    "property_type": "Appartement",
+    "commune": "Gombe",
+    "quartier": "Batetela",
+    "budget_min": 2500,
+    "budget_max": 5000,
+    "currency": "USD",
+    "bedrooms": 4,
+    "bathrooms": 4,
+    "parking": true,
+    "furnished": true,
+    "services": [
+      "Recherche de biens"
+    ],
+    "description": "Recherche penthouse ou grand appartement à louer",
+    "full_name": "Jean-Pierre Kalala",
+    "phone": "+243 81 234 5678",
+    "whatsapp": null,
+    "email": "jp.kalala@kinshasabusiness.cd",
+    "status": "properties_found",
+    "assigned_agent_id": null,
+    "created_at": "2026-09-26T10:26:01.431Z",
+    "updated_at": "2026-09-26T10:26:01.431Z",
+    "reference": "KIN-CONC-2026-1604",
+    "projet": "Louer",
+    "typeBien": "Appartement",
+    "localisation": {
+      "commune": "Gombe",
+      "quartier": "Batetela"
+    },
+    "budget": {
+      "min": 2500,
+      "max": 5000,
+      "devise": "USD"
+    },
+    "caracteristiques": {
+      "chambres": 4,
+      "sallesDeBain": 4,
+      "parking": true,
+      "meuble": true
+    },
+    "client": {
+      "nomComplet": "Jean-Pierre Kalala",
+      "telephone": "+243 81 234 5678",
+      "email": "jp.kalala@kinshasabusiness.cd",
+      "message": "Recherche penthouse ou grand appartement à louer"
+    },
+    "createdAt": "2026-09-26T10:26:01.431Z",
+    "updatedAt": "2026-09-26T10:26:01.431Z",
+    "matched_property_ids": [
+      "prop_1",
+      "prop_3",
+      "prop_4",
+      "prop_2",
+      "prop_5",
+      "prop_6"
+    ],
+    "matched_count": 6,
+    "top_match_score": 100
+  },
+  {
+    "id": "conc_1790324366700_lf5fx",
+    "user_id": null,
+    "project_type": "Acheter",
+    "property_type": "Villa",
+    "commune": "Ngaliema",
+    "quartier": "Macampagne",
+    "budget_min": 300000,
+    "budget_max": 650000,
+    "currency": "USD",
+    "bedrooms": 4,
+    "bathrooms": 3,
+    "parking": true,
+    "furnished": false,
+    "services": [
+      "Recherche de biens",
+      "Organisation de visites",
+      "Accompagnement à l’achat"
+    ],
+    "description": "Recherche villa contemporaine avec piscine sécurisée et groupe électrogène.",
+    "full_name": "Dieudonné Kabila",
+    "phone": "+243812345678",
+    "whatsapp": "+243812345678",
+    "email": "dieudonne.kabila@gmail.com",
+    "status": "visit_scheduled",
+    "assigned_agent_id": "agent-1",
+    "created_at": "2026-09-25T08:19:26.700Z",
+    "updated_at": "2026-09-25T09:30:00.000Z",
+    "reference": "KIN-CONC-2026-2907",
+    "projet": "Acheter",
+    "typeBien": "Villa",
+    "localisation": {
+      "commune": "Ngaliema",
+      "quartier": "Macampagne"
+    },
+    "budget": {
+      "min": 300000,
+      "max": 650000,
+      "devise": "USD"
+    },
+    "caracteristiques": {
+      "chambres": 4,
+      "sallesDeBain": 3,
+      "parking": true,
+      "meuble": false
+    },
+    "client": {
+      "nomComplet": "Dieudonné Kabila",
+      "telephone": "+243812345678",
+      "whatsapp": "+243812345678",
+      "email": "dieudonne.kabila@gmail.com",
+      "message": "Recherche villa contemporaine avec piscine sécurisée et groupe électrogène."
+    },
+    "notesAdmin": "Client très sérieux, budget validé avec sa banque. Visite prévue sur Macampagne."
+  },
+  {
+    "id": "conc_1790325400100_mp82z",
+    "user_id": null,
+    "project_type": "Louer",
+    "property_type": "Appartement",
+    "commune": "Gombe",
+    "quartier": "Haut-Commandement",
+    "budget_min": 1800,
+    "budget_max": 3500,
+    "currency": "USD",
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "parking": true,
+    "furnished": true,
+    "services": [
+      "Recherche de biens",
+      "Accompagnement à la location",
+      "Organisation de visites"
+    ],
+    "description": "Recherche appartement haut standing avec vue sur le fleuve, ascenseur et sécurité 24/7.",
+    "full_name": "Sarah Malala",
+    "phone": "+243845294616",
+    "whatsapp": "+243845294616",
+    "email": "sarah.malala@diaspora-rdc.com",
+    "status": "new",
+    "assigned_agent_id": null,
+    "created_at": "2026-09-25T11:45:10.000Z",
+    "updated_at": "2026-09-25T11:45:10.000Z",
+    "reference": "KIN-CONC-2026-8812",
+    "projet": "Louer",
+    "typeBien": "Appartement",
+    "localisation": {
+      "commune": "Gombe",
+      "quartier": "Haut-Commandement"
+    },
+    "budget": {
+      "min": 1800,
+      "max": 3500,
+      "devise": "USD"
+    },
+    "caracteristiques": {
+      "chambres": 3,
+      "sallesDeBain": 2,
+      "parking": true,
+      "meuble": true
+    },
+    "client": {
+      "nomComplet": "Sarah Malala",
+      "telephone": "+243845294616",
+      "whatsapp": "+243845294616",
+      "email": "sarah.malala@diaspora-rdc.com",
+      "message": "Recherche appartement haut standing avec vue sur le fleuve, ascenseur et sécurité 24/7."
+    }
+  }
+]

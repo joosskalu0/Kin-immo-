@@ -1,0 +1,178 @@
+export interface ArchitecturalSlide {
+  id: string;
+  badgeCategory: string;
+  badgeLocation: string;
+  title: string;
+  subTitle: string;
+  description: string;
+  image: string;
+  propertyType: string;
+  commune: string;
+  propertyId?: string;
+  isActive?: boolean;
+  order?: number;
+  contactName?: string; // Nom de l'agent, promoteur ou agence mandataire pour ce bien mis en avant
+  contactPhone?: string; // Numéro de téléphone direct pour ce bien mis en avant
+  contactWhatsapp?: string; // Numéro WhatsApp direct pour ce bien mis en avant
+  contactEmail?: string; // Email direct de l'agence mandataire ou promoteur
+  contactRole?: string; // Rôle (ex: Promoteur Officiel, Agence Mandataire, Agent Référent)
+  legalStatus?: string; // Statut juridique et foncier vérifié (ex: Titre Foncier Notarié, Certificat d'Enregistrement)
+  stats: {
+    floors?: string;
+    units?: string;
+    parking?: string;
+    surface?: string;
+  };
+  details: {
+    amenities: string[];
+    priceInfo?: string;
+    deliveryDate?: string;
+  };
+}
+
+export const INITIAL_ARCHITECTURAL_SLIDES: ArchitecturalSlide[] = [
+  {
+    id: 'slide_tour_iconique',
+    badgeCategory: 'RÉSIDENTIEL & COMMERCIAL',
+    badgeLocation: 'LA GOMBE, KINSHASA',
+    title: "L'ADRESSE : L'EXCELLENCE ARCHITECTURALE AU SERVICE DE VOTRE CONFORT",
+    subTitle: 'LA TOUR ICONIQUE QUI TUTOIE LE SOMMET À KINSHASA',
+    description: '23 étages, 120 appartements de grand luxe (1, 2, 3 et 4 chambres), 3 penthouses exclusifs avec terrasses panoramiques, 8 commerces au rez-de-chaussée, 5 niveaux de parking sécurisé et commodités haut de gamme intégrées.',
+    image: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=1600&auto=format&fit=crop&q=85',
+    propertyType: 'Appartement de Prestige',
+    commune: 'Gombe',
+    isActive: true,
+    order: 1,
+    contactName: 'Congo Luxury Homes & Development',
+    contactRole: 'Promoteur & Agence Mandataire',
+    contactPhone: '+243 81 000 0001',
+    contactWhatsapp: '+243 81 000 0001',
+    contactEmail: 'contact@congoluxuryhomes.cd',
+    legalStatus: 'Permis de Bâtir n°KB/2023 & Certificat d’Enregistrement Notarié',
+    stats: {
+      floors: '23 Étages',
+      units: '120 Unités',
+      parking: '5 Niveaux',
+      surface: '110 à 480 m²'
+    },
+    details: {
+      amenities: [
+        'Vue panoramique sur le Fleuve Congo',
+        'Piscine à débordement suspendue au 15ème étage',
+        'Salle de fitness privée & Spa',
+        'Double alimentation énergétique H24 (Groupe & Solaire)',
+        'Contrôle d’accès biométrique & Gardiennage VIP'
+      ],
+      priceInfo: 'À partir de $280,000 ou $3,500/mois',
+      deliveryDate: 'Clés en mains disponibles'
+    }
+  },
+  {
+    id: 'slide_residence_dina',
+    badgeCategory: 'RÉSIDENTIEL DE PRESTIGE',
+    badgeLocation: 'LA GOMBE',
+    title: 'RÉSIDENCE DINA : VOS EXIGENCES, NOTRE PRIORITÉ ABSOLUE',
+    subTitle: "LA RÉSIDENCE CONTEMPORAINE SYNONYME D'ÉLÉGANCE ET DE SÉRÉNITÉ",
+    description: 'Des appartements premium de 2, 3 et 4 chambres, 3 niveaux de parking intégrés, ascenseurs panoramiques haute vitesse et une vaste terrasse paysagère ouverte au cœur battant de la Gombe.',
+    image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1600&auto=format&fit=crop&q=85',
+    propertyType: 'Résidence Contemporaine',
+    commune: 'Gombe',
+    isActive: true,
+    order: 2,
+    contactName: 'Agence Immo Kin Gombe SARL',
+    contactRole: 'Agence Mandataire Exclusif',
+    contactPhone: '+243 82 123 4567',
+    contactWhatsapp: '+243 82 123 4567',
+    contactEmail: 'mandats-gombe@kinimmo.com',
+    legalStatus: 'Titre Foncier Définitif & Certificat Hypothécaire Purifié',
+    stats: {
+      floors: '12 Étages',
+      units: '36 Appartements',
+      parking: '3 Niveaux',
+      surface: '140 à 320 m²'
+    },
+    details: {
+      amenities: [
+        'Finitions marbre italien et boiseries nobles',
+        'Cuisines équipées haut de gamme',
+        'Groupe électrogène insonorisé et forage d’eau purifiée',
+        'Terrasse rooftop lounge privative',
+        'Proximité immédiate des ambassades et institutions'
+      ],
+      priceInfo: 'À partir de $320,000 (Vente) / $4,000 (Location)',
+      deliveryDate: 'Livraison immédiate'
+    }
+  },
+  {
+    id: 'slide_villas_fleuve',
+    badgeCategory: 'VILLAS DIPLOMATIQUES',
+    badgeLocation: 'NGALIEMA, MACAMPAGNE',
+    title: "VILLAS DU FLEUVE : L'ART DE VIVRE DANS UN ÉCRIN DE VERDURE",
+    subTitle: 'PROPRIÉTÉS PRIVÉES EXCLUSIVES AVEC VUE IMPRENABLE',
+    description: 'Ensemble de villas d’architecte de 450 à 750 m² sur parcelles titrées, piscines privées à débordement, jardins tropicaux paysagers, suites parentales majestueuses et sécurité périmétrique 24/7.',
+    image: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=1600&auto=format&fit=crop&q=85',
+    propertyType: 'Villa Contemporaine',
+    commune: 'Ngaliema',
+    isActive: true,
+    order: 3,
+    contactName: 'Cabinet Fleuve Habitat & Prestige',
+    contactRole: 'Courtier Conseil Agréé',
+    contactPhone: '+243 99 876 5432',
+    contactWhatsapp: '+243 99 876 5432',
+    contactEmail: 'fleuve-prestige@kinimmo.com',
+    legalStatus: 'Parcelles Titrées Individuelles & Certificat Notarié Conforme',
+    stats: {
+      floors: '2 Niveaux',
+      units: '8 Villas Uniques',
+      parking: '4 Véhicules/Villa',
+      surface: '550 m² habitables'
+    },
+    details: {
+      amenities: [
+        'Piscine miroir avec pool house aménagé',
+        'Quartier hautement sécurisé (Périmètre diplomatique)',
+        'Système domotique intégral & caméras HD',
+        'Autonomie totale (Forage grande profondeur & solaire hybride)',
+        'Titre foncier et certificat d’enregistrement notarié'
+      ],
+      priceInfo: 'Sur demande ($850,000 - $1,600,000)',
+      deliveryDate: 'Disponible immédiatement'
+    }
+  },
+  {
+    id: 'slide_business_tower',
+    badgeCategory: 'IMMOBILIER D’AFFAIRES & BUREAUX',
+    badgeLocation: 'BOULEVARD DU 30 JUIN, GOMBE',
+    title: 'KINSHASA BUSINESS PLAZA : L’ADRESSE DE VOTRE SIÈGE CORPORATE',
+    subTitle: 'DES ESPACES PROFESSIONNELS DE HAUTE TECHNOLOGIE AU SERVICE DE VOTRE EXPANSION',
+    description: 'Plateaux de bureaux modulables de grand standing, double alimentation électrique secourue, fibre optique dédiée, salles de conférence connectées et conciergerie d’affaires au rez-de-chaussée.',
+    image: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1600&auto=format&fit=crop&q=85',
+    propertyType: 'Immeuble de Bureaux & Commerces',
+    commune: 'Gombe',
+    isActive: true,
+    order: 4,
+    contactName: 'Gestion Immobilière Corporate 30 Juin',
+    contactRole: 'Régie Immobilière d\'Affaires',
+    contactPhone: '+243 85 555 4321',
+    contactWhatsapp: '+243 85 555 4321',
+    contactEmail: 'corporate-30juin@kinimmo.com',
+    legalStatus: 'Bail Commercial Notarié & Titre de Propriété Corporate Purifié',
+    stats: {
+      floors: '18 Étages',
+      units: 'Plateaux modulables',
+      parking: '200 Places',
+      surface: 'De 80 m² à 1,200 m²'
+    },
+    details: {
+      amenities: [
+        'Fibre optique très haut débit redondée',
+        'Centrale de climatisation inverter à faible consommation',
+        'Poste de sécurité 24/7 & portiques de détection biométrique',
+        'Restaurants d’affaires & lounge VIP au 18ème étage',
+        'Accès direct Boulevard du 30 Juin'
+      ],
+      priceInfo: '$35 à $45 / m² mensuel',
+      deliveryDate: 'Espaces disponibles immédiatement'
+    }
+  }
+];

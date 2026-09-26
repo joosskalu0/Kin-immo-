@@ -1,0 +1,17 @@
+[
+  {
+    "id": "visit_1790325900000_pv001",
+    "request_id": "conc_1790324366700_lf5fx",
+    "property_id": "prop-1",
+    "agent_id": "agent-1",
+    "visit_date": "2026-09-28",
+    "visit_time": "15:00",
+    "status": "confirmed",
+    "notes": "Visite de la Villa Macampagne avec M. Kabila. Vérification du certificat d'enregistrement déjà effectuée.",
+    "created_at": "2026-09-25T09:30:00.000Z",
+    "updated_at": "2026-09-25T10:00:00.000Z",
+    "property_title": "Villa R+1 Contemporaine avec Piscine - Macampagne",
+    "agent_name": "Sarah Mwamba",
+    "client_name": "Dieudonné Kabila"
+  }
+]

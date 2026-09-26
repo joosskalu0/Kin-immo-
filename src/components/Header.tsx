@@ -212,6 +212,34 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
             </button>
 
             <button
+              onClick={() => setCurrentTab('conciergerie')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
+                currentTab === 'conciergerie'
+                  ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/25 ring-2 ring-emerald-500/30'
+                  : 'text-slate-700 hover:text-slate-950 hover:bg-emerald-50 hover:text-emerald-800'
+              }`}
+              title="Conciergerie Immobilière Kinimmo - Recherche & Accompagnement"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Conciergerie</span>
+              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                VIP
+              </span>
+            </button>
+
+            <button
+              onClick={() => setCurrentTab('pricing')}
+              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                currentTab === 'pricing'
+                  ? 'bg-amber-50 text-amber-900 border border-amber-300 font-bold shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Coins className="w-3.5 h-3.5 text-amber-600" />
+              Tarifs
+            </button>
+
+            <button
               onClick={() => setCurrentTab('dashboard')}
               className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
                 currentTab === 'dashboard'
@@ -298,6 +326,17 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                   <ShieldCheck className="w-4 h-4 text-emerald-700" />
                   <span className="hidden md:inline text-[11px] font-bold">2FA & Sécurité</span>
                 </button>
+
+                {user.role === 'admin' && (
+                  <button
+                    onClick={() => setCurrentTab('admin')}
+                    title="Accéder au Panneau d'Administration"
+                    className="p-2.5 min-h-[42px] rounded-xl bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-700 transition-all flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span className="hidden md:inline text-[11px] font-bold">Panneau Admin</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => setCurrentTab('dashboard')}
@@ -498,6 +537,58 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
 
                 <button
                   onClick={() => {
+                    setCurrentTab('conciergerie');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center justify-between gap-2.5 col-span-2 ${
+                    currentTab === 'conciergerie'
+                      ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-md ring-2 ring-emerald-400'
+                      : 'bg-emerald-50/60 text-emerald-900 hover:bg-emerald-100 border border-emerald-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Conciergerie Immobilière (Accompagnement VIP)</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-600 text-white">
+                    Service
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setCurrentTab('pricing');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 ${
+                    currentTab === 'pricing'
+                      ? 'bg-amber-50 text-amber-900 border border-amber-300 shadow-sm'
+                      : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  <Coins className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Tarifs & Abonnements</span>
+                </button>
+
+                {user?.role === 'admin' && (
+                  <button
+                    onClick={() => {
+                      setCurrentTab('admin');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 col-span-2 ${
+                      currentTab === 'admin'
+                        ? 'bg-slate-900 text-emerald-400 border border-emerald-500 shadow-md'
+                        : 'bg-slate-900 text-white hover:bg-slate-800 border border-slate-700'
+                    }`}
+                  >
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Panneau d'Administration</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
                     setCurrentTab('dashboard');
                     setIsMobileMenuOpen(false);
                   }}
@@ -565,13 +656,14 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
         </button>
 
         <button
-          onClick={() => setCurrentTab('agencies')}
+          onClick={() => setCurrentTab('conciergerie')}
           className={`flex flex-col items-center justify-center min-w-[52px] min-h-[48px] gap-1 transition-all active:scale-90 ${
-            currentTab === 'agencies' ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
+            currentTab === 'conciergerie' ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
           }`}
+          title="Conciergerie Immobilière Kinimmo"
         >
-          <Building2 className={`w-5 h-5 ${currentTab === 'agencies' ? 'text-emerald-600' : ''}`} />
-          <span>Agences</span>
+          <Sparkles className={`w-5 h-5 ${currentTab === 'conciergerie' ? 'text-emerald-600' : ''}`} />
+          <span>Conciergerie</span>
         </button>
 
         <button
