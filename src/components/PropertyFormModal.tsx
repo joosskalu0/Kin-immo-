@@ -33,9 +33,13 @@ import {
   Loader2,
   Check,
   AlertTriangle,
+  AlertOctagon,
+  ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 import { SAMPLE_REAL_ESTATE_VIDEOS, detectVideoType } from '../utils/videoHelpers';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
+import { analyzePropertyForFraud } from '../utils/suspiciousListingDetector';
 
 export const PropertyFormModal: React.FC = () => {
   const {
@@ -47,12 +51,20 @@ export const PropertyFormModal: React.FC = () => {
     updateProperty,
     customFields,
     user,
+    properties,
+    reports,
   } = useApp();
 
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isCompressingImages, setIsCompressingImages] = useState(false);
+  const [moderationFeedback, setModerationFeedback] = useState<{
+    verdict: 'normal' | 'review_required' | 'suspect';
+    title: string;
+    message: string;
+    flags: string[];
+  } | null>(null);
 
   // Form State
   const [title, setTitle] = useState('');
@@ -373,14 +385,45 @@ export const PropertyFormModal: React.FC = () => {
       published: true,
     };
 
+    // Exécution de l'algorithme de détection des annonces suspectes
+    const fraudAnalysis = analyzePropertyForFraud(propertyData, properties, reports);
+    const enrichedData: Property = {
+      ...propertyData,
+      fraudStatus: fraudAnalysis.verdict,
+      fraudScore: fraudAnalysis.riskScore,
+      fraudFlags: fraudAnalysis.flags,
+      fraudLastCheckedAt: fraudAnalysis.analyzedAt,
+      // 🟢 Normal -> publication directe
+      // 🟠 À vérifier -> contrôle manuel
+      // 🔴 Suspect -> blocage temporaire
+      published: fraudAnalysis.verdict === 'normal'
+    };
+
     try {
       if (editingProperty) {
-        await updateProperty(propertyData);
+        await updateProperty(enrichedData);
       } else {
-        await addProperty(propertyData);
+        await addProperty(enrichedData);
       }
       setIsSubmitting(false);
-      handleClose();
+
+      if (fraudAnalysis.verdict === 'suspect') {
+        setModerationFeedback({
+          verdict: 'suspect',
+          title: '🔴 Annonce temporairement bloquée (Sécurité Anti-Fraude)',
+          message: 'Notre algorithme anti-fraude a relevé des anomalies critiques sur cette annonce (prix anormal, photos ou mots-clés suspects). Par mesure de précaution, elle a été placée en quarantaine administrative et bloquée jusqu\'à examen par l\'administrateur.',
+          flags: fraudAnalysis.flags.map(f => f.label)
+        });
+      } else if (fraudAnalysis.verdict === 'review_required') {
+        setModerationFeedback({
+          verdict: 'review_required',
+          title: '🟠 Annonce en attente de contrôle manuel',
+          message: 'Votre annonce a été enregistrée avec succès. Notre algorithme a relevé des paramètres nécessitant une rapide validation manuelle par l\'équipe avant sa diffusion publique.',
+          flags: fraudAnalysis.flags.map(f => f.label)
+        });
+      } else {
+        handleClose();
+      }
     } catch (err: any) {
       console.error('Error saving property:', err);
       setIsSubmitting(false);
@@ -1282,7 +1325,7 @@ export const PropertyFormModal: React.FC = () => {
                 <div>
                   <h5 className="font-bold text-amber-300 mb-1">Espace Privé Agent & Admin (PRO)</h5>
                   <p className="text-amber-200/80 leading-relaxed">
-                    Les informations enregistrées ici ne sont **jamais publiées** au grand public. Elles sont strictement réservées à l'agent mandataire et à l'administration de l'agence.
+                    Les informations enregistrées ici ne sont **jamais publiées** au grand public. Elles sont strictement réservées à l'agent responsable et à l'administration de l'agence.
                   </p>
                 </div>
               </div>
@@ -1400,6 +1443,59 @@ export const PropertyFormModal: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* Pop-in de notification anti-fraude après soumission */}
+      {moderationFeedback && (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                  moderationFeedback.verdict === 'suspect'
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                }`}
+              >
+                {moderationFeedback.verdict === 'suspect' ? (
+                  <AlertOctagon className="w-6 h-6" />
+                ) : (
+                  <AlertTriangle className="w-6 h-6" />
+                )}
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-sm">{moderationFeedback.title}</h4>
+                <span className="text-[11px] text-slate-400">Contrôle de sécurité Kinimmo RDC</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {moderationFeedback.message}
+            </p>
+
+            {moderationFeedback.flags.length > 0 && (
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <span className="text-[10px] font-bold uppercase text-slate-400">Éléments relevés :</span>
+                <ul className="list-disc list-inside text-[11px] text-slate-300 space-y-0.5">
+                  {moderationFeedback.flags.map((flag, idx) => (
+                    <li key={idx}>{flag}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setModerationFeedback(null);
+                handleClose();
+              }}
+              className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
+            >
+              J'ai compris & Fermer
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

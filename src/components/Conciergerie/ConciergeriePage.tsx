@@ -393,7 +393,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
               <div className="p-6 sm:p-7 rounded-3xl bg-white border border-slate-200 text-slate-900 shadow-sm relative space-y-5">
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                    Mandat Personnalisé
+                    Recherche Personnalisée
                   </span>
                   <h3 className="text-lg font-black text-slate-900 pt-2">Comment ça marche ?</h3>
                 </div>
@@ -656,7 +656,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-emerald-700 text-xs font-bold uppercase tracking-wider">
                   <Compass className="w-4 h-4" />
-                  <span>Formulaire Officiel de Mandat de Recherche</span>
+                  <span>Formulaire Officiel de Demande de Recherche</span>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1191,7 +1191,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
                     Prise en charge & Cadrage Express (sous 2 à 4h)
                   </h4>
                   <p className="text-slate-600 leading-relaxed">
-                    Dès soumission de votre formulaire, un mandat d'accompagnement clair est formalisé. Votre conseiller dédié vous contacte par téléphone ou WhatsApp pour affiner vos impératifs (communes, budget, standing, mode de paiement).
+                    Dès soumission de votre formulaire, votre demande de recherche est immédiatement prise en charge. Votre conseiller dédié vous contacte par téléphone ou WhatsApp pour affiner vos impératifs (communes, budget, standing, mode de paiement).
                   </p>
                 </div>
               </div>
@@ -1264,7 +1264,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
                 className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all border border-slate-200"
               >
                 <Sparkles className="w-4 h-4 text-emerald-600" />
-                <span>Tester avec un exemple de mandat</span>
+                <span>Tester avec un exemple de demande</span>
               </button>
 
               <button

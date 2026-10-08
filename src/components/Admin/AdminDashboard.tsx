@@ -40,7 +40,11 @@ import {
   Tag,
   MessageCircle,
   Check,
-  Compass
+  Compass,
+  Clock,
+  Calendar,
+  ShieldAlert,
+  AlertOctagon
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { mysqlApi, clearStoredToken, DEFAULT_CONTACT_SETTINGS } from '../../services/mysqlApi';
@@ -48,6 +52,9 @@ import { Property, SiteContactSettings } from '../../types';
 import { AdminMonetizationManager } from './AdminMonetizationManager';
 import { AdminHeroShowcaseManager } from './AdminHeroShowcaseManager';
 import { AdminConciergerieManager } from './AdminConciergerieManager';
+import { AdminFraudModerationManager } from './AdminFraudModerationManager';
+import { auditPropertyList } from '../../utils/suspiciousListingDetector';
+import { fetchConciergerieRequests, fetchPropertyVisits } from '../../services/conciergerieApi';
 
 interface AdminDashboardProps {
   adminUser: {
@@ -61,7 +68,18 @@ interface AdminDashboardProps {
   onReturnHome: () => void;
 }
 
-type TabType = 'overview' | 'properties' | 'hero_showcase' | 'agents' | 'agencies' | 'users' | 'settings' | 'custom_fields' | 'monetization' | 'conciergerie';
+type TabType =
+  | 'overview'
+  | 'properties'
+  | 'hero_showcase'
+  | 'agents'
+  | 'agencies'
+  | 'users'
+  | 'settings'
+  | 'custom_fields'
+  | 'monetization'
+  | 'conciergerie'
+  | 'fraud_detection';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
@@ -70,6 +88,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const {
     properties: contextProperties,
+    updateProperty,
+    deleteProperty,
     agents: contextAgents,
     customFields,
     addCustomField,
@@ -78,13 +98,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     promotePropertyToHero,
     removePropertyFromHero,
     contactSettings,
-    updateContactSettings
+    updateContactSettings,
+    reports,
+    resolvePropertyReport,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      if (path === '/admin/conciergerie' || path.startsWith('/admin/conciergerie')) {
+        return 'conciergerie';
+      }
+    }
+    return 'overview';
+  });
+
   const [isLoading, setIsLoading] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'connected' | 'disconnected'>('connected');
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Synchronisation d'URL pour /admin/conciergerie
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (activeTab === 'conciergerie') {
+        if (window.location.pathname !== '/admin/conciergerie') {
+          window.history.pushState({}, '', '/admin/conciergerie');
+        }
+      } else {
+        if (window.location.pathname === '/admin/conciergerie') {
+          window.history.pushState({}, '', '/admin');
+        }
+      }
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (typeof window !== 'undefined') {
+        if (window.location.pathname === '/admin/conciergerie') {
+          setActiveTab('conciergerie');
+        } else if (window.location.pathname === '/admin') {
+          setActiveTab('overview');
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Data states
   const [adminStats, setAdminStats] = useState<any>(null);
@@ -94,6 +154,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [usersList, setUsersList] = useState<any[]>([]);
   const [invoicesList, setInvoicesList] = useState<any[]>([]);
   const [dbCustomFields, setDbCustomFields] = useState<any[]>([]);
+  const [conciergeRequestsList, setConciergeRequestsList] = useState<any[]>([]);
+  const [propertyVisitsList, setPropertyVisitsList] = useState<any[]>([]);
 
   // Custom Field Form State
   const [isCreatingField, setIsCreatingField] = useState(false);
@@ -228,6 +290,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         if (customFields && customFields.length > 0) {
           setDbCustomFields(customFields);
         }
+      }
+
+      // 8. Conciergerie - Demandes & Visites
+      try {
+        const [reqs, visits] = await Promise.all([
+          fetchConciergerieRequests().catch(() => []),
+          fetchPropertyVisits().catch(() => [])
+        ]);
+        setConciergeRequestsList(reqs || []);
+        setPropertyVisitsList(visits || []);
+      } catch (conciergeErr) {
+        console.warn('Erreur chargement conciergerie admin:', conciergeErr);
       }
     } catch (error) {
       console.warn('Erreur lors du chargement des données MySQL', error);
@@ -476,6 +550,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, [agentsList, agentSearch]);
 
+  // Statistiques de la Conciergerie pour le Dashboard Administrateur
+  const conciergeStats = useMemo(() => {
+    const normalizeStatus = (raw?: string) => {
+      if (!raw) return 'new';
+      if (raw === 'nouveau') return 'new';
+      if (raw === 'en_cours') return 'searching';
+      if (raw === 'traite') return 'completed';
+      if (raw === 'archive') return 'cancelled';
+      return raw;
+    };
+
+    // 1. Nombre de nouvelles demandes
+    const nouvelles = conciergeRequestsList.filter(r => normalizeStatus(r.status) === 'new').length;
+
+    // 2. Demandes en cours
+    const enCours = conciergeRequestsList.filter(r => {
+      const s = normalizeStatus(r.status);
+      return ['searching', 'properties_found', 'visit_scheduled', 'negotiation', 'en_cours'].includes(s);
+    }).length;
+
+    // 3. Visites programmées
+    const visites = propertyVisitsList.filter(v => v.status === 'scheduled' || v.status === 'confirmed').length ||
+      conciergeRequestsList.filter(r => normalizeStatus(r.status) === 'visit_scheduled').length;
+
+    // 4. Demandes terminées
+    const terminees = conciergeRequestsList.filter(r => {
+      const s = normalizeStatus(r.status);
+      return s === 'completed' || s === 'traite';
+    }).length;
+
+    return {
+      nouvelles,
+      enCours,
+      visites,
+      terminees,
+      total: conciergeRequestsList.length
+    };
+  }, [conciergeRequestsList, propertyVisitsList]);
+
+  // Audit automatique pour le Bouclier Anti-Fraude
+  const fraudAuditSummary = useMemo(() => {
+    const listToAudit = propertiesList.length > 0 ? propertiesList : (contextProperties || []);
+    return auditPropertyList(listToAudit, reports || []);
+  }, [propertiesList, contextProperties, reports]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500 selection:text-slate-950">
       {/* Toast Notification */}
@@ -617,7 +736,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <Compass className="w-4 h-4 text-emerald-400" />
-          <span>Conciergerie & Mandats</span>
+          <span>Conciergerie</span>
         </button>
 
         <button
@@ -678,6 +797,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <DollarSign className="w-4 h-4 text-emerald-400" />
           <span>Monétisation & Régie</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('fraud_detection')}
+          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
+            activeTab === 'fraud_detection'
+              ? 'bg-red-500/15 text-red-400 border border-red-500/30 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <ShieldAlert className="w-4 h-4 text-red-400" />
+          <span>Sécurité & Anti-Fraude</span>
+          {(fraudAuditSummary.suspectCount > 0 || fraudAuditSummary.reviewRequiredCount > 0) && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-red-500/20 text-red-400 border border-red-500/30">
+              {fraudAuditSummary.suspectCount + fraudAuditSummary.reviewRequiredCount}
+            </span>
+          )}
         </button>
 
         <button
@@ -772,6 +908,224 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
+            {/* ==================================================== */}
+            {/* CONCIERGERIE IMMOBILIÈRE DANS LE DASHBOARD ADMIN     */}
+            {/* Affichage des 4 compteurs demandés :                */}
+            {/* * nombre de nouvelles demandes                      */}
+            {/* * demandes en cours                                 */}
+            {/* * visites programmées                               */}
+            {/* * demandes terminées                                */}
+            {/* Accès direct à la page : /admin/conciergerie        */}
+            {/* ==================================================== */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 space-y-6 shadow-xl">
+              {/* Entête de la section Conciergerie */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black shadow-inner">
+                    <Compass className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-black text-white uppercase tracking-tight">
+                        Conciergerie
+                      </h3>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold">
+                        /admin/conciergerie
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Supervision des demandes d'accompagnement VIP, prospection et visites immobilières à Kinshasa
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveTab('conciergerie')}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-2 transition-all shadow-md shadow-emerald-600/25 active:scale-95 cursor-pointer"
+                  >
+                    <span>Ouvrir /admin/conciergerie</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Les 4 Compteurs Demandés */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Nombre de nouvelles demandes */}
+                <div
+                  onClick={() => setActiveTab('conciergerie')}
+                  className="bg-slate-950/80 hover:bg-slate-950 border border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-5 transition-all cursor-pointer group shadow-sm"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400">
+                      Nouvelles demandes
+                    </span>
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-3xl font-black text-white mt-3 flex items-baseline gap-2">
+                    <span>{conciergeStats.nouvelles}</span>
+                    {conciergeStats.nouvelles > 0 && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        À traiter
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">À qualifier & attribuer aux agents</div>
+                </div>
+
+                {/* 2. Demandes en cours */}
+                <div
+                  onClick={() => setActiveTab('conciergerie')}
+                  className="bg-slate-950/80 hover:bg-slate-950 border border-blue-500/30 hover:border-blue-500/60 rounded-2xl p-5 transition-all cursor-pointer group shadow-sm"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-blue-400">
+                      Demandes en cours
+                    </span>
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <Search className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-3xl font-black text-white mt-3 flex items-baseline gap-2">
+                    <span>{conciergeStats.enCours}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                      Recherches actives
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">Prospection & sélection de biens</div>
+                </div>
+
+                {/* 3. Visites programmées */}
+                <div
+                  onClick={() => setActiveTab('conciergerie')}
+                  className="bg-slate-950/80 hover:bg-slate-950 border border-cyan-500/30 hover:border-cyan-500/60 rounded-2xl p-5 transition-all cursor-pointer group shadow-sm"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400">
+                      Visites programmées
+                    </span>
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <Calendar className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-3xl font-black text-white mt-3 flex items-baseline gap-2">
+                    <span>{conciergeStats.visites}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                      Sur le terrain
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">Rendez-vous terrain fixés</div>
+                </div>
+
+                {/* 4. Demandes terminées */}
+                <div
+                  onClick={() => setActiveTab('conciergerie')}
+                  className="bg-slate-950/80 hover:bg-slate-950 border border-emerald-500/30 hover:border-emerald-500/60 rounded-2xl p-5 transition-all cursor-pointer group shadow-sm"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-400">
+                      Demandes terminées
+                    </span>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-3xl font-black text-white mt-3 flex items-baseline gap-2">
+                    <span>{conciergeStats.terminees}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Finalisées
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">Transactions et contrats clôturés</div>
+                </div>
+              </div>
+
+              {/* Aperçu succinct et lien vers la page complète */}
+              <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span>
+                    Tableau complet des demandes avec 10 colonnes et 7 actions disponible sur <strong className="text-white">/admin/conciergerie</strong>
+                  </span>
+                </div>
+                <button
+                  onClick={() => setActiveTab('conciergerie')}
+                  className="text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <span>Gérer les demandes et programmer des visites</span>
+                  <ArrowUpRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Bouclier Anti-Fraude Overview Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-800/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400">
+                    <ShieldAlert className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      Bouclier Anti-Fraude & Détection des Annonces Suspectes
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Surveillance continue : numéros récurrents, photos volées, prix anormalement bas, doublons et signalements.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setActiveTab('fraud_detection')}
+                  className="self-start sm:self-auto px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
+                >
+                  <span>Console Anti-Fraude</span>
+                  <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-5">
+                <div
+                  onClick={() => setActiveTab('fraud_detection')}
+                  className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80 hover:border-emerald-500/50 cursor-pointer transition-all"
+                >
+                  <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">🟢 Normales</span>
+                  <div className="text-2xl font-black text-white mt-1">{fraudAuditSummary.normalCount}</div>
+                  <span className="text-[10px] text-slate-400">Publiées en ligne</span>
+                </div>
+
+                <div
+                  onClick={() => setActiveTab('fraud_detection')}
+                  className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80 hover:border-amber-500/50 cursor-pointer transition-all"
+                >
+                  <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">🟠 À Vérifier</span>
+                  <div className="text-2xl font-black text-white mt-1">{fraudAuditSummary.reviewRequiredCount}</div>
+                  <span className="text-[10px] text-slate-400">Contrôle manuel requis</span>
+                </div>
+
+                <div
+                  onClick={() => setActiveTab('fraud_detection')}
+                  className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80 hover:border-red-500/50 cursor-pointer transition-all"
+                >
+                  <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">🔴 Suspectes</span>
+                  <div className="text-2xl font-black text-white mt-1">{fraudAuditSummary.suspectCount}</div>
+                  <span className="text-[10px] text-slate-400">Blocage temporaire</span>
+                </div>
+
+                <div
+                  onClick={() => setActiveTab('fraud_detection')}
+                  className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80 hover:border-purple-500/50 cursor-pointer transition-all"
+                >
+                  <span className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">⚠️ Signalements</span>
+                  <div className="text-2xl font-black text-white mt-1">{reports.length}</div>
+                  <span className="text-[10px] text-slate-400">Plaintes acheteurs</span>
+                </div>
+              </div>
+            </div>
+
             {/* Communes Distribution & Quick Actions */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Commune stats */}
@@ -805,6 +1159,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 <div className="space-y-2.5">
+                  <button
+                    onClick={() => setActiveTab('conciergerie')}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-950/40 hover:bg-emerald-950/70 border border-emerald-500/40 text-xs font-bold text-emerald-300 flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Compass className="w-4 h-4 text-emerald-400" />
+                      Gérer la Conciergerie (/admin/conciergerie)
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-emerald-400" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('fraud_detection')}
+                    className="w-full py-3 px-4 rounded-xl bg-red-950/40 hover:bg-red-950/70 border border-red-500/40 text-xs font-bold text-red-300 flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-red-400" />
+                      Sécurité Anti-Fraude ({fraudAuditSummary.suspectCount} bloquée{fraudAuditSummary.suspectCount > 1 ? 's' : ''})
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-red-400" />
+                  </button>
+
                   <button
                     onClick={() => setActiveTab('properties')}
                     className="w-full py-3 px-4 rounded-xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700/60 text-xs font-bold text-slate-200 flex items-center justify-between transition-colors"
@@ -1043,7 +1419,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ==================================================== */}
-        {/* TAB : CONCIERGERIE & MANDATS DE RECHERCHE            */}
+        {/* TAB : CONCIERGERIE                                  */}
         {/* ==================================================== */}
         {activeTab === 'conciergerie' && (
           <div className="animate-in fade-in duration-300">
@@ -1493,7 +1869,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           Conciergerie Partenariats, Agences & Relations B2B
                         </h4>
                         <p className="text-xs text-slate-400">
-                          Configurez l'espace professionnel dédié aux agences immobilières, agents mandataires, promoteurs de programmes neufs et investisseurs.
+                          Configurez l'espace professionnel dédié aux agences immobilières, agents partenaires, promoteurs de programmes neufs et investisseurs.
                         </p>
                       </div>
                     </div>
@@ -1631,7 +2007,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <MessageCircle className="w-4 h-4" />
                         </button>
                       </div>
-                      <p className="text-[10px] text-slate-500 mt-1">Reçoit les demandes de mandats, catalogues et partenariats.</p>
+                      <p className="text-[10px] text-slate-500 mt-1">Reçoit les demandes de recherche, catalogues et partenariats.</p>
                     </div>
 
                     {/* Email Dédié Partenariats */}
@@ -2445,6 +2821,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ==================================================== */}
         {activeTab === 'monetization' && (
           <AdminMonetizationManager onRefreshStats={loadAllAdminData} />
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB 11: DÉTECTION ANNONCES SUSPECTES & ANTI-FRAUDE   */}
+        {/* ==================================================== */}
+        {activeTab === 'fraud_detection' && (
+          <AdminFraudModerationManager
+            properties={propertiesList.length > 0 ? propertiesList : (contextProperties || [])}
+            onUpdateProperty={async (p) => {
+              await updateProperty(p);
+              setPropertiesList((prev) => prev.map((item) => (item.id === p.id ? p : item)));
+              showNotification('success', 'Statut de modération et règles anti-fraude mis à jour.');
+            }}
+            onDeleteProperty={async (id) => {
+              deleteProperty(id);
+              setPropertiesList((prev) => prev.filter((item) => item.id !== id));
+              showNotification('success', 'Propriété suspecte définitivement supprimée.');
+            }}
+            reports={reports}
+            onResolveReport={resolvePropertyReport}
+          />
         )}
       </main>
 

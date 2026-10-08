@@ -36,9 +36,9 @@ export const PropertyVideoPlayer: React.FC<PropertyVideoPlayerProps> = ({
 
   if (!videoUrl) {
     return (
-      <div className={`aspect-video rounded-2xl bg-slate-950 border border-slate-800 flex flex-col items-center justify-center p-6 text-center text-slate-400 ${className}`}>
-        <VideoIcon className="w-12 h-12 text-slate-600 mb-2" />
-        <p className="font-semibold text-slate-300">Aucune vidéo disponible pour ce bien</p>
+      <div className={`aspect-video rounded-2xl bg-slate-100 border border-slate-200 flex flex-col items-center justify-center p-6 text-center text-slate-600 ${className}`}>
+        <VideoIcon className="w-12 h-12 text-slate-400 mb-2" />
+        <p className="font-semibold text-slate-800">Aucune vidéo disponible pour ce bien</p>
         <p className="text-xs text-slate-500 mt-1">L'agent n'a pas encore ajouté de visite vidéo.</p>
       </div>
     );

@@ -14,7 +14,9 @@ import {
   Invoice,
   SubscriptionPlan,
   SiteContactSettings,
+  PropertyUserReport,
 } from '../types';
+import { analyzePropertyForFraud } from '../utils/suspiciousListingDetector';
 
 export interface ConfirmOptions {
   title?: string;
@@ -221,6 +223,11 @@ interface AppContextType {
   // Coordonnées de Contact & Conciergerie VIP
   contactSettings: SiteContactSettings;
   updateContactSettings: (newSettings: Partial<SiteContactSettings>) => Promise<{ success: boolean; message?: string }>;
+
+  // Signalements & Détection Anti-Fraude
+  reports: PropertyUserReport[];
+  addPropertyReport: (report: Omit<PropertyUserReport, 'id' | 'createdAt' | 'status'>) => Promise<void> | void;
+  resolvePropertyReport: (reportId: string, action: 'resolved' | 'dismissed') => void;
 }
 
 const defaultFilters: PropertyFilters = {
@@ -290,7 +297,7 @@ const getInitialHeroSlides = (): ArchitecturalSlide[] => {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Hydrater chaque slide avec les coordonnées directes de son agence mandataire
+        // Hydrater chaque slide avec les coordonnées directes de son agence partenaire
         // et remplacer tout numéro d'administrateur (+243 84 529 4616) par le numéro WhatsApp propre à l'agence
         return parsed.map((slide) => {
           const defaultRef = INITIAL_ARCHITECTURAL_SLIDES.find((d) => d.id === slide.id);
@@ -302,10 +309,10 @@ const getInitialHeroSlides = (): ArchitecturalSlide[] => {
           return {
             ...slide,
             contactName: (!slide.contactName || shouldFixWhatsapp) ? (defaultRef?.contactName || 'Agence Immo Kin Gombe SARL') : slide.contactName,
-            contactRole: (!slide.contactRole || shouldFixWhatsapp) ? (defaultRef?.contactRole || 'Agence Mandataire Exclusif') : slide.contactRole,
+            contactRole: (!slide.contactRole || shouldFixWhatsapp) ? (defaultRef?.contactRole || 'Agence Partenaire Agréée') : slide.contactRole,
             contactPhone: shouldFixPhone ? (defaultRef?.contactPhone || '+243 82 123 4567') : slide.contactPhone,
             contactWhatsapp: shouldFixWhatsapp ? (defaultRef?.contactWhatsapp || '+243 82 123 4567') : slide.contactWhatsapp,
-            contactEmail: (!slide.contactEmail || shouldFixWhatsapp) ? (defaultRef?.contactEmail || 'mandats@kinimmo.com') : slide.contactEmail,
+            contactEmail: (!slide.contactEmail || shouldFixWhatsapp) ? (defaultRef?.contactEmail || 'contact@kinimmo.com') : slide.contactEmail,
             legalStatus: slide.legalStatus || defaultRef?.legalStatus || 'Titre Foncier & Certificat d’Enregistrement Conforme'
           };
         });
@@ -413,6 +420,99 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [leads, setLeads] = useState<LeadRequest[]>(initialLeads);
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
+
+  // Signalements utilisateurs & Anti-Fraude
+  const REPORTS_STORAGE_KEY = 'immocraft_property_user_reports';
+  const [reports, setReports] = useState<PropertyUserReport[]>(() => {
+    try {
+      const raw = localStorage.getItem(REPORTS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [
+      {
+        id: 'rep_1',
+        propertyId: 'prop_mock_suspect_1',
+        propertyTitle: 'Villa Diplomatique Piscine Gombe',
+        agentId: 'agent_fake_1',
+        reporterName: 'Marc Kabamba',
+        reporterContact: '+243 81 200 3040',
+        reason: 'fake_price',
+        reasonLabel: 'Prix anormalement bas / Trompeur',
+        comment: 'Cette villa avec piscine à Gombe est affichée à 150$/mois. Le vendeur réclame un acompte préalable par M-Pesa avant la visite.',
+        createdAt: '2026-10-02T10:30:00.000Z',
+        status: 'pending'
+      },
+      {
+        id: 'rep_2',
+        propertyId: 'prop_mock_suspect_2',
+        propertyTitle: 'Appartement Moderne 3 Ch Limete',
+        agentId: 'agent_fake_2',
+        reporterName: 'Clarisse Tshala',
+        reporterContact: '+243 99 876 5432',
+        reason: 'stolen_photos',
+        reasonLabel: 'Photos volées ou non réelles',
+        comment: 'Photos copiées d\'un projet hôtelier étranger.',
+        createdAt: '2026-10-03T14:15:00.000Z',
+        status: 'pending'
+      }
+    ];
+  });
+
+  const saveReportsLocally = (newList: PropertyUserReport[]) => {
+    try {
+      localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(newList));
+    } catch {}
+  };
+
+  const addPropertyReport = async (reportData: Omit<PropertyUserReport, 'id' | 'createdAt' | 'status'>) => {
+    const newReport: PropertyUserReport = {
+      ...reportData,
+      id: `rep_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString(),
+      status: 'pending'
+    };
+
+    setReports((prev) => {
+      const updated = [newReport, ...prev];
+      saveReportsLocally(updated);
+      return updated;
+    });
+
+    // Mettre à jour l'annonce concernée pour ré-exécuter l'analyse anti-fraude
+    setProperties((prev) => {
+      const target = prev.find((p) => p.id === reportData.propertyId);
+      if (!target) return prev;
+
+      const currentReports = [...reports, newReport];
+      const analysis = analyzePropertyForFraud(target, prev, currentReports);
+
+      const updatedProp: Property = {
+        ...target,
+        fraudStatus: analysis.verdict,
+        fraudScore: analysis.riskScore,
+        fraudFlags: analysis.flags,
+        fraudLastCheckedAt: analysis.analyzedAt,
+        userReportsCount: (target.userReportsCount || 0) + 1,
+        // Si le verdict bascule à suspect, blocage temporaire immédiat !
+        published: analysis.verdict === 'normal' ? target.published : false
+      };
+
+      const updatedList = prev.map((p) => (p.id === updatedProp.id ? updatedProp : p));
+      saveDurableLocalProperties(updatedList);
+      return updatedList;
+    });
+  };
+
+  const resolvePropertyReport = (reportId: string, action: 'resolved' | 'dismissed') => {
+    setReports((prev) => {
+      const updated = prev.map((r) => (r.id === reportId ? { ...r, status: action } : r));
+      saveReportsLocally(updated);
+      return updated;
+    });
+  };
   const [filters, setFilters] = useState<PropertyFilters>(defaultFilters);
 
   // Modals & Deep Linking
@@ -467,7 +567,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const prop = properties.find((p) => p.id === propertyId);
     if (!prop) return;
 
-    // Résoudre l'agence ou l'agent mandataire assigné à ce bien
+    // Résoudre l'agence ou l'agent référent assigné à ce bien
     const assignedAgent = prop.agentId ? agents.find((a) => a.id === prop.agentId) : null;
     const assignedAgency = prop.agencyId
       ? agencies.find((a) => a.id === prop.agencyId || a.name === prop.agencyName)
@@ -488,9 +588,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       (assignedAgent?.phone && !hasAdminNumber(assignedAgent.phone) ? assignedAgent.phone : null) ||
       directWhatsapp;
 
-    const directName = assignedAgency?.name || (assignedAgent ? `${assignedAgent.name} (Agent Mandataire)` : (prop.agencyName || 'Agence Immo Kin Gombe SARL'));
-    const directRole = assignedAgency ? `Agence Partenaire - ${assignedAgency.name}` : (assignedAgent ? `Agent Référent (${assignedAgent.name})` : 'Agence Mandataire Agréée');
-    const directEmail = assignedAgency?.email || assignedAgent?.email || 'mandats@kinimmo.com';
+    const directName = assignedAgency?.name || (assignedAgent ? `${assignedAgent.name}` : (prop.agencyName || 'Service Commercial'));
+    const directRole = assignedAgency ? assignedAgency.name : (assignedAgent ? `Conseiller Immobilier (${assignedAgent.name})` : 'Service Commercial');
+    const directEmail = assignedAgency?.email || assignedAgent?.email || 'contact@kinimmo.com';
     const directLegalStatus = prop.customFields?.titre_foncier || 'Certificat d’Enregistrement Notarié & Titre Foncier Conforme';
 
     const newSlide: ArchitecturalSlide = {
@@ -830,27 +930,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Properties Actions
   const addProperty = async (property: Property) => {
+    // Exécution automatique de l'algorithme de détection des annonces suspectes
+    const fraudAnalysis = analyzePropertyForFraud(property, properties, reports);
+    const enrichedProperty: Property = {
+      ...property,
+      fraudStatus: fraudAnalysis.verdict,
+      fraudScore: fraudAnalysis.riskScore,
+      fraudFlags: fraudAnalysis.flags,
+      fraudLastCheckedAt: fraudAnalysis.analyzedAt,
+      // 🟢 Normal -> publication directe
+      // 🟠 À vérifier -> contrôle manuel requis
+      // 🔴 Suspect -> blocage temporaire
+      published: fraudAnalysis.verdict === 'normal' ? (property.published !== false) : false
+    };
+
     setProperties((prev) => {
-      const exists = prev.some((p) => p.id === property.id);
-      const next = exists ? prev.map((p) => (p.id === property.id ? property : p)) : [property, ...prev];
+      const exists = prev.some((p) => p.id === enrichedProperty.id);
+      const next = exists ? prev.map((p) => (p.id === enrichedProperty.id ? enrichedProperty : p)) : [enrichedProperty, ...prev];
       saveDurableLocalProperties(next);
       return next;
     });
     try {
-      await savePropertyToFirestore(property);
+      await savePropertyToFirestore(enrichedProperty);
     } catch (err) {
       console.warn('Firestore save property notice (retained in durable storage):', err);
     }
   };
 
   const updateProperty = async (property: Property) => {
+    // Ré-analyse lors de toute modification
+    const fraudAnalysis = analyzePropertyForFraud(property, properties, reports);
+    const enrichedProperty: Property = {
+      ...property,
+      fraudStatus: fraudAnalysis.verdict,
+      fraudScore: fraudAnalysis.riskScore,
+      fraudFlags: fraudAnalysis.flags,
+      fraudLastCheckedAt: fraudAnalysis.analyzedAt,
+      published: fraudAnalysis.verdict === 'normal' ? (property.published !== false) : false
+    };
+
     setProperties((prev) => {
-      const next = prev.map((p) => (p.id === property.id ? property : p));
+      const next = prev.map((p) => (p.id === enrichedProperty.id ? enrichedProperty : p));
       saveDurableLocalProperties(next);
       return next;
     });
     try {
-      await savePropertyToFirestore(property);
+      await savePropertyToFirestore(enrichedProperty);
     } catch (err) {
       console.warn('Firestore update property notice:', err);
     }
@@ -1684,6 +1809,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         removePropertyFromHero,
         contactSettings,
         updateContactSettings,
+        reports,
+        addPropertyReport,
+        resolvePropertyReport,
       }}
     >
       <div dir={languages.find((l) => l.code === language)?.dir || 'ltr'}>

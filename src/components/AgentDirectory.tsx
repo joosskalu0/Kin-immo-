@@ -1068,7 +1068,7 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                   <div>
                     <h5 className="font-bold text-white text-xs">4. Signature de la Charte Anti-Fraude Immocraft</h5>
                     <p className="text-slate-400 text-[11px] mt-0.5 leading-relaxed">
-                      Engagement légal sur la transparence des frais de commission, l'exclusivité des mandats et l'interdiction des surcoûts cachés.
+                      Engagement légal sur la transparence des frais de commission, la conformité des contrats et l'interdiction des surcoûts cachés.
                     </p>
                   </div>
                 </div>

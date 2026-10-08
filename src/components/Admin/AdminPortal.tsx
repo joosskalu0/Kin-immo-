@@ -55,10 +55,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onReturnHome }) => {
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center p-4">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-bold text-slate-400">Chargement de l'environnement sécurisé Kinimmo...</span>
+          <div className="w-10 h-10 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs font-bold text-slate-600">Chargement de l'environnement sécurisé Kinimmo...</span>
         </div>
       </div>
     );

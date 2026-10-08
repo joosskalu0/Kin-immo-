@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Compass,
   Search,
@@ -19,13 +19,25 @@ import {
   Building2,
   Sparkles,
   X,
-  AlertCircle
+  AlertCircle,
+  Eye,
+  Edit3,
+  UserCheck,
+  Users,
+  FileText,
+  ChevronRight,
+  DollarSign,
+  Filter,
+  MoreHorizontal,
+  ArrowRight,
+  Check
 } from 'lucide-react';
 import { ConciergeRequest, ConciergeRequestStatus, PropertyVisit, PropertyVisitStatus } from '../../types';
 import { findMatchingProperties, PropertyMatchResult } from '../../utils/propertyMatching';
 import {
   fetchConciergerieRequests,
   updateConciergeRequestStatus,
+  updateConciergeRequestFull,
   fetchPropertyVisits,
   schedulePropertyVisit,
   updatePropertyVisitStatus,
@@ -33,7 +45,7 @@ import {
 } from '../../services/conciergerieApi';
 import { useApp } from '../../context/AppContext';
 
-// Libellés et styles des 7 statuts demandés
+// Libellés et styles des statuts demandés
 const CONCIERGE_STATUS_CONFIG: Record<
   ConciergeRequestStatus,
   { label: string; badgeClass: string; selectClass: string }
@@ -75,40 +87,63 @@ const CONCIERGE_STATUS_CONFIG: Record<
   }
 };
 
-const VISIT_STATUS_LABELS: Record<string, { label: string; badge: string }> = {
-  scheduled: { label: 'Planifiée', badge: 'bg-cyan-100 text-cyan-900 border-cyan-300' },
-  confirmed: { label: 'Confirmée', badge: 'bg-blue-100 text-blue-900 border-blue-300' },
-  completed: { label: 'Effectuée', badge: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
-  cancelled: { label: 'Annulée', badge: 'bg-rose-100 text-rose-900 border-rose-300' },
-  rescheduled: { label: 'Reportée', badge: 'bg-amber-100 text-amber-900 border-amber-300' }
-};
-
 export const AdminConciergerieManager: React.FC = () => {
   const { agents, properties } = useApp();
 
-  // Navigation par onglets (Tables : concierge_requests vs property_visits)
+  // Navigation par sous-onglets : Demandes (Tableau principal) vs Visites programmées
   const [activeTab, setActiveTab] = useState<'requests' | 'visits'>('requests');
 
-  // État Table : concierge_requests
+  // Données des demandes
   const [requests, setRequests] = useState<ConciergeRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | ConciergeRequestStatus>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
-  const [selectedRequest, setSelectedRequest] = useState<ConciergeRequest | null>(null);
-  const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
-  const [tempNotes, setTempNotes] = useState('');
+  const [agentFilter, setAgentFilter] = useState<string>('all');
 
-  // Modale de Correspondance Automatique avec les annonces
-  const [matchingModalRequest, setMatchingModalRequest] = useState<ConciergeRequest | null>(null);
-
-  // État Table : property_visits
+  // Données des visites
   const [visits, setVisits] = useState<PropertyVisit[]>([]);
   const [loadingVisits, setLoadingVisits] = useState(true);
-  const [visitStatusFilter, setVisitStatusFilter] = useState<string>('all');
-  const [visitSearchQuery, setVisitSearchQuery] = useState('');
 
-  // Modale planification de visite
+  // Notification d'action
+  const [actionNotification, setActionNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const notify = (type: 'success' | 'error', message: string) => {
+    setActionNotification({ type, message });
+    setTimeout(() => setActionNotification(null), 4000);
+  };
+
+  // Modales d'Actions :
+  // 1. Voir
+  const [viewingRequest, setViewingRequest] = useState<ConciergeRequest | null>(null);
+
+  // 2. Modifier
+  const [editingRequest, setEditingRequest] = useState<ConciergeRequest | null>(null);
+  const [editForm, setEditForm] = useState({
+    full_name: '',
+    phone: '',
+    email: '',
+    project_type: 'Acheter',
+    property_type: 'Villa',
+    commune: 'Gombe',
+    quartier: '',
+    budget_min: 0,
+    budget_max: 0,
+    currency: 'USD',
+    bedrooms: 0,
+    bathrooms: 0,
+    notes: ''
+  });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // 3. Attribuer à un agent
+  const [assigningRequest, setAssigningRequest] = useState<ConciergeRequest | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+
+  // 4. Voir les biens correspondants
+  const [matchingModalRequest, setMatchingModalRequest] = useState<ConciergeRequest | null>(null);
+
+  // 5. Programmer une visite
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [scheduleForm, setScheduleForm] = useState({
     request_id: '',
@@ -123,21 +158,16 @@ export const AdminConciergerieManager: React.FC = () => {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [isSavingVisit, setIsSavingVisit] = useState(false);
 
-  // Planification rapide depuis un bien matché
-  const handlePlanVisitForMatchedProperty = (req: ConciergeRequest, prop: any, score: number) => {
-    setScheduleForm({
-      request_id: req.id,
-      property_id: prop.id,
-      property_title: prop.title,
-      agent_id: req.assigned_agent_id || prop.agentId || agents[0]?.id || '',
-      visit_date: new Date().toISOString().split('T')[0],
-      visit_time: '14:00',
-      status: 'scheduled',
-      notes: `Visite programmée suite à la correspondance automatique (${score}% de pertinence).`
-    });
-    setMatchingModalRequest(null);
-    setIsScheduleModalOpen(true);
-  };
+  // 6. Modifier le statut
+  const [statusChangingRequest, setStatusChangingRequest] = useState<ConciergeRequest | null>(null);
+
+  // 7. Ajouter une note
+  const [notingRequest, setNotingRequest] = useState<ConciergeRequest | null>(null);
+  const [noteContent, setNoteContent] = useState('');
+  const [isSavingNote, setIsSavingNote] = useState(false);
+
+  // Menu déroulant d'actions ouvert par ID
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
 
   // Chargement des données
   const loadAllData = async () => {
@@ -151,7 +181,8 @@ export const AdminConciergerieManager: React.FC = () => {
       setRequests(reqData);
       setVisits(visitData);
     } catch (e) {
-      console.error('Erreur chargement données conciergerie:', e);
+      console.error('Erreur chargement conciergerie:', e);
+      notify('error', 'Impossible de charger les données de conciergerie.');
     } finally {
       setLoadingRequests(false);
       setLoadingVisits(false);
@@ -162,7 +193,14 @@ export const AdminConciergerieManager: React.FC = () => {
     loadAllData();
   }, []);
 
-  // Normalisation du statut de demande
+  // Fermer le menu d'action au clic ailleurs
+  useEffect(() => {
+    const closeMenu = () => setOpenActionMenuId(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, []);
+
+  // Normalisation du statut
   const getNormalizedStatus = (rawStatus?: string): ConciergeRequestStatus => {
     if (!rawStatus) return 'new';
     if (rawStatus === 'nouveau') return 'new';
@@ -175,81 +213,202 @@ export const AdminConciergerieManager: React.FC = () => {
     return 'new';
   };
 
-  // Mise à jour de statut d'une demande
-  const handleUpdateStatus = async (id: string, newStatus: ConciergeRequestStatus) => {
+  // Compteurs KPI demandés :
+  // * nombre de nouvelles demandes
+  // * demandes en cours
+  // * visites programmées
+  // * demandes terminées
+  const kpiStats = useMemo(() => {
+    const nouvelles = requests.filter((r) => {
+      const s = getNormalizedStatus(r.status);
+      return s === 'new';
+    }).length;
+
+    const enCours = requests.filter((r) => {
+      const s = getNormalizedStatus(r.status);
+      return ['searching', 'properties_found', 'visit_scheduled', 'negotiation'].includes(s);
+    }).length;
+
+    const visites = visits.filter((v) => v.status === 'scheduled' || v.status === 'confirmed').length ||
+      requests.filter((r) => getNormalizedStatus(r.status) === 'visit_scheduled').length;
+
+    const terminees = requests.filter((r) => {
+      const s = getNormalizedStatus(r.status);
+      return s === 'completed';
+    }).length;
+
+    return {
+      nouvelles,
+      enCours,
+      visites,
+      terminees,
+      total: requests.length
+    };
+  }, [requests, visits]);
+
+  // Filtrage des demandes
+  const filteredRequests = useMemo(() => {
+    return requests.filter((req) => {
+      const currentStatus = getNormalizedStatus(req.status);
+      if (statusFilter !== 'all' && currentStatus !== statusFilter) return false;
+
+      const project = req.project_type || req.projet || '';
+      if (projectFilter !== 'all' && project !== projectFilter) return false;
+
+      if (agentFilter !== 'all') {
+        if (agentFilter === 'unassigned') {
+          if (req.assigned_agent_id) return false;
+        } else {
+          if (req.assigned_agent_id !== agentFilter) return false;
+        }
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const clientName = (req.full_name || req.client?.nomComplet || '').toLowerCase();
+        const clientPhone = (req.phone || req.client?.telephone || '').toLowerCase();
+        const clientEmail = (req.email || req.client?.email || '').toLowerCase();
+        const commune = (req.commune || req.localisation?.commune || '').toLowerCase();
+        const quartier = (req.quartier || req.localisation?.quartier || '').toLowerCase();
+        const ref = (req.reference || req.id || '').toLowerCase();
+
+        return (
+          clientName.includes(q) ||
+          clientPhone.includes(q) ||
+          clientEmail.includes(q) ||
+          commune.includes(q) ||
+          quartier.includes(q) ||
+          ref.includes(q)
+        );
+      }
+
+      return true;
+    });
+  }, [requests, statusFilter, projectFilter, agentFilter, searchQuery]);
+
+  // ==========================================
+  // GESTION DES 7 ACTIONS DEMANDÉES
+  // ==========================================
+
+  // Action 1 : VOIR
+  const handleOpenView = (req: ConciergeRequest) => {
+    setViewingRequest(req);
+  };
+
+  // Action 2 : MODIFIER
+  const handleOpenEdit = (req: ConciergeRequest) => {
+    setEditingRequest(req);
+    setEditForm({
+      full_name: req.full_name || req.client?.nomComplet || '',
+      phone: req.phone || req.client?.telephone || '',
+      email: req.email || req.client?.email || '',
+      project_type: req.project_type || req.projet || 'Acheter',
+      property_type: req.property_type || req.typeBien || 'Villa',
+      commune: req.commune || req.localisation?.commune || 'Gombe',
+      quartier: req.quartier || req.localisation?.quartier || '',
+      budget_min: req.budget_min !== undefined ? req.budget_min : (req.budget?.min || 0),
+      budget_max: req.budget_max || req.budget?.max || 0,
+      currency: req.currency || req.budget?.devise || 'USD',
+      bedrooms: req.bedrooms !== undefined ? req.bedrooms : (req.caracteristiques?.chambres || 0),
+      bathrooms: req.bathrooms !== undefined ? req.bathrooms : (req.caracteristiques?.sallesDeBain || 0),
+      notes: req.notes || req.preferencesClient?.remarques || ''
+    });
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRequest) return;
+    setIsSavingEdit(true);
+
     try {
+      const updatePayload: Partial<ConciergeRequest> = {
+        full_name: editForm.full_name,
+        phone: editForm.phone,
+        email: editForm.email,
+        project_type: editForm.project_type,
+        property_type: editForm.property_type,
+        commune: editForm.commune,
+        quartier: editForm.quartier,
+        budget_min: Number(editForm.budget_min) || 0,
+        budget_max: Number(editForm.budget_max) || 0,
+        currency: editForm.currency,
+        bedrooms: Number(editForm.bedrooms) || 0,
+        bathrooms: Number(editForm.bathrooms) || 0,
+        notes: editForm.notes
+      };
+
+      await updateConciergeRequestFull(editingRequest.id, updatePayload);
+
       setRequests((prev) =>
-        prev.map((r) =>
-          r.id === id ? { ...r, status: newStatus, updated_at: new Date().toISOString() } : r
-        )
+        prev.map((r) => (r.id === editingRequest.id ? { ...r, ...updatePayload, updated_at: new Date().toISOString() } : r))
       );
-      await updateConciergeRequestStatus(id, newStatus);
-    } catch (e) {
-      console.error('Erreur mise à jour statut:', e);
+
+      notify('success', 'Demande modifiée avec succès.');
+      setEditingRequest(null);
+    } catch (e: any) {
+      notify('error', e?.message || 'Erreur lors de la modification.');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
-  // Attribution d'un agent à une demande
-  const handleAssignAgent = async (requestId: string, agentId: string) => {
+  // Action 3 : ATTRIBUER À UN AGENT
+  const handleOpenAssign = (req: ConciergeRequest) => {
+    setAssigningRequest(req);
+    setSelectedAgentId(req.assigned_agent_id || '');
+  };
+
+  const handleSaveAssign = async () => {
+    if (!assigningRequest) return;
     try {
-      const targetAgent = agents.find((a) => a.id === agentId);
+      const targetAgent = agents.find((a) => a.id === selectedAgentId);
       const agentName = targetAgent ? targetAgent.name : null;
+
+      await updateConciergeRequestFull(assigningRequest.id, {
+        assigned_agent_id: selectedAgentId || null,
+        assigned_agent_name: agentName
+      });
 
       setRequests((prev) =>
         prev.map((r) =>
-          r.id === requestId
-            ? {
-                ...r,
-                assigned_agent_id: agentId || null,
-                assigned_agent_name: agentName,
-                updated_at: new Date().toISOString()
-              }
+          r.id === assigningRequest.id
+            ? { ...r, assigned_agent_id: selectedAgentId || null, assigned_agent_name: agentName, updated_at: new Date().toISOString() }
             : r
         )
       );
 
-      await updateConciergeRequestStatus(requestId, undefined as any, undefined, agentId || null);
-    } catch (e) {
-      console.error('Erreur attribution agent:', e);
+      notify('success', selectedAgentId ? `Demande attribuée à ${agentName}.` : 'Demande réinitialisée sans agent.');
+      setAssigningRequest(null);
+    } catch (e: any) {
+      notify('error', 'Erreur lors de l’attribution.');
     }
   };
 
-  // Sauvegarde des notes internes
-  const handleSaveNotes = async (id: string) => {
-    try {
-      setRequests((prev) =>
-        prev.map((r) =>
-          r.id === id ? { ...r, notesAdmin: tempNotes, updated_at: new Date().toISOString() } : r
-        )
-      );
-      setEditingNotesId(null);
-      await updateConciergeRequestStatus(id, undefined as any, tempNotes);
-    } catch (e) {
-      console.error('Erreur mise à jour notes:', e);
-    }
+  // Action 4 : VOIR LES BIENS CORRESPONDANTS
+  const handleOpenMatching = (req: ConciergeRequest) => {
+    setMatchingModalRequest(req);
   };
 
-  // Ouvrir modale de planification pour une demande précise
-  const handleOpenScheduleForRequest = (req: ConciergeRequest) => {
+  // Action 5 : PROGRAMMER UNE VISITE
+  const handleOpenSchedule = (req: ConciergeRequest, defaultProperty?: any) => {
     setScheduleForm({
       request_id: req.id,
-      property_id: '',
-      property_title: `${req.property_type || req.typeBien || 'Bien'} à ${req.commune || req.localisation?.commune}`,
+      property_id: defaultProperty?.id || '',
+      property_title: defaultProperty?.title || `${req.property_type || req.typeBien || 'Bien'} à ${req.commune || req.localisation?.commune || 'Kinshasa'}`,
       agent_id: req.assigned_agent_id || (agents[0]?.id || ''),
       visit_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
       visit_time: '14:00',
       status: 'scheduled',
-      notes: `Visite pour ${req.full_name || req.client?.nomComplet} (${req.phone || req.client?.telephone})`
+      notes: `Visite programmée pour ${req.full_name || req.client?.nomComplet} (${req.phone || req.client?.telephone})`
     });
     setScheduleError(null);
     setIsScheduleModalOpen(true);
   };
 
-  // Soumission d'une nouvelle visite (property_visits)
   const handleSaveScheduleVisit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!scheduleForm.request_id) {
-      setScheduleError('Veuillez sélectionner ou indiquer la demande associée (request_id).');
+      setScheduleError('Veuillez indiquer la demande associée.');
       return;
     }
     if (!scheduleForm.visit_date) {
@@ -279,17 +438,18 @@ export const AdminConciergerieManager: React.FC = () => {
 
       if (res.success && res.data) {
         setVisits((prev) => [res.data!, ...prev.filter((v) => v.id !== res.data!.id)]);
-        // Mettre à jour l'état de la demande en visit_scheduled si applicable
+        // Mettre à jour la demande en visit_scheduled
         setRequests((prev) =>
           prev.map((r) =>
-            r.id === scheduleForm.request_id && r.status !== 'completed' && r.status !== 'cancelled'
+            r.id === scheduleForm.request_id
               ? { ...r, status: 'visit_scheduled', updated_at: new Date().toISOString() }
               : r
           )
         );
+        notify('success', 'Visite programmée avec succès.');
         setIsScheduleModalOpen(false);
       } else {
-        setScheduleError(res.error || 'Erreur lors de la planification de la visite.');
+        setScheduleError(res.error || 'Erreur lors de la planification.');
       }
     } catch (err: any) {
       setScheduleError(err?.message || 'Erreur inattendue.');
@@ -298,1381 +458,1542 @@ export const AdminConciergerieManager: React.FC = () => {
     }
   };
 
-  // Mise à jour de statut d'une visite
-  const handleUpdateVisitStatus = async (visitId: string, newStatus: string) => {
+  // Action 6 : MODIFIER LE STATUT
+  const handleOpenStatusChange = (req: ConciergeRequest) => {
+    setStatusChangingRequest(req);
+  };
+
+  const handleUpdateStatus = async (id: string, newStatus: ConciergeRequestStatus) => {
     try {
-      setVisits((prev) =>
-        prev.map((v) => (v.id === visitId ? { ...v, status: newStatus, updated_at: new Date().toISOString() } : v))
+      setRequests((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: newStatus, updated_at: new Date().toISOString() } : r))
       );
-      await updatePropertyVisitStatus(visitId, newStatus);
+      await updateConciergeRequestStatus(id, newStatus);
+      notify('success', `Statut mis à jour : ${CONCIERGE_STATUS_CONFIG[newStatus]?.label || newStatus}`);
+      setStatusChangingRequest(null);
     } catch (e) {
-      console.error('Erreur statut visite:', e);
+      notify('error', 'Erreur lors du changement de statut.');
     }
   };
 
-  // Suppression d'une visite
-  const handleDeleteVisit = async (visitId: string) => {
-    if (!window.confirm('Confirmez-vous la suppression de cette visite ?')) return;
-    try {
-      setVisits((prev) => prev.filter((v) => v.id !== visitId));
-      await deletePropertyVisit(visitId);
-    } catch (e) {
-      console.error('Erreur suppression visite:', e);
-    }
+  // Action 7 : AJOUTER UNE NOTE
+  const handleOpenAddNote = (req: ConciergeRequest) => {
+    setNotingRequest(req);
+    setNoteContent(req.notesAdmin || '');
   };
 
-  // Filtrage des demandes (concierge_requests)
-  const filteredRequests = requests.filter((r) => {
-    const currentStatus = getNormalizedStatus(r.status);
-    if (statusFilter !== 'all' && currentStatus !== statusFilter) {
-      return false;
-    }
-    const currentProjet = r.project_type || r.projet;
-    if (projectFilter !== 'all' && currentProjet !== projectFilter) {
-      return false;
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const clientName = (r.full_name || r.client?.nomComplet || '').toLowerCase();
-      const clientPhone = r.phone || r.client?.telephone || '';
-      const clientEmail = (r.email || r.client?.email || '').toLowerCase();
-      const commune = (r.commune || r.localisation?.commune || '').toLowerCase();
-      const ref = (r.reference || r.id || '').toLowerCase();
-      return (
-        clientName.includes(q) ||
-        clientPhone.includes(q) ||
-        clientEmail.includes(q) ||
-        commune.includes(q) ||
-        ref.includes(q)
-      );
-    }
-    return true;
-  });
+  const handleSaveNote = async () => {
+    if (!notingRequest) return;
+    setIsSavingNote(true);
 
-  // Filtrage des visites (property_visits)
-  const filteredVisits = visits.filter((v) => {
-    if (visitStatusFilter !== 'all' && v.status !== visitStatusFilter) {
-      return false;
-    }
-    if (visitSearchQuery.trim()) {
-      const q = visitSearchQuery.toLowerCase();
-      const title = (v.property_title || '').toLowerCase();
-      const client = (v.client_name || '').toLowerCase();
-      const agent = (v.agent_name || '').toLowerCase();
-      const notes = (v.notes || '').toLowerCase();
-      const reqId = (v.request_id || '').toLowerCase();
-      return (
-        title.includes(q) ||
-        client.includes(q) ||
-        agent.includes(q) ||
-        notes.includes(q) ||
-        reqId.includes(q)
+    try {
+      await updateConciergeRequestStatus(notingRequest.id, undefined as any, noteContent);
+      setRequests((prev) =>
+        prev.map((r) => (r.id === notingRequest.id ? { ...r, notesAdmin: noteContent, updated_at: new Date().toISOString() } : r))
       );
+      notify('success', 'Note administrative enregistrée.');
+      setNotingRequest(null);
+    } catch (e) {
+      notify('error', 'Erreur enregistrement note.');
+    } finally {
+      setIsSavingNote(false);
     }
-    return true;
-  });
-
-  // Compteurs par statut pour les KPI
-  const countByStatus = {
-    new: requests.filter((r) => getNormalizedStatus(r.status) === 'new').length,
-    searching: requests.filter((r) => getNormalizedStatus(r.status) === 'searching').length,
-    properties_found: requests.filter((r) => getNormalizedStatus(r.status) === 'properties_found').length,
-    visit_scheduled: requests.filter((r) => getNormalizedStatus(r.status) === 'visit_scheduled').length,
-    negotiation: requests.filter((r) => getNormalizedStatus(r.status) === 'negotiation').length,
-    completed: requests.filter((r) => getNormalizedStatus(r.status) === 'completed').length,
-    cancelled: requests.filter((r) => getNormalizedStatus(r.status) === 'cancelled').length
   };
 
   return (
-    <div className="space-y-6 text-slate-800">
-      
-      {/* 1. EN-TÊTE OFFICIEL KINIMMO (Design Clair & Lumineux) */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 shadow-xs">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold uppercase tracking-wider">
-            <Compass className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Gestion des Mandats & Accompagnements Kinimmo</span>
+    <div className="space-y-6">
+      {/* Toast Notification */}
+      {actionNotification && (
+        <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-3 duration-200">
+          <div
+            className={`px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-2.5 text-xs font-bold ${
+              actionNotification.type === 'success'
+                ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/80 backdrop-blur-md'
+                : 'bg-rose-950/90 text-rose-300 border-rose-700/80 backdrop-blur-md'
+            }`}
+          >
+            {actionNotification.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{actionNotification.message}</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 uppercase tracking-tight">
-            Conciergerie Immobilière & Visites
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-600 max-w-2xl font-normal leading-relaxed">
-            Supervisez les deux tables clés de la conciergerie : les mandats de recherche reçus (<code>concierge_requests</code>) et les visites physiques planifiées (<code>property_visits</code>).
-          </p>
+        </div>
+      )}
+
+      {/* Header Principal & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-black">
+              <Compass className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-white uppercase tracking-tight">
+                Conciergerie Immobilière Kinshasa
+              </h2>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span className="font-mono text-emerald-400 font-bold">/admin/conciergerie</span>
+                <span>•</span>
+                <span>Gestion des demandes d'accompagnement & prospection</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <a
-            href="/conciergerie"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-xs active:scale-95"
-            title="Ouvrir la page publique /conciergerie dans un nouvel onglet"
-          >
-            <ExternalLink className="w-4 h-4" />
-            <span>Aperçu Public</span>
-          </a>
-
+        <div className="flex items-center gap-2.5">
           <button
-            onClick={() => {
-              setScheduleForm({
-                request_id: requests[0]?.id || '',
-                property_id: '',
-                property_title: '',
-                agent_id: agents[0]?.id || '',
-                visit_date: new Date().toISOString().split('T')[0],
-                visit_time: '14:00',
-                status: 'scheduled',
-                notes: ''
-              });
-              setScheduleError(null);
-              setIsScheduleModalOpen(true);
-            }}
-            className="px-4 py-3 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs uppercase tracking-wider border border-slate-300 transition-all flex items-center gap-2 cursor-pointer shadow-xs"
+            onClick={loadAllData}
+            disabled={loadingRequests}
+            className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition-all text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Rafraîchir les données"
           >
-            <Plus className="w-4 h-4 text-emerald-600" />
-            <span>Planifier une visite</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingRequests ? 'animate-spin text-emerald-400' : ''}`} />
+            <span className="hidden sm:inline">Actualiser</span>
           </button>
 
           <button
-            onClick={loadAllData}
-            className="px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-200 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
-            title="Actualiser les données"
+            onClick={() => {
+              if (requests.length > 0) {
+                handleOpenSchedule(requests[0]);
+              } else {
+                setIsScheduleModalOpen(true);
+              }
+            }}
+            className="px-3.5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-cyan-600/20 active:scale-95 cursor-pointer"
           >
-            <RefreshCw className={`w-4 h-4 ${loadingRequests || loadingVisits ? 'animate-spin text-emerald-600' : ''}`} />
-            <span>Actualiser</span>
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Programmer une visite</span>
           </button>
         </div>
       </div>
 
-      {/* 2. ONGLETS DE SÉLECTION DE TABLE */}
-      <div className="flex border-b border-slate-200 bg-white rounded-2xl p-1.5 shadow-xs">
-        <button
-          onClick={() => setActiveTab('requests')}
-          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
-            activeTab === 'requests'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+      {/* Les 4 KPI Clés Demandés dans le dashboard administrateur :
+          * nombre de nouvelles demandes
+          * demandes en cours
+          * visites programmées
+          * demandes terminées */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* 1. Nouvelles demandes */}
+        <div
+          onClick={() => setStatusFilter(statusFilter === 'new' ? 'all' : 'new')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+            statusFilter === 'new'
+              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md ring-2 ring-amber-400/40'
+              : 'bg-slate-900 border-slate-800 hover:border-amber-500/50 text-white'
           }`}
         >
-          <Compass className="w-4 h-4" />
-          <span>Demandes & Mandats (concierge_requests)</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-              activeTab === 'requests' ? 'bg-emerald-800 text-white' : 'bg-slate-100 text-slate-700'
-            }`}
-          >
-            {requests.length}
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
+              Nouvelles demandes
+            </span>
+            <Clock className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="text-3xl font-black mt-2">{kpiStats.nouvelles}</div>
+          <div className="text-[11px] text-slate-400 mt-1">À traiter et attribuer</div>
+        </div>
+
+        {/* 2. Demandes en cours */}
+        <div
+          onClick={() => setStatusFilter(statusFilter === 'searching' ? 'all' : 'searching')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+            statusFilter === 'searching'
+              ? 'bg-blue-600 text-white border-blue-400 shadow-md ring-2 ring-blue-400/40'
+              : 'bg-slate-900 border-slate-800 hover:border-blue-500/50 text-white'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
+              Demandes en cours
+            </span>
+            <Search className="w-4 h-4 text-blue-400" />
+          </div>
+          <div className="text-3xl font-black mt-2">{kpiStats.enCours}</div>
+          <div className="text-[11px] text-slate-400 mt-1">Recherche & prospection</div>
+        </div>
+
+        {/* 3. Visites programmées */}
+        <div
+          onClick={() => {
+            setActiveTab('visits');
+          }}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+            activeTab === 'visits'
+              ? 'bg-cyan-600 text-white border-cyan-400 shadow-md ring-2 ring-cyan-400/40'
+              : 'bg-slate-900 border-slate-800 hover:border-cyan-500/50 text-white'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">
+              Visites programmées
+            </span>
+            <Calendar className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="text-3xl font-black mt-2">{kpiStats.visites}</div>
+          <div className="text-[11px] text-slate-400 mt-1">Sur le terrain à Kinshasa</div>
+        </div>
+
+        {/* 4. Demandes terminées */}
+        <div
+          onClick={() => setStatusFilter(statusFilter === 'completed' ? 'all' : 'completed')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+            statusFilter === 'completed'
+              ? 'bg-emerald-600 text-white border-emerald-400 shadow-md ring-2 ring-emerald-400/40'
+              : 'bg-slate-900 border-slate-800 hover:border-emerald-500/50 text-white'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+              Demandes terminées
+            </span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="text-3xl font-black mt-2">{kpiStats.terminees}</div>
+          <div className="text-[11px] text-slate-400 mt-1">Missions clôturées</div>
+        </div>
+      </div>
+
+      {/* Onglets secondaires : Tableau des demandes vs Calendrier des visites */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+        <button
+          onClick={() => setActiveTab('requests')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTab === 'requests'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Compass className="w-3.5 h-3.5" />
+          <span>Tableau des Demandes ({filteredRequests.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('visits')}
-          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
             activeTab === 'visits'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              ? 'bg-cyan-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800'
           }`}
         >
-          <Calendar className="w-4 h-4" />
-          <span>Visites Immobilières (property_visits)</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-              activeTab === 'visits' ? 'bg-emerald-800 text-white' : 'bg-slate-100 text-slate-700'
-            }`}
-          >
-            {visits.length}
-          </span>
+          <Calendar className="w-3.5 h-3.5" />
+          <span>Visites programmées ({visits.length})</span>
         </button>
       </div>
 
-      {/* ========================================================= */}
-      {/* VUE 1 : TABLE concierge_requests                           */}
-      {/* ========================================================= */}
+      {/* ======================================================== */}
+      {/* VUE 1 : TABLEAU DES DEMANDES DE CONCIERGERIE            */}
+      {/* ======================================================== */}
       {activeTab === 'requests' && (
-        <div className="space-y-6">
-          
-          {/* KPI des 7 statuts demandés */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
-            <div
-              onClick={() => setStatusFilter('all')}
-              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                statusFilter === 'all'
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                  : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300'
-              }`}
-            >
-              <span className="text-[10px] uppercase font-bold block opacity-70">Total</span>
-              <span className="text-xl font-black block">{requests.length}</span>
-              <span className="text-[9px] opacity-75">Tous statuts</span>
-            </div>
-
-            <div
-              onClick={() => setStatusFilter('new')}
-              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                statusFilter === 'new'
-                  ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
-                  : 'bg-amber-50 border-amber-200 text-amber-900 hover:border-amber-300'
-              }`}
-            >
-              <span className="text-[10px] uppercase font-bold block opacity-80">Nouveau</span>
-              <span className="text-xl font-black block">{countByStatus.new}</span>
-              <span className="text-[9px] opacity-80">À attribuer</span>
-            </div>
-
-            <div
-              onClick={() => setStatusFilter('searching')}
-              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                statusFilter === 'searching'
-                  ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
-                  : 'bg-blue-50 border-blue-200 text-blue-900 hover:border-blue-300'
-              }`}
-            >
-              <span className="text-[10px] uppercase font-bold block opacity-80">Recherche</span>
-              <span className="text-xl font-black block">{countByStatus.searching}</span>
-              <span className="text-[9px] opacity-80">Prospection</span>
-            </div>
-
-            <div
-              onClick={() => setStatusFilter('properties_found')}
-              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                statusFilter === 'properties_found'
-                  ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
-                  : 'bg-purple-50 border-purple-200 text-purple-900 hover:border-purple-300'
-              }`}
-            >
-              <span className="text-[10px] uppercase font-bold block opacity-80">Biens trouvés</span>
-              <span className="text-xl font-black block">{countByStatus.properties_found}</span>
-              <span className="text-[9px] opacity-80">En sélection</span>
-            </div>
-
-            <div
-              onClick={() => setStatusFilter('visit_scheduled')}
-              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                statusFilter === 'visit_scheduled'
-                  ? 'bg-cyan-600 text-white border-cyan-700 shadow-xs'
-                  : 'bg-cyan-50 border-cyan-200 text-cyan-900 hover:border-cyan-300'
-              }`}
-            >
-              <span className="text-[10px] uppercase font-bold block opacity-80">Visites</span>
-              <span className="text-xl font-black block">{countByStatus.visit_scheduled}</span>
-              <span className="text-[9px] opacity-80">Planifiées</span>
-            </div>
-
-            <div
-              onClick={() => setStatusFilter('negotiation')}
-              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                statusFilter === 'negotiation'
-                  ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs'
-                  : 'bg-indigo-50 border-indigo-200 text-indigo-900 hover:border-indigo-300'
-              }`}
-            >
-              <span className="text-[10px] uppercase font-bold block opacity-80">Négociation</span>
-              <span className="text-xl font-black block">{countByStatus.negotiation}</span>
-              <span className="text-[9px] opacity-80">Offres en cours</span>
-            </div>
-
-            <div
-              onClick={() => setStatusFilter('completed')}
-              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                statusFilter === 'completed'
-                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:border-emerald-300'
-              }`}
-            >
-              <span className="text-[10px] uppercase font-bold block opacity-80">Finalisé</span>
-              <span className="text-xl font-black block">{countByStatus.completed}</span>
-              <span className="text-[9px] opacity-80">Clôturé</span>
-            </div>
-          </div>
-
-          {/* Filtres & Recherche pour les demandes */}
-          <div className="p-4 rounded-2xl bg-white border border-slate-200 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+        <div className="space-y-4">
+          {/* Barre de Recherche et Filtres */}
+          <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 flex-1 min-w-[220px]">
               <Search className="w-4 h-4 text-slate-400 shrink-0" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Rechercher par nom, téléphone, e-mail, commune..."
-                className="w-full bg-transparent text-xs text-slate-900 placeholder-slate-400 focus:outline-none"
+                placeholder="Rechercher par client, téléphone, e-mail, commune, ID..."
+                className="w-full bg-transparent text-white placeholder-slate-500 focus:outline-none text-xs"
               />
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Filtre Statut */}
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-700 font-semibold focus:outline-none focus:border-emerald-600"
+                className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 font-semibold focus:outline-none focus:border-emerald-500"
               >
-                <option value="all">Tous les 7 statuts</option>
-                <option value="new">new (Nouveau)</option>
-                <option value="searching">searching (Recherche en cours)</option>
-                <option value="properties_found">properties_found (Biens trouvés)</option>
-                <option value="visit_scheduled">visit_scheduled (Visite planifiée)</option>
-                <option value="negotiation">negotiation (Négociation)</option>
-                <option value="completed">completed (Finalisé)</option>
-                <option value="cancelled">cancelled (Annulé)</option>
+                <option value="all">Tous les statuts ({requests.length})</option>
+                <option value="new">Nouveau ({kpiStats.nouvelles})</option>
+                <option value="searching">Recherche en cours</option>
+                <option value="properties_found">Biens trouvés</option>
+                <option value="visit_scheduled">Visite planifiée</option>
+                <option value="negotiation">Négociation</option>
+                <option value="completed">Finalisé / Clôturé ({kpiStats.terminees})</option>
+                <option value="cancelled">Annulé</option>
               </select>
 
+              {/* Filtre Projet */}
               <select
                 value={projectFilter}
                 onChange={(e) => setProjectFilter(e.target.value)}
-                className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-700 font-semibold focus:outline-none focus:border-emerald-600"
+                className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 font-semibold focus:outline-none focus:border-emerald-500"
               >
-                <option value="all">Tous les types de projet</option>
+                <option value="all">Tous les projets</option>
                 <option value="Acheter">Acheter</option>
                 <option value="Louer">Louer</option>
-                <option value="Trouver un terrain">Trouver un terrain</option>
-                <option value="Trouver un local commercial">Trouver un local commercial</option>
-                <option value="Autre">Autre</option>
+                <option value="Trouver un terrain">Terrain</option>
+                <option value="Trouver un local commercial">Commercial</option>
               </select>
+
+              {/* Filtre Agent */}
+              <select
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+                className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 font-semibold focus:outline-none focus:border-emerald-500"
+              >
+                <option value="all">Tous les agents</option>
+                <option value="unassigned">Non assigné</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+
+              {(statusFilter !== 'all' || projectFilter !== 'all' || agentFilter !== 'all' || searchQuery) && (
+                <button
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setProjectFilter('all');
+                    setAgentFilter('all');
+                    setSearchQuery('');
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+                >
+                  Réinitialiser
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Liste des Demandes */}
+          {/* LE TABLEAU COMPLET AVEC LES 10 COLONNES DEMANDÉES */}
           {loadingRequests ? (
-            <div className="p-12 text-center text-slate-500 space-y-2 bg-white rounded-3xl border border-slate-200">
-              <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-xs">Chargement des demandes de conciergerie...</p>
+            <div className="p-12 text-center text-slate-400 space-y-2 bg-slate-900 rounded-3xl border border-slate-800">
+              <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs">Chargement du tableau des demandes de conciergerie...</p>
             </div>
           ) : filteredRequests.length === 0 ? (
-            <div className="p-12 rounded-3xl bg-white border border-slate-200 text-center space-y-3 shadow-xs">
-              <Compass className="w-10 h-10 text-slate-400 mx-auto" />
-              <h3 className="text-sm font-bold text-slate-900">Aucune demande trouvée</h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                {searchQuery || statusFilter !== 'all' || projectFilter !== 'all'
-                  ? 'Aucun résultat ne correspond à vos filtres actuels.'
-                  : 'Les demandes soumises via la conciergerie apparaîtront ici automatiquement.'}
+            <div className="p-12 rounded-3xl bg-slate-900 border border-slate-800 text-center space-y-3">
+              <Compass className="w-10 h-10 text-slate-600 mx-auto" />
+              <h3 className="text-sm font-bold text-white">Aucune demande trouvée</h3>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                {searchQuery || statusFilter !== 'all'
+                  ? 'Aucune demande ne correspond à vos filtres actuels.'
+                  : 'Les demandes soumises par les clients apparaîtront ici.'}
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {filteredRequests.map((req) => {
-                const currentStatus = getNormalizedStatus(req.status);
-                const statusConfig = CONCIERGE_STATUS_CONFIG[currentStatus] || CONCIERGE_STATUS_CONFIG.new;
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-950/80 text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-800 select-none">
+                      <th className="py-3.5 px-3">ID</th>
+                      <th className="py-3.5 px-3">Client</th>
+                      <th className="py-3.5 px-3">Projet</th>
+                      <th className="py-3.5 px-3">Type de bien</th>
+                      <th className="py-3.5 px-3">Commune</th>
+                      <th className="py-3.5 px-3">Budget</th>
+                      <th className="py-3.5 px-3">Date</th>
+                      <th className="py-3.5 px-3">Agent responsable</th>
+                      <th className="py-3.5 px-3">Statut</th>
+                      <th className="py-3.5 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {filteredRequests.map((req) => {
+                      const currentStatus = getNormalizedStatus(req.status);
+                      const statusConfig = CONCIERGE_STATUS_CONFIG[currentStatus] || CONCIERGE_STATUS_CONFIG.new;
 
-                const clientName = req.full_name || req.client?.nomComplet || 'Client Inconnu';
-                const clientPhone = req.phone || req.client?.telephone || '';
-                const clientEmail = req.email || req.client?.email || '';
-                const clientWa = req.whatsapp || req.client?.whatsapp || clientPhone;
-                const cleanPhone = clientPhone.replace(/\s+/g, '');
-                const rawWa = clientWa.replace(/[^0-9]/g, '');
+                      const clientName = req.full_name || req.client?.nomComplet || 'Client Inconnu';
+                      const clientPhone = req.phone || req.client?.telephone || '';
+                      const clientEmail = req.email || req.client?.email || '';
+                      const rawPhone = clientPhone.replace(/[^0-9]/g, '');
 
-                const projectType = req.project_type || req.projet || 'Projet';
-                const propertyType = req.property_type || req.typeBien || 'Bien';
-                const commune = req.commune || req.localisation?.commune || 'Kinshasa';
-                const quartier = req.quartier || req.localisation?.quartier || null;
+                      const projectType = req.project_type || req.projet || 'Acheter';
+                      const propertyType = req.property_type || req.typeBien || 'Bien';
+                      const commune = req.commune || req.localisation?.commune || 'Kinshasa';
+                      const quartier = req.quartier || req.localisation?.quartier || '';
 
-                const maxBudget = req.budget_max || req.budget?.max || 0;
-                const minBudget = req.budget_min !== undefined ? req.budget_min : req.budget?.min;
-                const currency = req.currency || req.budget?.devise || 'USD';
+                      const maxBudget = req.budget_max || req.budget?.max || 0;
+                      const minBudget = req.budget_min !== undefined ? req.budget_min : req.budget?.min;
+                      const currency = req.currency || req.budget?.devise || 'USD';
 
-                const bedrooms = req.bedrooms !== undefined ? req.bedrooms : req.caracteristiques?.chambres;
-                const bathrooms = req.bathrooms !== undefined ? req.bathrooms : req.caracteristiques?.sallesDeBain;
-                const parking = req.parking !== undefined ? req.parking : req.caracteristiques?.parking;
-                const furnished = req.furnished !== undefined ? req.furnished : req.caracteristiques?.meuble;
+                      const assignedAgent = agents.find((a) => a.id === req.assigned_agent_id);
 
-                const assignedAgent = agents.find((a) => a.id === req.assigned_agent_id);
+                      // Date formatée
+                      const dateObj = new Date(req.created_at || req.createdAt || Date.now());
+                      const formattedDate = dateObj.toLocaleDateString('fr-FR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric'
+                      });
 
-                // Correspondance automatique calculée avec les annonces existantes
-                const reqMatches = findMatchingProperties(req, properties, { minScore: 10, limit: 15 });
-                const bestMatchScore = reqMatches.length > 0 ? reqMatches[0].score : 0;
+                      // Biens correspondants pour badge rapide
+                      const matches = findMatchingProperties(req, properties, { minScore: 10, limit: 15 });
 
-                return (
-                  <div
-                    key={req.id}
-                    className="p-5 rounded-3xl bg-white border border-slate-200 hover:border-slate-300 transition-all space-y-4 shadow-xs"
-                  >
-                    {/* Ligne 1 : Titres & Badges */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-200">
-                            {req.reference || req.id}
-                          </span>
-                          <span className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                            {projectType} • {propertyType}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-emerald-600" />
-                            <span>{commune} {quartier ? `(${quartier})` : ''}</span>
-                          </span>
+                      return (
+                        <tr
+                          key={req.id}
+                          className="hover:bg-slate-800/50 transition-colors group"
+                        >
+                          {/* 1. Colonne ID */}
+                          <td className="py-3 px-3 align-middle font-mono font-bold text-slate-300 whitespace-nowrap">
+                            <span className="bg-slate-950 px-2 py-0.5 rounded-md border border-slate-800 text-[11px] text-emerald-400">
+                              #{req.reference || req.id.slice(-6)}
+                            </span>
+                          </td>
 
-                          {/* Badge de correspondance automatique */}
-                          {reqMatches.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setMatchingModalRequest(req)}
-                              className="px-2.5 py-0.5 rounded-full bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
-                              title="Cliquer pour afficher les biens correspondants triés par score de pertinence"
+                          {/* 2. Colonne Client */}
+                          <td className="py-3 px-3 align-middle">
+                            <div className="font-extrabold text-white text-xs whitespace-nowrap">
+                              {clientName}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+                              {clientPhone && (
+                                <a
+                                  href={`tel:${clientPhone}`}
+                                  className="hover:text-emerald-400 flex items-center gap-1"
+                                  title="Appeler le client"
+                                >
+                                  <Phone className="w-3 h-3 text-slate-500" />
+                                  <span>{clientPhone}</span>
+                                </a>
+                              )}
+                              {rawPhone && (
+                                <a
+                                  href={`https://wa.me/${rawPhone}?text=${encodeURIComponent(`Bonjour ${clientName}, je vous contacte depuis la Conciergerie Immobilière Kinimmo au sujet de votre demande.`)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-emerald-400 hover:text-emerald-300"
+                                  title="Écrire sur WhatsApp"
+                                >
+                                  <MessageCircle className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 3. Colonne Projet */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                projectType === 'Acheter'
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                  : projectType === 'Louer'
+                                  ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                              }`}
                             >
-                              <Sparkles className="w-3 h-3 text-purple-600" />
-                              <span>{reqMatches.length} bien{reqMatches.length > 1 ? 's' : ''} trouvé{reqMatches.length > 1 ? 's' : ''} ({bestMatchScore}% max)</span>
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                          <Clock className="w-3 h-3" />
-                          <span>
-                            Créé le{' '}
-                            {new Date(req.created_at || req.createdAt || Date.now()).toLocaleDateString('fr-FR', {
-                              day: '2-digit',
-                              month: 'long',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Sélecteur de statut rapide parmi les 7 autorisés */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] uppercase font-bold text-slate-500">Statut :</span>
-                        <select
-                          value={currentStatus}
-                          onChange={(e) => handleUpdateStatus(req.id, e.target.value as ConciergeRequestStatus)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider border cursor-pointer ${statusConfig.selectClass}`}
-                        >
-                          <option value="new">new (Nouveau)</option>
-                          <option value="searching">searching (Recherche)</option>
-                          <option value="properties_found">properties_found (Biens trouvés)</option>
-                          <option value="visit_scheduled">visit_scheduled (Visite)</option>
-                          <option value="negotiation">negotiation (Négociation)</option>
-                          <option value="completed">completed (Finalisé)</option>
-                          <option value="cancelled">cancelled (Annulé)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Ligne 2 : Données financières & caractéristiques */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                        <span className="text-[10px] text-slate-500 block font-normal">Budget ({currency})</span>
-                        <span className="font-mono font-bold text-emerald-700">
-                          {minBudget ? `${minBudget.toLocaleString()} - ` : ''}
-                          {maxBudget.toLocaleString()} {currency}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                        <span className="text-[10px] text-slate-500 block font-normal">Pièces & Salles d'eau</span>
-                        <span className="font-bold text-slate-800">
-                          {bedrooms ? `${bedrooms} Ch.` : 'Ch. libre'} • {bathrooms ? `${bathrooms} Sdb` : 'Sdb libre'}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                        <span className="text-[10px] text-slate-500 block font-normal">Équipements</span>
-                        <span className="font-bold text-slate-800">
-                          {parking ? '✓ Parking' : '✗ Sans parking'} • {furnished ? '✓ Meublé' : '✗ Vide'}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                        <span className="text-[10px] text-slate-500 block font-normal">Conseiller Attribué</span>
-                        <select
-                          value={req.assigned_agent_id || ''}
-                          onChange={(e) => handleAssignAgent(req.id, e.target.value)}
-                          className="w-full bg-white border border-slate-300 rounded-lg p-1 text-[11px] font-semibold text-slate-800 focus:outline-none focus:border-emerald-600"
-                        >
-                          <option value="">Non assigné (Choisir un agent)</option>
-                          {agents.map((ag) => (
-                            <option key={ag.id} value={ag.id}>
-                              {ag.name} ({ag.agencyName || 'Kinimmo'})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Ligne 3 : Coordonnées Client & Actions Rapides */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
-                      <div className="space-y-0.5 text-xs">
-                        <span className="text-slate-900 font-bold flex items-center gap-1.5">
-                          <User className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{clientName}</span>
-                          {assignedAgent && (
-                            <span className="text-[10px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md font-semibold">
-                              Suivi par {assignedAgent.name}
+                              {projectType}
                             </span>
-                          )}
-                        </span>
-                        <span className="text-slate-600 font-mono text-[11px] block">
-                          {clientPhone} • {clientEmail}
-                        </span>
-                      </div>
+                          </td>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* Bouton Biens Correspondants avec Score */}
-                        <button
-                          type="button"
-                          onClick={() => setMatchingModalRequest(req)}
-                          className="px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-bold border border-purple-300 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                          title="Consulter les annonces de la base correspondant à cette demande"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                          <span>Biens Matchés ({reqMatches.length})</span>
-                          {bestMatchScore > 0 && (
-                            <span className="px-1.5 py-0.5 rounded-md bg-purple-200 text-purple-900 text-[10px] font-black">
-                              {bestMatchScore}%
-                            </span>
-                          )}
-                        </button>
-
-                        {/* Planifier une visite liée */}
-                        <button
-                          onClick={() => handleOpenScheduleForRequest(req)}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                          title="Planifier une visite immobilière pour cette demande"
-                        >
-                          <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>+ Visite</span>
-                        </button>
-
-                        {/* Appel */}
-                        {cleanPhone && (
-                          <a
-                            href={`tel:${cleanPhone}`}
-                            className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-300 flex items-center gap-1.5 transition-all shadow-xs"
-                          >
-                            <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Appeler</span>
-                          </a>
-                        )}
-
-                        {/* WhatsApp */}
-                        {rawWa && (
-                          <a
-                            href={`https://wa.me/${rawWa}?text=${encodeURIComponent(
-                              `Bonjour ${clientName}, je suis votre conseiller Kinimmo pour votre recherche (${projectType} ${propertyType} à ${commune}).`
-                            )}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>WhatsApp</span>
-                          </a>
-                        )}
-
-                        {/* Email */}
-                        {clientEmail && (
-                          <a
-                            href={`mailto:${clientEmail}?subject=${encodeURIComponent(
-                              `Kinimmo Conciergerie - Suivi de votre recherche [${req.reference || req.id}]`
-                            )}`}
-                            className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-300 flex items-center gap-1.5 transition-all shadow-xs"
-                          >
-                            <Mail className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Email</span>
-                          </a>
-                        )}
-
-                        {/* Détails */}
-                        <button
-                          onClick={() => setSelectedRequest(selectedRequest?.id === req.id ? null : req)}
-                          className="px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-all cursor-pointer"
-                        >
-                          {selectedRequest?.id === req.id ? 'Masquer' : 'Détails'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Tiroir détaillé du mandat */}
-                    {selectedRequest?.id === req.id && (
-                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4 animate-in fade-in duration-200 text-xs text-slate-700">
-                        {/* Description / Message */}
-                        {(req.description || req.client?.message) && (
-                          <div className="space-y-1">
-                            <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                              Description & Exigences Particulières :
-                            </span>
-                            <p className="p-3 rounded-xl bg-white border border-slate-200 text-slate-800 italic">
-                              "{req.description || req.client?.message}"
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Services demandés */}
-                        <div className="space-y-1">
-                          <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                            Services & Prestations cochées :
-                          </span>
-                          <div className="flex flex-wrap gap-1.5">
-                            {(Array.isArray(req.services) ? req.services : [req.services]).filter(Boolean).map((svc) => (
-                              <span
-                                key={svc}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-semibold flex items-center gap-1"
-                              >
-                                <CheckSquare className="w-3 h-3 text-emerald-600" />
-                                <span>{svc}</span>
+                          {/* 4. Colonne Type de bien */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap font-medium text-slate-200">
+                            <span>{propertyType}</span>
+                            {req.bedrooms ? (
+                              <span className="text-slate-500 text-[10px] ml-1">
+                                ({req.bedrooms} ch.)
                               </span>
-                            ))}
-                          </div>
-                        </div>
+                            ) : null}
+                          </td>
 
-                        {/* Notes Internes Admin */}
-                        <div className="space-y-2 pt-2 border-t border-slate-200">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] uppercase font-bold text-slate-500">
-                              Notes Internes Privées (Kinimmo) :
+                          {/* 5. Colonne Commune */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 text-slate-300 font-semibold">
+                              <MapPin className="w-3 h-3 text-emerald-400 shrink-0" />
+                              <span>{commune}</span>
                             </span>
-                            {editingNotesId !== req.id && (
+                            {quartier && (
+                              <span className="block text-[10px] text-slate-500">
+                                {quartier}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* 6. Colonne Budget */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap font-mono font-bold text-slate-200">
+                            {maxBudget > 0 ? (
+                              <span>
+                                {minBudget && minBudget > 0 ? `${Number(minBudget).toLocaleString()} - ` : ''}
+                                {Number(maxBudget).toLocaleString()} {currency}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 text-[11px]">Non spécifié</span>
+                            )}
+                          </td>
+
+                          {/* 7. Colonne Date */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap text-slate-400">
+                            {formattedDate}
+                          </td>
+
+                          {/* 8. Colonne Agent responsable */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            {assignedAgent ? (
                               <button
-                                onClick={() => {
-                                  setEditingNotesId(req.id);
-                                  setTempNotes(req.notesAdmin || '');
-                                }}
-                                className="text-xs text-emerald-700 hover:text-emerald-800 font-bold underline cursor-pointer"
+                                onClick={() => handleOpenAssign(req)}
+                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 hover:border-emerald-500 text-[11px] transition-colors cursor-pointer"
+                                title="Cliquer pour réassigner"
                               >
-                                {req.notesAdmin ? 'Modifier la note' : '+ Ajouter une note'}
+                                <UserCheck className="w-3 h-3 text-emerald-400" />
+                                <span className="font-semibold">{assignedAgent.name}</span>
+                              </button>
+                            ) : req.assigned_agent_name ? (
+                              <button
+                                onClick={() => handleOpenAssign(req)}
+                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 hover:border-emerald-500 text-[11px] transition-colors cursor-pointer"
+                              >
+                                <UserCheck className="w-3 h-3 text-emerald-400" />
+                                <span>{req.assigned_agent_name}</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleOpenAssign(req)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold transition-all cursor-pointer"
+                                title="Attribuer cette demande à un courtier"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Attribuer</span>
                               </button>
                             )}
-                          </div>
+                          </td>
 
-                          {editingNotesId === req.id ? (
-                            <div className="space-y-2">
-                              <textarea
-                                rows={3}
-                                value={tempNotes}
-                                onChange={(e) => setTempNotes(e.target.value)}
-                                placeholder="Notes d'entretien, retours de visites, propositions..."
-                                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
-                              />
-                              <div className="flex items-center justify-end gap-2">
-                                <button
-                                  onClick={() => setEditingNotesId(null)}
-                                  className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
-                                >
-                                  Annuler
-                                </button>
-                                <button
-                                  onClick={() => handleSaveNotes(req.id)}
-                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Save className="w-3 h-3" />
-                                  <span>Enregistrer</span>
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="p-3 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs">
-                              {req.notesAdmin || 'Aucune note interne enregistrée.'}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* SECTION : Biens correspondants en direct */}
-                        <div className="space-y-2 pt-3 border-t border-slate-200">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1.5">
-                              <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                              <span>Correspondance Automatique avec les Propriétés ({reqMatches.length} identifiés) :</span>
-                            </span>
+                          {/* 9. Colonne Statut */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
                             <button
-                              type="button"
-                              onClick={() => setMatchingModalRequest(req)}
-                              className="text-xs text-purple-700 hover:text-purple-900 font-bold underline cursor-pointer"
+                              onClick={() => handleOpenStatusChange(req)}
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border transition-all cursor-pointer ${statusConfig.badgeClass}`}
+                              title="Cliquer pour modifier le statut"
                             >
-                              Ouvrir le comparateur complet ({reqMatches.length}) →
+                              {statusConfig.label}
                             </button>
-                          </div>
+                          </td>
 
-                          {reqMatches.length === 0 ? (
-                            <p className="p-3 rounded-xl bg-white border border-slate-200 text-slate-500 text-xs">
-                              Aucune propriété du catalogue ne correspond actuellement à cette combinaison exacte.
-                            </p>
-                          ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                              {reqMatches.slice(0, 2).map((m) => (
-                                <div
-                                  key={m.property.id}
-                                  className="p-3 rounded-2xl bg-white border border-slate-200 hover:border-purple-300 transition-all flex flex-col justify-between gap-2 shadow-xs"
-                                >
-                                  <div className="flex items-start gap-2.5">
-                                    <img
-                                      src={m.property.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400'}
-                                      alt={m.property.title}
-                                      className="w-14 h-14 rounded-xl object-cover border border-slate-200 shrink-0"
-                                    />
-                                    <div className="space-y-0.5 min-w-0 flex-1">
-                                      <div className="flex items-center justify-between gap-1">
-                                        <span className="text-[11px] font-bold text-slate-900 truncate block">
-                                          {m.property.title}
-                                        </span>
-                                        <span className="px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-900 font-black text-[10px] shrink-0 border border-purple-200">
-                                          {m.score}%
-                                        </span>
-                                      </div>
-                                      <p className="text-[10px] text-slate-500 truncate">
-                                        {m.property.commune} {m.property.quartier ? `(${m.property.quartier})` : ''} • {m.property.bedrooms} ch. • {m.property.bathrooms} sdb
-                                      </p>
-                                      <p className="text-xs font-mono font-bold text-emerald-700">
-                                        {m.property.price.toLocaleString()} {m.property.currency}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-slate-100">
-                                    <button
-                                      type="button"
-                                      onClick={() => handlePlanVisitForMatchedProperty(req, m.property, m.score)}
-                                      className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 border border-emerald-200"
-                                    >
-                                      <Calendar className="w-3 h-3 text-emerald-600" />
-                                      <span>+ Planifier visite</span>
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
+                          {/* 10. Colonne Actions (Les 7 actions demandées) */}
+                          <td className="py-3 px-3 align-middle text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              {/* Action 1 : Voir */}
+                              <button
+                                onClick={() => handleOpenView(req)}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                                title="Voir les détails complets de la demande"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-300" />
+                              </button>
+
+                              {/* Action 2 : Modifier */}
+                              <button
+                                onClick={() => handleOpenEdit(req)}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                                title="Modifier la demande"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                              </button>
+
+                              {/* Action 3 : Attribuer à un agent */}
+                              <button
+                                onClick={() => handleOpenAssign(req)}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                                title="Attribuer à un agent responsable"
+                              >
+                                <UserCheck className="w-3.5 h-3.5 text-amber-400" />
+                              </button>
+
+                              {/* Action 4 : Voir les biens correspondants */}
+                              <button
+                                onClick={() => handleOpenMatching(req)}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer relative"
+                                title={`Voir les biens correspondants (${matches.length} trouvés)`}
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                                {matches.length > 0 && (
+                                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-purple-500 text-white text-[8px] font-black flex items-center justify-center">
+                                    {matches.length}
+                                  </span>
+                                )}
+                              </button>
+
+                              {/* Action 5 : Programmer une visite */}
+                              <button
+                                onClick={() => handleOpenSchedule(req)}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                                title="Programmer une visite immobilière"
+                              >
+                                <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                              </button>
+
+                              {/* Action 6 : Modifier le statut */}
+                              <button
+                                onClick={() => handleOpenStatusChange(req)}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                                title="Modifier le statut de la demande"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                              </button>
+
+                              {/* Action 7 : Ajouter une note */}
+                              <button
+                                onClick={() => handleOpenAddNote(req)}
+                                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                  req.notesAdmin
+                                    ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'
+                                }`}
+                                title={req.notesAdmin ? `Note administrative : ${req.notesAdmin}` : 'Ajouter une note administrative'}
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </button>
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Footer du tableau */}
+              <div className="p-3.5 bg-slate-950/60 border-t border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-400">
+                <span>
+                  Affichage de <strong className="text-white">{filteredRequests.length}</strong> demande{filteredRequests.length > 1 ? 's' : ''} sur un total de {requests.length}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Mises à jour synchronisées en direct avec l'API Conciergerie Kinimmo
+                </span>
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* VUE 2 : TABLE property_visits                             */}
-      {/* ========================================================= */}
+      {/* ======================================================== */}
+      {/* VUE 2 : TABLEAU DES VISITES PROGRAMMÉES                  */}
+      {/* ======================================================== */}
       {activeTab === 'visits' && (
-        <div className="space-y-6">
-          
-          {/* Barre de contrôle et recherche des visites */}
-          <div className="p-4 rounded-2xl bg-white border border-slate-200 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-center gap-2 flex-1 min-w-[240px]">
-              <Search className="w-4 h-4 text-slate-400 shrink-0" />
-              <input
-                type="text"
-                value={visitSearchQuery}
-                onChange={(e) => setVisitSearchQuery(e.target.value)}
-                placeholder="Rechercher une visite par client, bien, agent, notes..."
-                className="w-full bg-transparent text-xs text-slate-900 placeholder-slate-400 focus:outline-none"
-              />
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-white uppercase tracking-wider">
+              Planning des Visites Immobilières sur le terrain
+            </h3>
+            <button
+              onClick={() => {
+                if (requests.length > 0) handleOpenSchedule(requests[0]);
+                else setIsScheduleModalOpen(true);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Nouvelle Visite</span>
+            </button>
+          </div>
+
+          {loadingVisits ? (
+            <div className="p-12 text-center text-slate-400 bg-slate-900 rounded-3xl border border-slate-800">
+              <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            </div>
+          ) : visits.length === 0 ? (
+            <div className="p-12 rounded-3xl bg-slate-900 border border-slate-800 text-center space-y-2">
+              <Calendar className="w-10 h-10 text-slate-600 mx-auto" />
+              <h4 className="text-sm font-bold text-white">Aucune visite programmée</h4>
+              <p className="text-xs text-slate-400">Cliquez sur « Programmer une visite » pour planifier un rendez-vous.</p>
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-950/80 text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-800">
+                      <th className="py-3.5 px-3">Date & Heure</th>
+                      <th className="py-3.5 px-3">Client</th>
+                      <th className="py-3.5 px-3">Bien ciblé</th>
+                      <th className="py-3.5 px-3">Agent accompagnateur</th>
+                      <th className="py-3.5 px-3">Statut</th>
+                      <th className="py-3.5 px-3">Notes</th>
+                      <th className="py-3.5 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {visits.map((v) => (
+                      <tr key={v.id} className="hover:bg-slate-800/50 transition-colors">
+                        <td className="py-3 px-3 font-mono font-bold text-cyan-400 whitespace-nowrap">
+                          {v.visit_date} {v.visit_time ? `à ${v.visit_time}` : ''}
+                        </td>
+                        <td className="py-3 px-3 font-extrabold text-white">
+                          {v.client_name || 'Client'}
+                        </td>
+                        <td className="py-3 px-3 text-slate-200">
+                          {v.property_title || 'Bien non spécifié'}
+                        </td>
+                        <td className="py-3 px-3 text-slate-300">
+                          {v.agent_name || 'Agent non assigné'}
+                        </td>
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              v.status === 'completed'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                : v.status === 'cancelled'
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                                : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
+                            }`}
+                          >
+                            {v.status === 'completed' ? 'Effectuée' : v.status === 'cancelled' ? 'Annulée' : 'Planifiée'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-slate-400 max-w-xs truncate">
+                          {v.notes || '-'}
+                        </td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1">
+                            {v.status !== 'completed' && (
+                              <button
+                                onClick={async () => {
+                                  await updatePropertyVisitStatus(v.id, 'completed');
+                                  setVisits((prev) => prev.map((item) => item.id === v.id ? { ...item, status: 'completed' } : item));
+                                  notify('success', 'Visite marquée comme effectuée.');
+                                }}
+                                className="px-2 py-1 rounded bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 text-[10px] font-bold"
+                              >
+                                Clôturer
+                              </button>
+                            )}
+                            <button
+                              onClick={async () => {
+                                if (window.confirm('Supprimer cette visite ?')) {
+                                  await deletePropertyVisit(v.id);
+                                  setVisits((prev) => prev.filter((item) => item.id !== v.id));
+                                  notify('success', 'Visite supprimée.');
+                                }
+                              }}
+                              className="p-1 rounded text-slate-500 hover:text-rose-400"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODALE 1 : ACTION « VOIR » LA DEMANDE                    */}
+      {/* ======================================================== */}
+      {viewingRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 text-xs text-slate-200 shadow-2xl">
+            <div className="flex items-start justify-between pb-3.5 border-b border-slate-800">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800">
+                    #{viewingRequest.reference || viewingRequest.id}
+                  </span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${CONCIERGE_STATUS_CONFIG[getNormalizedStatus(viewingRequest.status)]?.badgeClass}`}>
+                    {CONCIERGE_STATUS_CONFIG[getNormalizedStatus(viewingRequest.status)]?.label}
+                  </span>
+                </div>
+                <h3 className="text-base font-black text-white">
+                  Détail de la demande de Conciergerie
+                </h3>
+              </div>
+              <button
+                onClick={() => setViewingRequest(null)}
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <select
-                value={visitStatusFilter}
-                onChange={(e) => setVisitStatusFilter(e.target.value)}
-                className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-700 font-semibold focus:outline-none focus:border-emerald-600"
+            {/* Infos Client */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 space-y-2.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Coordonnées du Client
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Nom complet</span>
+                  <strong className="text-white text-sm">
+                    {viewingRequest.full_name || viewingRequest.client?.nomComplet || 'Non renseigné'}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Téléphone</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-mono">{viewingRequest.phone || viewingRequest.client?.telephone || 'Non renseigné'}</span>
+                    {viewingRequest.phone && (
+                      <a
+                        href={`https://wa.me/${viewingRequest.phone.replace(/[^0-9]/g, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-emerald-400 hover:underline flex items-center gap-1 font-bold text-[11px]"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>WhatsApp</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">E-mail</span>
+                  <span className="text-slate-300">{viewingRequest.email || viewingRequest.client?.email || 'Non renseigné'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Date de création</span>
+                  <span className="text-slate-300">
+                    {new Date(viewingRequest.created_at || viewingRequest.createdAt || Date.now()).toLocaleString('fr-FR')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Critères de Recherche */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 space-y-2.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Critères & Spécifications Recherchées
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Projet</span>
+                  <span className="text-white font-bold">{viewingRequest.project_type || viewingRequest.projet || 'Acheter'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Type de bien</span>
+                  <span className="text-white font-bold">{viewingRequest.property_type || viewingRequest.typeBien || 'Bien'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Commune ciblée</span>
+                  <span className="text-white font-bold">{viewingRequest.commune || viewingRequest.localisation?.commune || 'Kinshasa'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Quartier</span>
+                  <span className="text-white font-bold">{viewingRequest.quartier || viewingRequest.localisation?.quartier || 'Indifférent'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Budget Min</span>
+                  <span className="text-white font-mono font-bold">
+                    {viewingRequest.budget_min ? `${Number(viewingRequest.budget_min).toLocaleString()} ${viewingRequest.currency || 'USD'}` : '0 USD'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Budget Max</span>
+                  <span className="text-emerald-400 font-mono font-bold">
+                    {viewingRequest.budget_max ? `${Number(viewingRequest.budget_max).toLocaleString()} ${viewingRequest.currency || 'USD'}` : 'Non limité'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Chambres min.</span>
+                  <span className="text-white font-bold">{viewingRequest.bedrooms || viewingRequest.caracteristiques?.chambres || 'Indifférent'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Salles de bain</span>
+                  <span className="text-white font-bold">{viewingRequest.bathrooms || viewingRequest.caracteristiques?.sallesDeBain || 'Indifférent'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[10px]">Agent assigné</span>
+                  <span className="text-emerald-400 font-bold">
+                    {agents.find(a => a.id === viewingRequest.assigned_agent_id)?.name || viewingRequest.assigned_agent_name || 'Non assigné'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Notes & Remarques du client
+              </div>
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 text-xs">
+                {viewingRequest.notes || viewingRequest.preferencesClient?.remarques || 'Aucune note transmise par le client.'}
+              </div>
+            </div>
+
+            {viewingRequest.notesAdmin && (
+              <div className="space-y-2">
+                <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+                  Note interne d'administration
+                </div>
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
+                  {viewingRequest.notesAdmin}
+                </div>
+              </div>
+            )}
+
+            {/* Actions rapides depuis la vue */}
+            <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-end gap-2">
+              <button
+                onClick={() => {
+                  const req = viewingRequest;
+                  setViewingRequest(null);
+                  handleOpenEdit(req);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1.5"
               >
-                <option value="all">Tous les statuts de visite</option>
-                <option value="scheduled">Planifiée (scheduled)</option>
-                <option value="confirmed">Confirmée (confirmed)</option>
-                <option value="completed">Effectuée (completed)</option>
-                <option value="cancelled">Annulée (cancelled)</option>
-                <option value="rescheduled">Reportée (rescheduled)</option>
-              </select>
+                <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                <span>Modifier</span>
+              </button>
 
               <button
                 onClick={() => {
-                  setScheduleForm({
-                    request_id: requests[0]?.id || '',
-                    property_id: '',
-                    property_title: '',
-                    agent_id: agents[0]?.id || '',
-                    visit_date: new Date().toISOString().split('T')[0],
-                    visit_time: '14:00',
-                    status: 'scheduled',
-                    notes: ''
-                  });
-                  setScheduleError(null);
-                  setIsScheduleModalOpen(true);
+                  const req = viewingRequest;
+                  setViewingRequest(null);
+                  handleOpenMatching(req);
                 }}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5"
               >
-                <Plus className="w-4 h-4" />
-                <span>Nouvelle Visite</span>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Biens correspondants</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const req = viewingRequest;
+                  setViewingRequest(null);
+                  handleOpenSchedule(req);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1.5"
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Programmer une visite</span>
               </button>
             </div>
           </div>
-
-          {/* Liste des Visites */}
-          {loadingVisits ? (
-            <div className="p-12 text-center text-slate-500 space-y-2 bg-white rounded-3xl border border-slate-200">
-              <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-xs">Chargement du calendrier des visites...</p>
-            </div>
-          ) : filteredVisits.length === 0 ? (
-            <div className="p-12 rounded-3xl bg-white border border-slate-200 text-center space-y-3 shadow-xs">
-              <Calendar className="w-10 h-10 text-slate-400 mx-auto" />
-              <h3 className="text-sm font-bold text-slate-900">Aucune visite programmée</h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Cliquez sur « Planifier une visite » pour fixer un rendez-vous entre un client et un agent Kinimmo.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredVisits.map((visit) => {
-                const statusInfo = VISIT_STATUS_LABELS[visit.status] || {
-                  label: visit.status,
-                  badge: 'bg-slate-100 text-slate-700 border-slate-300'
-                };
-
-                const parentReq = requests.find((r) => r.id === visit.request_id);
-                const assignedAgent = agents.find((a) => a.id === visit.agent_id);
-
-                return (
-                  <div
-                    key={visit.id}
-                    className="p-5 rounded-3xl bg-white border border-slate-200 hover:border-slate-300 transition-all space-y-3.5 shadow-xs relative"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusInfo.badge}`}>
-                          {statusInfo.label}
-                        </span>
-                        <h4 className="text-sm font-bold text-slate-900 leading-tight">
-                          {visit.property_title || 'Visite Immobilière'}
-                        </h4>
-                        <div className="flex items-center gap-2 text-xs text-emerald-800 font-semibold">
-                          <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{visit.visit_date} {visit.visit_time ? `à ${visit.visit_time}` : ''}</span>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => handleDeleteVisit(visit.id)}
-                        className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
-                        title="Supprimer la visite"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Informations Associées */}
-                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 font-medium">Client concerné :</span>
-                        <span className="font-bold text-slate-900">
-                          {visit.client_name || parentReq?.full_name || parentReq?.client?.nomComplet || visit.request_id}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 font-medium">Agent accompagnateur :</span>
-                        <span className="font-bold text-slate-900">
-                          {visit.agent_name || assignedAgent?.name || 'Agent non spécifié'}
-                        </span>
-                      </div>
-                      {parentReq && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500 font-medium">Mandat lié :</span>
-                          <span className="font-mono text-[11px] text-emerald-700 font-bold">
-                            {parentReq.reference || parentReq.id}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Notes de visite */}
-                    {visit.notes && (
-                      <p className="text-xs text-slate-600 italic bg-amber-50/50 p-2.5 rounded-xl border border-amber-200/60">
-                        "{visit.notes}"
-                      </p>
-                    )}
-
-                    {/* Boutons d'état rapide */}
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                      <span className="text-[10px] text-slate-400">Modifier statut :</span>
-                      <div className="flex items-center gap-1.5">
-                        {visit.status !== 'confirmed' && (
-                          <button
-                            onClick={() => handleUpdateVisitStatus(visit.id, 'confirmed')}
-                            className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 text-[10px] font-bold border border-blue-200 cursor-pointer"
-                          >
-                            Confirmer
-                          </button>
-                        )}
-                        {visit.status !== 'completed' && (
-                          <button
-                            onClick={() => handleUpdateVisitStatus(visit.id, 'completed')}
-                            className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200 cursor-pointer"
-                          >
-                            Terminée
-                          </button>
-                        )}
-                        {visit.status !== 'cancelled' && (
-                          <button
-                            onClick={() => handleUpdateVisitStatus(visit.id, 'cancelled')}
-                            className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 text-[10px] font-bold border border-rose-200 cursor-pointer"
-                          >
-                            Annuler
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* MODALE : PLANIFIER UNE VISITE (Table: property_visits)     */}
-      {/* ========================================================= */}
-      {isScheduleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-xl bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-2xl text-slate-900 space-y-5">
-            
-            {/* Header */}
-            <div className="flex items-start justify-between border-b border-slate-200 pb-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-emerald-600" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-                    Table : property_visits
-                  </span>
-                </div>
-                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">
-                  Planifier une Visite Immobilière
+      {/* ======================================================== */}
+      {/* MODALE 2 : ACTION « MODIFIER » LA DEMANDE                */}
+      {/* ======================================================== */}
+      {editingRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <form
+            onSubmit={handleSaveEdit}
+            className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 text-xs text-slate-200 shadow-2xl"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <Edit3 className="w-4 h-4 text-blue-400" />
+                  <span>Modifier la demande #{editingRequest.reference || editingRequest.id.slice(-6)}</span>
                 </h3>
+                <p className="text-[11px] text-slate-400">Mettez à jour les informations du client et les critères de recherche.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingRequest(null)}
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Nom du client</label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.full_name}
+                  onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                />
               </div>
 
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Téléphone</label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">E-mail</label>
+                <input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Type de Projet</label>
+                <select
+                  value={editForm.project_type}
+                  onChange={(e) => setEditForm({ ...editForm, project_type: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="Acheter">Acheter</option>
+                  <option value="Louer">Louer</option>
+                  <option value="Trouver un terrain">Trouver un terrain</option>
+                  <option value="Trouver un local commercial">Trouver un local commercial</option>
+                  <option value="Autre">Autre</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Type de bien</label>
+                <select
+                  value={editForm.property_type}
+                  onChange={(e) => setEditForm({ ...editForm, property_type: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="Villa">Villa</option>
+                  <option value="Appartement">Appartement</option>
+                  <option value="Maison">Maison</option>
+                  <option value="Terrain">Terrain</option>
+                  <option value="Concession">Concession</option>
+                  <option value="Immeuble">Immeuble</option>
+                  <option value="Bureau / Local">Bureau / Local commercial</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Commune</label>
+                <select
+                  value={editForm.commune}
+                  onChange={(e) => setEditForm({ ...editForm, commune: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                >
+                  {['Gombe', 'Ngaliema', 'Kintambo', 'Limete', 'Mont-Ngafula', 'Bandalungwa', 'Barumbu', 'Lingwala', 'Lemba', 'Kalamu'].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Quartier (optionnel)</label>
+                <input
+                  type="text"
+                  value={editForm.quartier}
+                  onChange={(e) => setEditForm({ ...editForm, quartier: e.target.value })}
+                  placeholder="ex: Macampagne, Batetela..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Budget Min ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editForm.budget_min}
+                    onChange={(e) => setEditForm({ ...editForm, budget_min: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Budget Max ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editForm.budget_max}
+                    onChange={(e) => setEditForm({ ...editForm, budget_max: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Chambres minimum</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.bedrooms}
+                  onChange={(e) => setEditForm({ ...editForm, bedrooms: Number(e.target.value) })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Salles de bain</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.bathrooms}
+                  onChange={(e) => setEditForm({ ...editForm, bathrooms: Number(e.target.value) })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">Précisions & Remarques</label>
+              <textarea
+                rows={3}
+                value={editForm.notes}
+                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                placeholder="Détails complémentaires sur les critères souhaités..."
+                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500 text-xs"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
               <button
+                type="button"
+                onClick={() => setEditingRequest(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingEdit}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-blue-600/20 disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSavingEdit ? 'Enregistrement...' : 'Enregistrer les modifications'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODALE 3 : ACTION « ATTRIBUER À UN AGENT »               */}
+      {/* ======================================================== */}
+      {assigningRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 text-xs text-slate-200 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-tight">
+                    Attribuer à un agent
+                  </h3>
+                  <p className="text-[10px] text-slate-400">Demande #{assigningRequest.reference || assigningRequest.id.slice(-6)}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAssigningRequest(null)}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-[11px] font-bold text-slate-300">
+                Sélectionnez le courtier / agent responsable :
+              </label>
+
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                <div
+                  onClick={() => setSelectedAgentId('')}
+                  className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                    selectedAgentId === ''
+                      ? 'bg-amber-500/10 border-amber-500/40 text-amber-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/50'
+                  }`}
+                >
+                  <span className="font-bold">Aucun agent (Non assigné)</span>
+                  {selectedAgentId === '' && <CheckSquare className="w-4 h-4 text-amber-400" />}
+                </div>
+
+                {agents.map((a) => (
+                  <div
+                    key={a.id}
+                    onClick={() => setSelectedAgentId(a.id)}
+                    className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                      selectedAgentId === a.id
+                        ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
+                        : 'bg-slate-950 border-slate-800 text-slate-200 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <img
+                        src={a.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
+                        alt={a.name}
+                        className="w-7 h-7 rounded-lg object-cover ring-1 ring-slate-700"
+                      />
+                      <div>
+                        <div className="font-bold text-xs">{a.name}</div>
+                        <div className="text-[10px] text-slate-400">{a.phone || a.email}</div>
+                      </div>
+                    </div>
+                    {selectedAgentId === a.id && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setAssigningRequest(null)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAssign}
+                className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md"
+              >
+                Confirmer l'attribution
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODALE 4 : ACTION « VOIR LES BIENS CORRESPONDANTS »      */}
+      {/* ======================================================== */}
+      {matchingModalRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 text-xs text-slate-200 shadow-2xl">
+            <div className="flex items-start justify-between pb-3.5 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span>Biens immobiliers correspondants</span>
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Correspondance algorithmique pour {matchingModalRequest.full_name || matchingModalRequest.client?.nomComplet} ({matchingModalRequest.property_type || matchingModalRequest.typeBien} à {matchingModalRequest.commune || matchingModalRequest.localisation?.commune}).
+                </p>
+              </div>
+              <button
+                onClick={() => setMatchingModalRequest(null)}
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Liste des résultats avec score */}
+            {(() => {
+              const matchedList = findMatchingProperties(matchingModalRequest, properties, { minScore: 10, limit: 15 });
+              if (matchedList.length === 0) {
+                return (
+                  <div className="p-8 text-center bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+                    <p className="text-slate-400 text-xs">Aucun bien du catalogue ne correspond directement aux critères stricts.</p>
+                    <p className="text-[11px] text-slate-500">Essayez d'élargir le budget ou la commune dans l'action Modifier.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  <div className="text-[11px] font-bold text-purple-300">
+                    {matchedList.length} bien{matchedList.length > 1 ? 's' : ''} trouvé{matchedList.length > 1 ? 's' : ''} dans le catalogue Kinimmo :
+                  </div>
+
+                  <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+                    {matchedList.map((match) => (
+                      <div
+                        key={match.property.id}
+                        className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 hover:border-purple-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all"
+                      >
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={match.property.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400'}
+                            alt={match.property.title}
+                            className="w-16 h-16 rounded-xl object-cover shrink-0 ring-1 ring-slate-800"
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-extrabold text-white text-xs hover:text-purple-300">
+                                {match.property.title}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                                {match.score}% compatibilité
+                              </span>
+                            </div>
+                            <div className="text-slate-400 text-[11px] flex items-center gap-2 mt-1">
+                              <span className="font-bold text-emerald-400 font-mono">
+                                ${match.property.price?.toLocaleString()} {match.property.pricePeriod ? `/${match.property.pricePeriod}` : ''}
+                              </span>
+                              <span>•</span>
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3 text-slate-500" />
+                                {match.property.commune}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              {(match.breakdown?.reasons || (match as any).reasons || []).join(' • ')}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const req = matchingModalRequest;
+                              setMatchingModalRequest(null);
+                              handleOpenSchedule(req, match.property);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm"
+                          >
+                            <Calendar className="w-3 h-3" />
+                            <span>Programmer visite</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="flex items-center justify-end pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setMatchingModalRequest(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-white text-xs font-bold"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODALE 5 : ACTION « PROGRAMMER UNE VISITE »              */}
+      {/* ======================================================== */}
+      {isScheduleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <form
+            onSubmit={handleSaveScheduleVisit}
+            className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 text-xs text-slate-200 shadow-2xl"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-cyan-400" />
+                  <span>Programmer une visite immobilière</span>
+                </h3>
+                <p className="text-[11px] text-slate-400">Enregistrement dans le planning de conciergerie et notification.</p>
+              </div>
+              <button
+                type="button"
                 onClick={() => setIsScheduleModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-all cursor-pointer"
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {scheduleError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{scheduleError}</span>
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                {scheduleError}
               </div>
             )}
 
-            <form onSubmit={handleSaveScheduleVisit} className="space-y-4 text-xs">
-              
-              {/* Demande de Conciergerie Associée (request_id) */}
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 block uppercase text-[10px]">
-                  Demande de Conciergerie (request_id) <span className="text-emerald-600">*</span>
-                </label>
-                <select
-                  value={scheduleForm.request_id}
-                  onChange={(e) => {
-                    const reqId = e.target.value;
-                    const r = requests.find((item) => item.id === reqId);
-                    setScheduleForm((prev) => ({
-                      ...prev,
-                      request_id: reqId,
-                      property_title: r
-                        ? `${r.property_type || r.typeBien || 'Bien'} à ${r.commune || r.localisation?.commune}`
-                        : prev.property_title
-                    }));
-                  }}
-                  className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                >
-                  <option value="">-- Sélectionner un mandat client --</option>
-                  {requests.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.reference || r.id} — {r.full_name || r.client?.nomComplet} ({r.property_type || r.typeBien} à {r.commune || r.localisation?.commune})
-                    </option>
-                  ))}
-                </select>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Bien à visiter</label>
+                <input
+                  type="text"
+                  required
+                  value={scheduleForm.property_title}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, property_title: e.target.value })}
+                  placeholder="ex: Villa contemporaine 4 chambres - Gombe"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-500"
+                />
               </div>
 
-              {/* Titre ou Réf du bien (property_title / property_id) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700 block uppercase text-[10px]">
-                    Sélectionner un bien du catalogue (Optionnel)
-                  </label>
-                  <select
-                    value={scheduleForm.property_id}
-                    onChange={(e) => {
-                      const propId = e.target.value;
-                      const p = properties.find((item) => item.id === propId);
-                      setScheduleForm((prev) => ({
-                        ...prev,
-                        property_id: propId,
-                        property_title: p ? p.title : prev.property_title
-                      }));
-                    }}
-                    className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  >
-                    <option value="">-- Bien libre / Off-market --</option>
-                    {properties.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.title} ({p.city})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700 block uppercase text-[10px]">
-                    Intitulé ou Adresse de la visite
-                  </label>
-                  <input
-                    type="text"
-                    value={scheduleForm.property_title}
-                    onChange={(e) => setScheduleForm({ ...scheduleForm, property_title: e.target.value })}
-                    placeholder="Ex: Villa contemporaine avec piscine, Macampagne"
-                    className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Agent assigné */}
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 block uppercase text-[10px]">
-                  Agent Kinimmo en charge (agent_id)
-                </label>
-                <select
-                  value={scheduleForm.agent_id}
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, agent_id: e.target.value })}
-                  className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                >
-                  <option value="">-- Choisir un agent --</option>
-                  {agents.map((ag) => (
-                    <option key={ag.id} value={ag.id}>
-                      {ag.name} ({ag.agencyName || 'Kinimmo'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Date & Heure */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700 block uppercase text-[10px]">
-                    Date de la visite (visit_date) <span className="text-emerald-600">*</span>
-                  </label>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Date de visite</label>
                   <input
                     type="date"
                     required
                     value={scheduleForm.visit_date}
                     onChange={(e) => setScheduleForm({ ...scheduleForm, visit_date: e.target.value })}
-                    className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-500"
                   />
                 </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700 block uppercase text-[10px]">
-                    Heure (visit_time)
-                  </label>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Heure de visite</label>
                   <input
                     type="time"
                     value={scheduleForm.visit_time}
                     onChange={(e) => setScheduleForm({ ...scheduleForm, visit_time: e.target.value })}
-                    className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-500"
                   />
                 </div>
               </div>
 
-              {/* Notes */}
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 block uppercase text-[10px]">
-                  Consignes & Notes de visite (notes)
-                </label>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Agent accompagnateur</label>
+                <select
+                  value={scheduleForm.agent_id}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, agent_id: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="">Sélectionner un agent...</option>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.agencyName || 'Kinimmo'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Notes et consignes pour la visite</label>
                 <textarea
                   rows={2}
                   value={scheduleForm.notes}
                   onChange={(e) => setScheduleForm({ ...scheduleForm, notes: e.target.value })}
-                  placeholder="Rendez-vous sur place à 14h, clés chez le gardien, vérifier l'alimentation en eau..."
-                  className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white resize-none"
+                  placeholder="Lieu de rendez-vous, accès, confirmation client..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-500 text-xs"
                 />
               </div>
+            </div>
 
-              {/* Boutons d'action */}
-              <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsScheduleModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingVisit}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-                >
-                  {isSavingVisit ? 'Planification...' : 'Confirmer la visite'}
-                </button>
-              </div>
-
-            </form>
-
-          </div>
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsScheduleModalOpen(false)}
+                className="px-3 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingVisit}
+                className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-cyan-600/20 disabled:opacity-50"
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>{isSavingVisit ? 'Planification...' : 'Valider la visite'}</span>
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* 4. MODALE DE CORRESPONDANCE AUTOMATIQUE AVEC LES ANNONCES */}
-      {/* ========================================================= */}
-      {matchingModalRequest && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
-            
-            {/* En-tête Modale */}
-            <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-200">
-              <div className="space-y-1">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-50 text-purple-900 border border-purple-200 text-xs font-bold">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                  <span>Système de Matching Kinimmo • Score sur 100</span>
-                </div>
-                <h3 className="text-xl sm:text-2xl font-black text-slate-900 uppercase">
-                  Correspondance Automatique avec les Annonces
+      {/* ======================================================== */}
+      {/* MODALE 6 : ACTION « MODIFIER LE STATUT »                 */}
+      {/* ======================================================== */}
+      {statusChangingRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 text-xs text-slate-200 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-emerald-400" />
+                  <span>Modifier le statut de la demande</span>
                 </h3>
-                <p className="text-xs sm:text-sm text-slate-600">
-                  Biens du catalogue correspondant aux critères du client <strong>{matchingModalRequest.full_name || matchingModalRequest.client?.nomComplet}</strong> (Réf : {matchingModalRequest.reference || matchingModalRequest.id}).
-                </p>
+                <p className="text-[10px] text-slate-400">Demande #{statusChangingRequest.reference || statusChangingRequest.id.slice(-6)}</p>
               </div>
-
               <button
-                type="button"
-                onClick={() => setMatchingModalRequest(null)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"
+                onClick={() => setStatusChangingRequest(null)}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Barème officiel du score demandé */}
-            <div className="p-4 rounded-2xl bg-purple-50/70 border border-purple-200 space-y-2 text-xs">
-              <span className="font-bold text-purple-950 uppercase text-[10px] tracking-wider block">
-                Barème Officiel de Pondération (Trié par pertinence décroissante) :
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center font-bold">
-                <div className="p-2 rounded-xl bg-white border border-purple-200 text-purple-900">
-                  <span className="block text-[10px] text-slate-500 font-normal">Localisation</span>
-                  <span className="text-emerald-700 text-sm font-black">+30 pts</span>
-                </div>
-                <div className="p-2 rounded-xl bg-white border border-purple-200 text-purple-900">
-                  <span className="block text-[10px] text-slate-500 font-normal">Type de bien</span>
-                  <span className="text-emerald-700 text-sm font-black">+20 pts</span>
-                </div>
-                <div className="p-2 rounded-xl bg-white border border-purple-200 text-purple-900">
-                  <span className="block text-[10px] text-slate-500 font-normal">Budget</span>
-                  <span className="text-emerald-700 text-sm font-black">+25 pts</span>
-                </div>
-                <div className="p-2 rounded-xl bg-white border border-purple-200 text-purple-900">
-                  <span className="block text-[10px] text-slate-500 font-normal">Chambres</span>
-                  <span className="text-emerald-700 text-sm font-black">+15 pts</span>
-                </div>
-                <div className="p-2 rounded-xl bg-white border border-purple-200 text-purple-900 col-span-2 sm:col-span-1">
-                  <span className="block text-[10px] text-slate-500 font-normal">Salles de bain</span>
-                  <span className="text-emerald-700 text-sm font-black">+10 pts</span>
-                </div>
-              </div>
-            </div>
+            <div className="space-y-1.5">
+              {(Object.keys(CONCIERGE_STATUS_CONFIG) as ConciergeRequestStatus[]).map((st) => {
+                const conf = CONCIERGE_STATUS_CONFIG[st];
+                const isSelected = getNormalizedStatus(statusChangingRequest.status) === st;
 
-            {/* Rappel des critères demandés par le client */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs flex flex-wrap items-center gap-3">
-              <span className="font-bold text-slate-700 text-[11px] uppercase">Critères client :</span>
-              <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800 font-bold">
-                {matchingModalRequest.project_type || matchingModalRequest.projet} • {matchingModalRequest.property_type || matchingModalRequest.typeBien}
-              </span>
-              <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800 font-semibold flex items-center gap-1">
-                <MapPin className="w-3 h-3 text-emerald-600" />
-                <span>{matchingModalRequest.commune || matchingModalRequest.localisation?.commune} {matchingModalRequest.quartier ? `(${matchingModalRequest.quartier})` : ''}</span>
-              </span>
-              <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-emerald-700 font-mono font-bold">
-                Budget max : {Number(matchingModalRequest.budget_max || matchingModalRequest.budget?.max || 0).toLocaleString()} {matchingModalRequest.currency || matchingModalRequest.budget?.devise || 'USD'}
-              </span>
-              {(matchingModalRequest.bedrooms || matchingModalRequest.caracteristiques?.chambres) && (
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700">
-                  {matchingModalRequest.bedrooms || matchingModalRequest.caracteristiques?.chambres} Chambres
-                </span>
-              )}
-              {(matchingModalRequest.bathrooms || matchingModalRequest.caracteristiques?.sallesDeBain) && (
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700">
-                  {matchingModalRequest.bathrooms || matchingModalRequest.caracteristiques?.sallesDeBain} Salles de bain
-                </span>
-              )}
-            </div>
-
-            {/* Liste ordonnée par score de pertinence décroissant */}
-            {(() => {
-              const matchedList = findMatchingProperties(matchingModalRequest, properties, { minScore: 5, limit: 25 });
-
-              if (matchedList.length === 0) {
                 return (
-                  <div className="p-12 text-center space-y-3 bg-slate-50 rounded-2xl border border-slate-200">
-                    <AlertCircle className="w-10 h-10 text-slate-400 mx-auto" />
-                    <h4 className="text-sm font-bold text-slate-800">Aucun bien correspondant pour le moment</h4>
-                    <p className="text-xs text-slate-500 max-w-md mx-auto">
-                      Aucune propriété publiée ne correspond actuellement aux critères de cette demande. Dès qu'une nouvelle annonce sera créée dans la même commune ou avec un budget compatible, elle apparaîtra ici automatiquement.
-                    </p>
-                  </div>
+                  <button
+                    key={st}
+                    onClick={() => handleUpdateStatus(statusChangingRequest.id, st)}
+                    className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all text-left cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-black'
+                        : 'bg-slate-950 border-slate-800 hover:bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${conf.badgeClass.split(' ')[0]}`} />
+                      <span>{conf.label}</span>
+                    </div>
+                    {isSelected && <Check className="w-4 h-4 text-emerald-400" />}
+                  </button>
                 );
-              }
+              })}
+            </div>
 
-              return (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>
-                      <strong>{matchedList.length} bien(s)</strong> correspondant(s) trouvé(s) — classés du plus pertinent au moins pertinent :
-                    </span>
-                    <span className="text-[11px] font-semibold text-purple-700">
-                      Top score : {matchedList[0]?.score || 0}%
-                    </span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {matchedList.map((m, idx) => {
-                      const clientWa = (matchingModalRequest.whatsapp || matchingModalRequest.phone || '').replace(/[^0-9]/g, '');
-                      const clientName = matchingModalRequest.full_name || matchingModalRequest.client?.nomComplet || 'Cher Client';
-
-                      let badgeTheme = 'bg-amber-100 text-amber-900 border-amber-300';
-                      let labelMatch = 'Correspondance Partielle';
-                      if (m.score >= 80) {
-                        badgeTheme = 'bg-emerald-100 text-emerald-950 border-emerald-300';
-                        labelMatch = 'Excellente Correspondance';
-                      } else if (m.score >= 50) {
-                        badgeTheme = 'bg-blue-100 text-blue-950 border-blue-300';
-                        labelMatch = 'Bonne Correspondance';
-                      }
-
-                      return (
-                        <div
-                          key={m.property.id}
-                          className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 hover:border-purple-300 transition-all space-y-3 shadow-xs"
-                        >
-                          {/* Ligne 1 : Rang, Titre & Score */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                              <span className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-black text-xs shrink-0">
-                                #{idx + 1}
-                              </span>
-                              <div className="space-y-0.5">
-                                <h4 className="text-sm font-bold text-slate-900 hover:text-emerald-700 transition-colors">
-                                  {m.property.title}
-                                </h4>
-                                <p className="text-xs text-slate-500 flex items-center gap-1">
-                                  <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>{m.property.commune} {m.property.quartier ? `(${m.property.quartier})` : ''} • {m.property.type}</span>
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <div className={`px-3 py-1.5 rounded-2xl border font-black text-xs flex items-center gap-1.5 shadow-2xs ${badgeTheme}`}>
-                                <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                                <span>Score : {m.score} / 100</span>
-                                <span className="text-[10px] font-normal opacity-80 hidden sm:inline">({labelMatch})</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Ligne 2 : Détails des points attribués (Scoring breakdown) */}
-                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[11px]">
-                            <div className={`p-2 rounded-xl border ${m.breakdown.locationScore > 0 ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                              <span className="block text-[10px] text-slate-500">Localisation (30)</span>
-                              <span className="font-bold">+{m.breakdown.locationScore} pts</span>
-                            </div>
-                            <div className={`p-2 rounded-xl border ${m.breakdown.typeScore > 0 ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                              <span className="block text-[10px] text-slate-500">Type bien (20)</span>
-                              <span className="font-bold">+{m.breakdown.typeScore} pts</span>
-                            </div>
-                            <div className={`p-2 rounded-xl border ${m.breakdown.budgetScore > 0 ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                              <span className="block text-[10px] text-slate-500">Budget (25)</span>
-                              <span className="font-bold">+{m.breakdown.budgetScore} pts</span>
-                            </div>
-                            <div className={`p-2 rounded-xl border ${m.breakdown.bedroomsScore > 0 ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                              <span className="block text-[10px] text-slate-500">Chambres (15)</span>
-                              <span className="font-bold">+{m.breakdown.bedroomsScore} pts</span>
-                            </div>
-                            <div className={`p-2 rounded-xl border ${m.breakdown.bathroomsScore > 0 ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'} col-span-2 sm:col-span-1`}>
-                              <span className="block text-[10px] text-slate-500">Salles d'eau (10)</span>
-                              <span className="font-bold">+{m.breakdown.bathroomsScore} pts</span>
-                            </div>
-                          </div>
-
-                          {/* Ligne 3 : Informations sur le bien & Raisons du match */}
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={m.property.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400'}
-                                alt={m.property.title}
-                                className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
-                              />
-                              <div className="space-y-0.5">
-                                <span className="font-mono font-black text-sm text-emerald-700">
-                                  {m.property.price.toLocaleString()} {m.property.currency}
-                                  {m.property.period ? ` / ${m.property.period}` : ''}
-                                </span>
-                                <span className="text-slate-600 block text-[11px]">
-                                  {m.property.bedrooms} chambres • {m.property.bathrooms} sdb • {m.property.area} m²
-                                </span>
-                                <div className="flex flex-wrap gap-1 pt-0.5">
-                                  {m.breakdown.reasons.slice(0, 2).map((r, i) => (
-                                    <span key={i} className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                                      ✓ {r}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Actions rapides */}
-                            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
-                              {/* Bouton planifier visite */}
-                              <button
-                                type="button"
-                                onClick={() => handlePlanVisitForMatchedProperty(matchingModalRequest, m.property, m.score)}
-                                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
-                                title="Planifier une visite immobilière pour ce bien"
-                              >
-                                <Calendar className="w-3.5 h-3.5" />
-                                <span>Planifier une visite</span>
-                              </button>
-
-                              {/* Proposer WhatsApp */}
-                              {clientWa && (
-                                <a
-                                  href={`https://wa.me/${clientWa}?text=${encodeURIComponent(
-                                    `Bonjour ${clientName}, suite à votre demande de conciergerie Kinimmo [${matchingModalRequest.reference || matchingModalRequest.id}], notre système a identifié ce bien qui correspond à ${m.score}% à vos critères :\n\n🏡 *${m.property.title}*\n📍 Localisation : ${m.property.commune} ${m.property.quartier ? `(${m.property.quartier})` : ''}\n💵 Prix : ${m.property.price.toLocaleString()} ${m.property.currency}\n🛏️ Spécifications : ${m.property.bedrooms} ch. • ${m.property.bathrooms} sdb\n\nSouhaitez-vous planifier une visite avec l'un de nos conseillers ?`
-                                  )}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-3 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                                  title="Partager cette annonce au client sur WhatsApp"
-                                >
-                                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>WhatsApp</span>
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Pied de page modale */}
-            <div className="pt-3 flex items-center justify-end border-t border-slate-200">
+            <div className="flex justify-end pt-2 border-t border-slate-800">
               <button
                 type="button"
-                onClick={() => setMatchingModalRequest(null)}
-                className="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-all"
+                onClick={() => setStatusChangingRequest(null)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 font-bold"
               >
                 Fermer
               </button>
             </div>
-
           </div>
         </div>
       )}
 
+      {/* ======================================================== */}
+      {/* MODALE 7 : ACTION « AJOUTER UNE NOTE »                   */}
+      {/* ======================================================== */}
+      {notingRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 text-xs text-slate-200 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-tight">
+                    Note administrative interne
+                  </h3>
+                  <p className="text-[10px] text-slate-400">Demande #{notingRequest.reference || notingRequest.id.slice(-6)} - {notingRequest.full_name || notingRequest.client?.nomComplet}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setNotingRequest(null)}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1.5">
+                Note de suivi confidentielle (visible uniquement par les administrateurs) :
+              </label>
+              <textarea
+                rows={4}
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="Indiquez ici les détails de négociation, préférences précises ou retours d'appels..."
+                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500 text-xs"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setNotingRequest(null)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 font-bold"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNote}
+                disabled={isSavingNote}
+                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSavingNote ? 'Enregistrement...' : 'Enregistrer la note'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

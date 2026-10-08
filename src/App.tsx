@@ -20,8 +20,6 @@ import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 import { SocialShareModal } from './components/SocialShareModal';
 import { QuickInteractiveFilters } from './components/QuickInteractiveFilters';
 import { CompareDock } from './components/CompareDock';
-import { InteractiveAssistantModal } from './components/InteractiveAssistantModal';
-import { LiveActivityTicker } from './components/LiveActivityTicker';
 import { AdminPortal } from './components/Admin/AdminPortal';
 import { MonetizationPricingView } from './components/Monetization/MonetizationPricingView';
 import { AdvertisementBanner } from './components/Monetization/AdvertisementBanner';
@@ -45,6 +43,7 @@ import {
   MessageSquareCode,
   Car,
   ShieldCheck,
+  Compass,
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -71,7 +70,13 @@ const AppContent: React.FC = () => {
   }); // 'home' | 'map' | 'agents' | 'agencies' | 'shortcodes' | 'dashboard' | 'wishlist' | 'admin' | 'pricing' | 'conciergerie'
   const [viewLayout, setViewLayout] = useState<'grid' | 'split'>('grid');
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
-  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [gmpQuotaExceeded, setGmpQuotaExceeded] = useState(false);
+
+  useEffect(() => {
+    const handleQuota = () => setGmpQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', handleQuota);
+    return () => window.removeEventListener('gmp-quota-exceeded', handleQuota);
+  }, []);
 
   const handleGoHome = () => {
     setActivePropertyModalId(null);
@@ -133,11 +138,13 @@ const AppContent: React.FC = () => {
     // Mettre à jour l'historique d'URL pour /conciergerie et /admin
     if (typeof window !== 'undefined') {
       try {
-        if (currentTab === 'admin' && window.location.pathname !== '/admin') {
-          window.history.pushState({}, '', '/admin');
+        if (currentTab === 'admin') {
+          if (!window.location.pathname.startsWith('/admin')) {
+            window.history.pushState({}, '', '/admin');
+          }
         } else if (currentTab === 'conciergerie' && window.location.pathname !== '/conciergerie') {
           window.history.pushState({}, '', '/conciergerie');
-        } else if (currentTab !== 'admin' && currentTab !== 'conciergerie' && (window.location.pathname === '/admin' || window.location.pathname === '/conciergerie')) {
+        } else if (currentTab !== 'admin' && currentTab !== 'conciergerie' && (window.location.pathname.startsWith('/admin') || window.location.pathname === '/conciergerie')) {
           window.history.pushState({}, '', '/');
         }
       } catch {}
@@ -252,7 +259,7 @@ const AppContent: React.FC = () => {
   // Si l'utilisateur est sur la route ou l'onglet d'administration /admin
   if (currentTab === 'admin') {
     return (
-      <div className="min-h-screen bg-slate-950 font-sans selection:bg-emerald-500 selection:text-slate-950">
+      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-emerald-500 selection:text-white">
         <AdminPortal onReturnHome={handleGoHome} />
       </div>
     );
@@ -260,10 +267,25 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+      {gmpQuotaExceeded && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
+          <span>
+            Google Maps Platform quota reached. If you are the app owner, visit{' '}
+            <a
+              href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold text-amber-950 hover:text-amber-800"
+            >
+              maps developer site
+            </a>{' '}
+            for instructions to update your account.
+          </span>
+        </div>
+      )}
       <Header
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
-        onOpenAssistant={() => setIsAssistantOpen(true)}
       />
 
       <main className={`flex-1 w-full ${currentTab === 'conciergerie' ? '' : 'max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8'} pb-20 lg:pb-8 space-y-6 sm:space-y-8`}>
@@ -278,14 +300,32 @@ const AppContent: React.FC = () => {
               onNavigateToAgencies={() => setCurrentTab('agents')}
             />
 
+            {/* Aperçu Officiel du Service Conciergerie Immobilière Kinimmo (Accompagnement) */}
+            <ConciergeriePreviewSection
+              onNavigateToConciergerie={(params) => {
+                if (params) {
+                  try {
+                    const url = new URL(window.location.href);
+                    url.pathname = '/conciergerie';
+                    if (params.projet) url.searchParams.set('projet', params.projet);
+                    if (params.typeBien) url.searchParams.set('type', params.typeBien);
+                    if (params.commune) url.searchParams.set('commune', params.commune);
+                    window.history.pushState({}, '', url.pathname + url.search);
+                  } catch {}
+                }
+                setCurrentTab('conciergerie');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+
             {/* Search Widget - Direct et Simple */}
             <SearchWidget />
 
             {/* Quick 1-Click Interactive Badges & Filters */}
             <QuickInteractiveFilters />
 
-            {/* Pancarte 1 : Dédiée aux Partenaires Immobiliers & Sponsors RDC */}
-            <AdvertisementBanner placement="home_hero" className="shadow-md" />
+            {/* Espace Publicitaire & Sponsors Kinshasa */}
+            <AdvertisementBanner placement="home_hero" className="shadow-xs" />
 
             {/* Explore Popular Kinshasa Communes Section */}
             <div className="space-y-4 pt-4">
@@ -407,10 +447,10 @@ const AppContent: React.FC = () => {
                 {sortedProperties.map((property, idx) => (
                   <React.Fragment key={property.id}>
                     <PropertyCard property={property} onShare={(id) => setSharePropertyId(id)} />
-                    {/* Pancarte 2 : Dédiée aux Partenaires Immobiliers Kinimmo au cœur du flux */}
+                    {/* Espace Publicitaire In-Feed Kinshasa */}
                     {idx === 2 && (
                       <div className="col-span-1 md:col-span-2 lg:col-span-3 my-2">
-                        <AdvertisementBanner placement="search_top" className="shadow-sm" />
+                        <AdvertisementBanner placement="search_top" className="shadow-xs" />
                       </div>
                     )}
                   </React.Fragment>
@@ -427,7 +467,7 @@ const AppContent: React.FC = () => {
                       <PropertyCard property={property} onShare={(id) => setSharePropertyId(id)} />
                       {idx === 1 && (
                         <div className="col-span-1 sm:col-span-2 my-2">
-                          <AdvertisementBanner placement="search_top" className="shadow-sm" />
+                          <AdvertisementBanner placement="search_top" className="shadow-xs" />
                         </div>
                       )}
                     </React.Fragment>
@@ -435,24 +475,6 @@ const AppContent: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* Aperçu Officiel du Service Conciergerie Immobilière Kinimmo */}
-            <ConciergeriePreviewSection
-              onNavigateToConciergerie={(params) => {
-                if (params) {
-                  try {
-                    const url = new URL(window.location.href);
-                    url.pathname = '/conciergerie';
-                    if (params.projet) url.searchParams.set('projet', params.projet);
-                    if (params.typeBien) url.searchParams.set('type', params.typeBien);
-                    if (params.commune) url.searchParams.set('commune', params.commune);
-                    window.history.pushState({}, '', url.pathname + url.search);
-                  } catch {}
-                }
-                setCurrentTab('conciergerie');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-            />
 
             {/* Meet Our Top-rated Kinshasa Agents Section */}
             <div className="pt-10 space-y-6 border-t border-slate-200">
@@ -549,22 +571,30 @@ const AppContent: React.FC = () => {
         {/* TAB 2: INTERACTIVE MAP AJAX */}
         {currentTab === 'map' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between bg-white border border-slate-200 rounded-2xl px-5 py-3 shadow-sm">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                <MapPin className="w-4 h-4 text-emerald-600" />
-                <span>Carte Interactive des Biens Immobiliers à Kinshasa</span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-slate-900 to-indigo-950 border border-slate-800 rounded-3xl p-5 shadow-xl text-white">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-400">
+                  <Compass className="w-4 h-4" />
+                  <span>Cartographie Urbaine & Immobilière Intelligente</span>
+                </div>
+                <h2 className="text-xl font-black text-white">
+                  Kinshasa Urban Intelligence & Immobilier
+                </h2>
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  Explorez les prix & loyers moyens, écoles, hôpitaux, marchés, boulevards majeurs, scores de sécurité, eau, électricité et calculateur de temps de route vers l'Aéroport et le centre-ville.
+                </p>
               </div>
               <button
                 onClick={handleGoHome}
-                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                className="self-start sm:self-auto px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer border border-slate-700"
                 title="Retourner à la page d'accueil"
               >
-                <Home className="w-3.5 h-3.5 text-emerald-600" />
+                <Home className="w-4 h-4 text-emerald-400" />
                 <span>Retour Accueil</span>
               </button>
             </div>
             <SearchWidget />
-            <PropertyMap properties={sortedProperties} height="h-[700px]" />
+            <PropertyMap properties={sortedProperties} height="h-[740px]" />
           </div>
         )}
 
@@ -620,31 +650,12 @@ const AppContent: React.FC = () => {
       </main>
 
       {/* Global Floating Interactive Controls & Modals */}
-      <CompareDock />
-      <LiveActivityTicker />
       <FloatingConciergeWidget
         onNavigateToConciergerie={() => {
           setCurrentTab('conciergerie');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
-      <InteractiveAssistantModal isOpen={isAssistantOpen} onClose={() => setIsAssistantOpen(false)} />
-
-      {/* Floating Interactive AI Assistant Trigger Button */}
-      <button
-        onClick={() => setIsAssistantOpen(true)}
-        className="fixed bottom-6 right-6 z-40 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-3 rounded-2xl font-black text-xs shadow-xl shadow-emerald-600/30 flex items-center gap-2.5 hover:scale-105 active:scale-95 transition-all group border border-emerald-500"
-        title="Ouvrir le Conseiller Immobilier Interactif"
-      >
-        <div className="relative">
-          <Bot className="w-5 h-5 group-hover:rotate-12 transition-transform" />
-          <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-200"></span>
-          </span>
-        </div>
-        <span className="hidden sm:inline">Assistant Interactif Kinshasa</span>
-      </button>
 
       {/* Global Modals */}
       <PropertyDetailModal onOpenShareModal={(id) => setSharePropertyId(id)} />

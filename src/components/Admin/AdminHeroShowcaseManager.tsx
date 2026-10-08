@@ -91,7 +91,7 @@ export const AdminHeroShowcaseManager: React.FC<AdminHeroShowcaseManagerProps> =
       commune: 'Gombe',
       isActive: true,
       contactName: agencies[0]?.name || 'Congo Luxury Homes & Development',
-      contactRole: 'Agence Mandataire Agréée',
+      contactRole: 'Agence Partenaire Agréée',
       contactPhone: agencies[0]?.phone || '+243 81 000 0001',
       contactWhatsapp: agencies[0]?.whatsapp || '+243 81 000 0001',
       contactEmail: agencies[0]?.email || 'contact@congoluxuryhomes.cd',
@@ -694,11 +694,11 @@ export const AdminHeroShowcaseManager: React.FC<AdminHeroShowcaseManagerProps> =
                             setFormData({
                               ...formData,
                               contactName: ag.name,
-                              contactRole: 'Agence Mandataire Agréée',
+                              contactRole: 'Agence Partenaire Agréée',
                               contactPhone: ag.phone || ag.whatsapp || '+243 81 000 0001',
                               contactWhatsapp: ag.whatsapp || ag.phone || '+243 81 000 0001',
                               contactEmail: ag.email || 'agence@kinimmo.com',
-                              legalStatus: 'Mandat Agréé & Titre Foncier Conforme'
+                              legalStatus: 'Dossier Conforme & Titre Foncier Vérifié'
                             });
                           }}
                           className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-300 border border-slate-700 hover:border-emerald-500/40 text-[10px] font-medium transition-all cursor-pointer"
@@ -713,7 +713,7 @@ export const AdminHeroShowcaseManager: React.FC<AdminHeroShowcaseManagerProps> =
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div className="space-y-1">
                     <label className="text-[10px] text-slate-300 uppercase font-bold block">
-                      Nom du Contact / Agence Mandataire / Promoteur
+                      Nom du Contact / Agence Partenaire / Promoteur
                     </label>
                     <input
                       type="text"
@@ -732,7 +732,7 @@ export const AdminHeroShowcaseManager: React.FC<AdminHeroShowcaseManagerProps> =
                       type="text"
                       value={formData.contactRole || ''}
                       onChange={(e) => setFormData({ ...formData, contactRole: e.target.value })}
-                      placeholder="ex: Agence Mandataire, Promoteur Officiel, Agent Référent"
+                      placeholder="ex: Agence Partenaire, Promoteur Officiel, Agent Référent"
                       className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>

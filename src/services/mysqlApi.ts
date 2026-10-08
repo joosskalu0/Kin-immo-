@@ -1,4 +1,4 @@
-import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings } from '../types';
+import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings, VisibilityOption } from '../types';
 
 /**
  * Service Client API MySQL REST pour Kinimmo
@@ -101,12 +101,279 @@ const DEFAULT_ADVERTISEMENTS: Advertisement[] = [
 
 const ADS_STORAGE_KEY = 'kinimmo_advertisements_store';
 const ADSENSE_CONFIG_KEY = 'kinimmo_adsense_config';
+const PLANS_STORAGE_KEY = 'kinimmo_pricing_plans_store';
+const OPTIONS_STORAGE_KEY = 'kinimmo_visibility_options_store';
 
 const API_BASE_URL =
-  ((import.meta as any).env?.VITE_API_BASE_URL as string) ||
-  (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-    ? '/api'
-    : 'http://localhost:5000/api');
+  ((import.meta as any).env?.VITE_API_BASE_URL as string) || '/api';
+
+// Formules d'abonnement par défaut certifiées Kinshasa
+const DEFAULT_PRICING_PLANS = [
+  {
+    id: 'starter',
+    name: 'Annonce Gratuite Particulier',
+    description: 'Idéal pour les propriétaires souhaitant publier leurs biens sans aucun frais ni engagement.',
+    category: 'individual' as const,
+    badge: 'Gratuit',
+    priceMonthly: 0,
+    priceMonthlyCDF: 0,
+    price_usd: 0,
+    price_cdf: 0,
+    price: 0,
+    currency: 'USD',
+    billingPeriod: 'month' as const,
+    billing_period: 'monthly',
+    maxListings: 3,
+    max_listings: 3,
+    featuredListings: 0,
+    max_featured_listings: 0,
+    agentAccounts: 1,
+    features: [
+      'Publication de 3 annonces immobilières actives',
+      'Fiche descriptive complète avec photos HD',
+      'Mise en relation directe avec les acheteurs',
+      'Messagerie et contacts WhatsApp directs'
+    ],
+    recommended: false,
+    isActive: true,
+    is_active: true,
+    hasVerifiedBadge: false,
+    has_verified_badge: false,
+    hasCrmLeads: false,
+    has_crm_leads: false,
+    hasPrioritySupport: false,
+    has_priority_support: false
+  },
+  {
+    id: 'pro',
+    name: 'Pro Courtier Indépendant',
+    description: 'Pour courtiers indépendants actifs à Kinshasa avec badge vérifié et gestion prioritaire des leads.',
+    category: 'individual' as const,
+    badge: 'Courtier Pro',
+    priceMonthly: 29,
+    priceMonthlyCDF: 82650,
+    price_usd: 29,
+    price_cdf: 82650,
+    price: 29,
+    currency: 'USD',
+    billingPeriod: 'month' as const,
+    billing_period: 'monthly',
+    maxListings: 25,
+    max_listings: 25,
+    featuredListings: 3,
+    max_featured_listings: 3,
+    agentAccounts: 1,
+    features: [
+      'Jusqu\'à 25 annonces immobilières actives',
+      '3 annonces en vedette (Mise en avant)',
+      'Badge Officiel Courtier Vérifié Kinshasa',
+      'Accès direct aux demandes de Conciergerie (Leads)',
+      'Statistiques des vues et contacts WhatsApp',
+      'Support réactif 6j/7'
+    ],
+    recommended: true,
+    isActive: true,
+    is_active: true,
+    hasVerifiedBadge: true,
+    has_verified_badge: true,
+    hasCrmLeads: true,
+    has_crm_leads: true,
+    hasPrioritySupport: false,
+    has_priority_support: false
+  },
+  {
+    id: 'agency',
+    name: 'Agence Immobilière Certifiée',
+    description: 'Visibilité maximale pour agences immobilières avec agents illimités, CRM et vitrine dédiée.',
+    category: 'agency' as const,
+    badge: 'Agence Agréée',
+    priceMonthly: 79,
+    priceMonthlyCDF: 225150,
+    price_usd: 79,
+    price_cdf: 225150,
+    price: 79,
+    currency: 'USD',
+    billingPeriod: 'month' as const,
+    billing_period: 'monthly',
+    maxListings: 100,
+    max_listings: 100,
+    featuredListings: 10,
+    max_featured_listings: 10,
+    agentAccounts: 10,
+    features: [
+      'Jusqu\'à 100 annonces immobilières actives',
+      '10 annonces en vedette incluses',
+      'Vitrine Agence Immobilière dédiée avec logo et agents',
+      'Gestion multi-comptes pour agents immobiliers',
+      'Badge Agence Certifiée & Agréée RDC',
+      'Rapports d\'activité mensuels et CRM leads',
+      'Support prioritaire dédié 7j/7'
+    ],
+    recommended: true,
+    isActive: true,
+    is_active: true,
+    hasVerifiedBadge: true,
+    has_verified_badge: true,
+    hasCrmLeads: true,
+    has_crm_leads: true,
+    hasPrioritySupport: true,
+    has_priority_support: true
+  },
+  {
+    id: 'enterprise',
+    name: 'Promoteur Immobilier & Constructeur VIP',
+    description: 'Pour promoteurs fonciers, lotissements et grands chantiers avec bannières sponsorisées et multi-diffusion.',
+    category: 'promoter' as const,
+    badge: 'Promoteur VIP',
+    priceMonthly: 149,
+    priceMonthlyCDF: 424650,
+    price_usd: 149,
+    price_cdf: 424650,
+    price: 149,
+    currency: 'USD',
+    billingPeriod: 'month' as const,
+    billing_period: 'monthly',
+    maxListings: 500,
+    max_listings: 500,
+    featuredListings: 30,
+    max_featured_listings: 30,
+    agentAccounts: 25,
+    features: [
+      'Annonces immobilières illimitées (grands chantiers, lotissements)',
+      '30 annonces en tête de liste et carrousel d\'accueil',
+      'Bannières publicitaires régie incluses',
+      'Multi-diffusion WhatsApp VIP & Réseaux sociaux',
+      'Conseiller commercial et juridique dédié',
+      'Gestion prioritaire des visites VIP'
+    ],
+    recommended: false,
+    isActive: true,
+    is_active: true,
+    hasVerifiedBadge: true,
+    has_verified_badge: true,
+    hasCrmLeads: true,
+    has_crm_leads: true,
+    hasPrioritySupport: true,
+    has_priority_support: true
+  }
+];
+
+const DEFAULT_VISIBILITY_OPTIONS = [
+  {
+    id: 'opt_featured_7d',
+    name: 'Mise en Avant 7 jours',
+    slug: 'mise_en_avant_7d',
+    description: 'Positionnement en tête de page d\'accueil et carrousel prioritaire pendant 7 jours.',
+    boost_type: 'featured' as const,
+    duration_days: 7,
+    price_usd: 10.0,
+    price_cdf: 28500.0,
+    price: 10.0,
+    priceCDF: 28500.0,
+    badge_text: 'En Vedette ⭐',
+    icon: 'Sparkles',
+    is_active: true
+  },
+  {
+    id: 'opt_premium_30d',
+    name: 'Pack Annonce Premium 30 jours',
+    slug: 'annonce_premium_30d',
+    description: 'Affichage permanent avec cadre doré, badge Premium, priorité maximale et 3x plus d\'appels.',
+    boost_type: 'premium' as const,
+    duration_days: 30,
+    price_usd: 25.0,
+    price_cdf: 71250.0,
+    price: 25.0,
+    priceCDF: 71250.0,
+    badge_text: '👑 Annonce Premium',
+    icon: 'Crown',
+    is_active: true
+  },
+  {
+    id: 'opt_urgent_14d',
+    name: 'Badge Vente / Location Urgente',
+    slug: 'badge_urgent_14d',
+    description: 'Bandeau rouge d\'urgence pour attirer immédiatement les acheteurs et locataires sérieux.',
+    boost_type: 'urgent' as const,
+    duration_days: 14,
+    price_usd: 8.0,
+    price_cdf: 22800.0,
+    price: 8.0,
+    priceCDF: 22800.0,
+    badge_text: '⚡ Urgent',
+    icon: 'Zap',
+    is_active: true
+  },
+  {
+    id: 'opt_refresh_bump',
+    name: 'Remontée Immédiate en Tête',
+    slug: 'remontee_tete',
+    description: 'Actualise la date de votre annonce pour la replacer tout en haut des résultats de recherche récents.',
+    boost_type: 'refresh' as const,
+    duration_days: 1,
+    price_usd: 5.0,
+    price_cdf: 14250.0,
+    price: 5.0,
+    priceCDF: 14250.0,
+    badge_text: 'Top Liste',
+    icon: 'ArrowUpCircle',
+    is_active: true
+  },
+  {
+    id: 'opt_social_blast',
+    name: 'Diffusion Réseaux & WhatsApp Kinimmo',
+    slug: 'diffusion_reseaux',
+    description: 'Publication sponsorisée sur la communauté Facebook Kinimmo et diffusion WhatsApp VIP.',
+    boost_type: 'social_blast' as const,
+    duration_days: 14,
+    price_usd: 35.0,
+    price_cdf: 99750.0,
+    price: 35.0,
+    priceCDF: 99750.0,
+    badge_text: 'Multi-Canal VIP',
+    icon: 'Share2',
+    is_active: true
+  }
+];
+
+const DEFAULT_PAYMENT_METHODS = [
+  {
+    id: 'pm_mpesa',
+    provider: 'mpesa',
+    account_name: 'KINIMMO SARL - Vodacom M-Pesa',
+    account_number: '+243 810 000 000',
+    merchant_code: '123456',
+    instructions: 'Envoyer le montant exact via M-Pesa puis insérer le code de transaction.',
+    is_active: true
+  },
+  {
+    id: 'pm_airtel',
+    provider: 'airtel',
+    account_name: 'KINIMMO SARL - Airtel Money RDC',
+    account_number: '+243 990 000 000',
+    merchant_code: '789012',
+    instructions: 'Paiement direct via Airtel Money RDC.',
+    is_active: true
+  },
+  {
+    id: 'pm_orange',
+    provider: 'orange',
+    account_name: 'KINIMMO SARL - Orange Money Kinshasa',
+    account_number: '+243 890 000 000',
+    merchant_code: '345678',
+    instructions: 'Paiement via Orange Money Kinshasa.',
+    is_active: true
+  },
+  {
+    id: 'pm_rawbank',
+    provider: 'bank_transfer',
+    account_name: 'KINIMMO RDC - Rawbank Kinshasa Gombe',
+    account_number: '01002-00012345678-90',
+    merchant_code: null,
+    instructions: 'Virement bancaire ou versement au guichet Rawbank.',
+    is_active: true
+  }
+];
 
 // Récupérer le token JWT stocké
 export const getStoredToken = (): string | null => {
@@ -483,18 +750,288 @@ export const mysqlApi = {
     });
   },
 
+  getLocalPlans(): any[] {
+    try {
+      const stored = localStorage.getItem(PLANS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return DEFAULT_PRICING_PLANS;
+  },
+
+  saveLocalPlans(plans: any[]): void {
+    try {
+      localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(plans));
+      window.dispatchEvent(new Event('kinimmo_plans_updated'));
+    } catch (e) {}
+  },
+
+  getLocalOptions(): VisibilityOption[] {
+    try {
+      const stored = localStorage.getItem(OPTIONS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return DEFAULT_VISIBILITY_OPTIONS;
+  },
+
+  saveLocalOptions(options: VisibilityOption[]): void {
+    try {
+      localStorage.setItem(OPTIONS_STORAGE_KEY, JSON.stringify(options));
+      window.dispatchEvent(new Event('kinimmo_options_updated'));
+    } catch (e) {}
+  },
+
   // 8. Facturation, Monétisation & Tarification (Billing & Monetization)
-  async getPricingPlans(category?: string) {
-    const query = category ? `?category=${encodeURIComponent(category)}` : '';
-    return apiRequest(`/billing/plans${query}`);
+  async getPricingPlans(category?: string, includeInactive = false) {
+    try {
+      const params = new URLSearchParams();
+      if (category) params.set('category', category);
+      if (includeInactive) params.set('include_inactive', 'true');
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await apiRequest(`/billing/plans${query}`);
+      const rawPlans = (res.success && (res.plans || res.data?.plans)) ? (res.plans || res.data?.plans) : null;
+      if (Array.isArray(rawPlans) && rawPlans.length > 0) {
+        const normalized = rawPlans.map((p: any) => {
+          const priceUsd = Number(p.priceMonthly ?? p.price_usd ?? p.price ?? 0);
+          const priceCdf = Number(p.priceMonthlyCDF ?? p.price_cdf ?? p.priceCDF ?? (priceUsd * 2850));
+          const maxListings = Number(p.maxListings ?? p.max_listings ?? 3);
+          const featuredListings = Number(p.featuredListings ?? p.max_featured_listings ?? 0);
+
+          let features = p.features;
+          if (typeof features === 'string') {
+            try { features = JSON.parse(features); } catch (e) { features = []; }
+          }
+          if (!Array.isArray(features) || features.length === 0) {
+            const fallbackMatch = DEFAULT_PRICING_PLANS.find(f => f.id === p.id);
+            features = fallbackMatch ? fallbackMatch.features : [
+              'Annonces immobilières actives',
+              'Visibilité sur Kinshasa Immobilier',
+              'Contact direct via WhatsApp'
+            ];
+          }
+
+          return {
+            ...p,
+            priceMonthly: priceUsd,
+            priceMonthlyCDF: priceCdf,
+            price_usd: priceUsd,
+            price_cdf: priceCdf,
+            price: priceUsd,
+            maxListings,
+            max_listings: maxListings,
+            featuredListings,
+            max_featured_listings: featuredListings,
+            currency: 'USD',
+            billingPeriod: 'month',
+            billing_period: p.billing_period || 'monthly',
+            features,
+            recommended: p.id === 'agency' || p.id === 'pro' || Boolean(p.recommended),
+            isActive: p.is_active !== false,
+            is_active: p.is_active !== false
+          };
+        });
+        this.saveLocalPlans(normalized);
+        return { success: true, plans: normalized };
+      }
+    } catch (e) {
+      console.warn('API plans unreachable, using cached plans:', e);
+    }
+    return { success: true, plans: this.getLocalPlans() };
+  },
+
+  async adminUpdatePlan(id: string, data: any) {
+    const plans = this.getLocalPlans();
+    const priceUsd = Number(data.priceMonthly ?? data.price_usd ?? data.price ?? 0);
+    const priceCdf = Number(data.priceMonthlyCDF ?? data.price_cdf ?? data.priceCDF ?? (priceUsd * 2850));
+
+    const updated = plans.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          ...data,
+          priceMonthly: priceUsd,
+          priceMonthlyCDF: priceCdf,
+          price_usd: priceUsd,
+          price_cdf: priceCdf,
+          price: priceUsd,
+          maxListings: Number(data.maxListings ?? data.max_listings ?? p.maxListings),
+          max_listings: Number(data.maxListings ?? data.max_listings ?? p.max_listings),
+          featuredListings: Number(data.featuredListings ?? data.max_featured_listings ?? p.featuredListings),
+          max_featured_listings: Number(data.featuredListings ?? data.max_featured_listings ?? p.max_featured_listings)
+        };
+      }
+      return p;
+    });
+    this.saveLocalPlans(updated);
+
+    try {
+      const res = await apiRequest(`/billing/plans/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+      return res;
+    } catch (e) {
+      return { success: true, message: 'Plan mis à jour (sauvegardé en mémoire)' };
+    }
+  },
+
+  async adminCreatePlan(data: any) {
+    const id = data.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const priceUsd = Number(data.priceMonthly ?? data.price_usd ?? 0);
+    const priceCdf = Number(data.priceMonthlyCDF ?? data.price_cdf ?? (priceUsd * 2850));
+
+    const newPlan = {
+      ...data,
+      id,
+      priceMonthly: priceUsd,
+      priceMonthlyCDF: priceCdf,
+      price_usd: priceUsd,
+      price_cdf: priceCdf,
+      price: priceUsd,
+      currency: 'USD',
+      maxListings: Number(data.maxListings ?? data.max_listings ?? 5),
+      max_listings: Number(data.maxListings ?? data.max_listings ?? 5),
+      featuredListings: Number(data.featuredListings ?? data.max_featured_listings ?? 0),
+      max_featured_listings: Number(data.featuredListings ?? data.max_featured_listings ?? 0),
+      isActive: data.isActive !== false && data.is_active !== false,
+      is_active: data.isActive !== false && data.is_active !== false
+    };
+
+    const plans = this.getLocalPlans();
+    this.saveLocalPlans([...plans, newPlan]);
+
+    try {
+      const res = await apiRequest('/billing/plans', {
+        method: 'POST',
+        body: JSON.stringify(newPlan)
+      });
+      return res;
+    } catch (e) {
+      return { success: true, message: 'Formule créée avec succès' };
+    }
+  },
+
+  async adminDeletePlan(id: string) {
+    const plans = this.getLocalPlans().filter(p => p.id !== id);
+    this.saveLocalPlans(plans);
+
+    try {
+      return await apiRequest(`/billing/plans/${id}`, { method: 'DELETE' });
+    } catch (e) {
+      return { success: true, message: 'Formule supprimée' };
+    }
   },
 
   async getVisibilityOptions() {
-    return apiRequest('/billing/visibility-options');
+    try {
+      const res = await apiRequest('/billing/visibility-options');
+      const rawOptions = (res.success && (res.options || res.data?.options)) ? (res.options || res.data?.options) : null;
+      if (Array.isArray(rawOptions) && rawOptions.length > 0) {
+        const normalized = rawOptions.map((opt: any) => {
+          const priceUsd = Number(opt.price_usd ?? opt.price ?? 0);
+          const priceCdf = Number(opt.price_cdf ?? opt.priceCDF ?? (priceUsd * 2850));
+          return {
+            ...opt,
+            price_usd: priceUsd,
+            price_cdf: priceCdf,
+            price: priceUsd,
+            priceCDF: priceCdf,
+            duration_days: Number(opt.duration_days || 7)
+          };
+        });
+        this.saveLocalOptions(normalized);
+        return { success: true, options: normalized };
+      }
+    } catch (e) {
+      console.warn('API visibility options unreachable, using cached options:', e);
+    }
+    return { success: true, options: this.getLocalOptions() };
+  },
+
+  async adminUpdateVisibilityOption(id: string, data: any) {
+    const options = this.getLocalOptions();
+    const priceUsd = Number(data.price_usd ?? data.price ?? 0);
+    const priceCdf = Number(data.price_cdf ?? data.priceCDF ?? (priceUsd * 2850));
+
+    const updated = options.map(o => {
+      if (o.id === id) {
+        return {
+          ...o,
+          ...data,
+          price_usd: priceUsd,
+          price: priceUsd,
+          price_cdf: priceCdf,
+          priceCDF: priceCdf,
+          duration_days: Number(data.duration_days ?? o.duration_days)
+        };
+      }
+      return o;
+    });
+    this.saveLocalOptions(updated);
+
+    try {
+      return await apiRequest(`/billing/visibility-options/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    } catch (e) {
+      return { success: true, message: 'Option mise à jour' };
+    }
+  },
+
+  async adminCreateVisibilityOption(data: any) {
+    const id = data.id || `opt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const priceUsd = Number(data.price_usd ?? data.price ?? 10);
+    const priceCdf = Number(data.price_cdf ?? data.priceCDF ?? (priceUsd * 2850));
+
+    const newOpt: VisibilityOption = {
+      ...data,
+      id,
+      price_usd: priceUsd,
+      price_cdf: priceCdf,
+      duration_days: Number(data.duration_days || 7)
+    };
+
+    const options = this.getLocalOptions();
+    this.saveLocalOptions([...options, newOpt]);
+
+    try {
+      return await apiRequest('/billing/visibility-options', {
+        method: 'POST',
+        body: JSON.stringify(newOpt)
+      });
+    } catch (e) {
+      return { success: true, message: 'Option créée avec succès' };
+    }
+  },
+
+  async adminDeleteVisibilityOption(id: string) {
+    const options = this.getLocalOptions().filter(o => o.id !== id);
+    this.saveLocalOptions(options);
+
+    try {
+      return await apiRequest(`/billing/visibility-options/${id}`, { method: 'DELETE' });
+    } catch (e) {
+      return { success: true, message: 'Option supprimée' };
+    }
   },
 
   async getPaymentMethods() {
-    return apiRequest('/billing/payment-methods');
+    try {
+      const res = await apiRequest('/billing/payment-methods');
+      const rawMethods = (res.success && (res.paymentMethods || res.data?.paymentMethods)) ? (res.paymentMethods || res.data?.paymentMethods) : null;
+      if (Array.isArray(rawMethods) && rawMethods.length > 0) {
+        return { success: true, paymentMethods: rawMethods };
+      }
+    } catch (e) {
+      console.warn('API payment methods unreachable, using default methods:', e);
+    }
+    return { success: true, paymentMethods: DEFAULT_PAYMENT_METHODS };
   },
 
   async createInvoice(planId: string, paymentMethodId?: string, paymentGateway = 'manual_mobile_money') {
@@ -894,7 +1431,7 @@ export const DEFAULT_CONTACT_SETTINGS: SiteContactSettings = {
     whatsapp: '+243 84 529 4616',
     email: 'joosskalu72@gmail.com',
     defaultMessage: 'Bonjour KINIMMO Relations Partenaires, je souhaite échanger sur une opportunité de collaboration professionnelle.',
-    agentMessage: 'Bonjour KINIMMO Partenariats, je suis une agence/un agent immobilier à Kinshasa et je souhaite collaborer avec votre plateforme pour diffuser mes annonces et mandats.',
+    agentMessage: 'Bonjour KINIMMO Partenariats, je suis une agence/un agent immobilier à Kinshasa et je souhaite collaborer avec votre plateforme pour diffuser mes annonces de biens.',
     partnerMessage: 'Bonjour KINIMMO Partenariats, je souhaite vous présenter un projet immobilier / programme neuf / partenariat d\'affaires.',
     description: 'Vous êtes une agence immobilière agréée, un agent indépendant, un promoteur de programmes neufs ou un propriétaire foncier ? Rejoignez le réseau officiel Kinimmo et développons ensemble vos transactions et partenariats.',
     workingHours: 'Ligne Pro B2B Disponible 7j/7 (8h00 - 20h00)'

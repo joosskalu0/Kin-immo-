@@ -44,8 +44,9 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
   // Configuration Google AdSense
   const [adSenseConfig, setAdSenseConfig] = useState(mysqlApi.getAdSenseConfig());
 
-  // Formulaire nouvelle publicité
+  // Formulaire nouvelle publicité & édition
   const [isCreatingAd, setIsCreatingAd] = useState(false);
+  const [editingAd, setEditingAd] = useState<Advertisement | null>(null);
   const [newAdForm, setNewAdForm] = useState({
     title: '',
     advertiser_name: '',
@@ -59,6 +60,44 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
     price_usd: 150,
     start_date: new Date().toISOString().split('T')[0],
     end_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]
+  });
+  const [editAdForm, setEditAdForm] = useState<any>(null);
+
+  // Formulaire Forfait / Abonnement (Création / Édition)
+  const [editingPlan, setEditingPlan] = useState<any | null>(null);
+  const [isCreatingPlan, setIsCreatingPlan] = useState<boolean>(false);
+  const [planForm, setPlanForm] = useState({
+    id: '',
+    name: '',
+    description: '',
+    category: 'individual',
+    badge: '',
+    price_usd: 0,
+    price_cdf: 0,
+    max_listings: 3,
+    max_featured_listings: 0,
+    features_text: '',
+    recommended: false,
+    has_verified_badge: false,
+    has_crm_leads: false,
+    has_priority_support: false,
+    is_active: true
+  });
+
+  // Formulaire Option de visibilité / Boost (Création / Édition)
+  const [editingOption, setEditingOption] = useState<VisibilityOption | null>(null);
+  const [isCreatingOption, setIsCreatingOption] = useState<boolean>(false);
+  const [optionForm, setOptionForm] = useState({
+    id: '',
+    name: '',
+    slug: '',
+    description: '',
+    boost_type: 'featured',
+    duration_days: 7,
+    price_usd: 10,
+    price_cdf: 28500,
+    badge_text: '',
+    is_active: true
   });
 
   useEffect(() => {
@@ -77,7 +116,7 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
         mysqlApi.adminGetMonetizationStats(),
         mysqlApi.adminGetInvoices(),
         mysqlApi.adminGetAdvertisements(),
-        mysqlApi.getPricingPlans(),
+        mysqlApi.getPricingPlans(undefined, true),
         mysqlApi.getVisibilityOptions()
       ]);
 
@@ -139,7 +178,7 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
           advertiser_name: '',
           advertiser_contact: '',
           advertiser_email: '',
-          category: 'dealership',
+          category: 'real_estate',
           placement: 'home_hero',
           image_url: '',
           target_url: '',
@@ -157,12 +196,248 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
     }
   };
 
+  const handleOpenEditAd = (ad: Advertisement) => {
+    setEditingAd(ad);
+    setEditAdForm({
+      title: ad.title || '',
+      advertiser_name: ad.advertiser_name || '',
+      advertiser_contact: (ad as any).advertiser_contact || (ad as any).advertiser_phone || '',
+      advertiser_email: (ad as any).advertiser_email || '',
+      category: ad.category || 'real_estate',
+      placement: ad.placement || 'home_hero',
+      image_url: ad.image_url || '',
+      target_url: ad.target_url || '',
+      alt_text: ad.alt_text || ad.title || '',
+      price_usd: Number(ad.price_usd || 150),
+      start_date: (ad as any).start_date || new Date().toISOString().split('T')[0],
+      end_date: (ad as any).end_date || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      is_active: ad.is_active !== false
+    });
+  };
+
+  const handleSaveEditAd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAd || !editAdForm) return;
+
+    try {
+      const res = await mysqlApi.adminUpdateAdvertisement(editingAd.id, editAdForm);
+      if (res.success) {
+        showMsg('success', 'Campagne publicitaire mise à jour.');
+        setEditingAd(null);
+        setEditAdForm(null);
+        loadData();
+      } else {
+        showMsg('error', res.message || 'Erreur lors de la modification.');
+      }
+    } catch (err: any) {
+      showMsg('error', err.message || 'Erreur réseau.');
+    }
+  };
+
   const handleDeleteAd = async (adId: string) => {
     if (!confirm('Supprimer définitivement cette campagne publicitaire ?')) return;
     try {
       const res = await mysqlApi.adminDeleteAdvertisement(adId);
       if (res.success) {
         showMsg('success', 'Publicité supprimée.');
+        loadData();
+      }
+    } catch (err: any) {
+      showMsg('error', err.message || 'Erreur suppression.');
+    }
+  };
+
+  // Gestion des Formules d'abonnements (Plans)
+  const handleOpenEditPlan = (plan: any) => {
+    setEditingPlan(plan);
+    setIsCreatingPlan(false);
+    const priceUsd = Number(plan.priceMonthly ?? plan.price_usd ?? plan.price ?? 0);
+    const priceCdf = Number(plan.priceMonthlyCDF ?? plan.price_cdf ?? (priceUsd * 2850));
+    const feats = Array.isArray(plan.features) ? plan.features.join('\n') : (typeof plan.features === 'string' ? plan.features : '');
+
+    setPlanForm({
+      id: plan.id,
+      name: plan.name || '',
+      description: plan.description || '',
+      category: plan.category || 'individual',
+      badge: plan.badge || '',
+      price_usd: priceUsd,
+      price_cdf: priceCdf,
+      max_listings: Number(plan.maxListings ?? plan.max_listings ?? 3),
+      max_featured_listings: Number(plan.featuredListings ?? plan.max_featured_listings ?? 0),
+      features_text: feats,
+      recommended: Boolean(plan.recommended),
+      has_verified_badge: Boolean(plan.hasVerifiedBadge || plan.has_verified_badge),
+      has_crm_leads: Boolean(plan.hasCrmLeads || plan.has_crm_leads),
+      has_priority_support: Boolean(plan.hasPrioritySupport || plan.has_priority_support),
+      is_active: plan.is_active !== false && plan.isActive !== false
+    });
+  };
+
+  const handleOpenCreatePlan = () => {
+    setEditingPlan(null);
+    setIsCreatingPlan(true);
+    setPlanForm({
+      id: `plan_${Date.now()}`,
+      name: '',
+      description: '',
+      category: 'individual',
+      badge: 'Pack Nouveau',
+      price_usd: 19,
+      price_cdf: 54150,
+      max_listings: 10,
+      max_featured_listings: 1,
+      features_text: 'Jusqu\'à 10 annonces\n1 annonce en vedette\nSupport WhatsApp',
+      recommended: false,
+      has_verified_badge: false,
+      has_crm_leads: false,
+      has_priority_support: false,
+      is_active: true
+    });
+  };
+
+  const handleSavePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!planForm.name) {
+      alert('Veuillez renseigner le nom de la formule.');
+      return;
+    }
+
+    const features = planForm.features_text
+      .split('\n')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    const payload = {
+      ...planForm,
+      priceMonthly: Number(planForm.price_usd),
+      price_usd: Number(planForm.price_usd),
+      priceMonthlyCDF: Number(planForm.price_cdf),
+      price_cdf: Number(planForm.price_cdf),
+      maxListings: Number(planForm.max_listings),
+      max_listings: Number(planForm.max_listings),
+      featuredListings: Number(planForm.max_featured_listings),
+      max_featured_listings: Number(planForm.max_featured_listings),
+      features,
+      is_active: planForm.is_active,
+      isActive: planForm.is_active
+    };
+
+    try {
+      let res;
+      if (editingPlan) {
+        res = await mysqlApi.adminUpdatePlan(editingPlan.id, payload);
+      } else {
+        res = await mysqlApi.adminCreatePlan(payload);
+      }
+
+      if (res && res.success !== false) {
+        showMsg('success', editingPlan ? 'Tarif et formule d\'abonnement mis à jour.' : 'Nouvelle formule d\'abonnement créée.');
+        setEditingPlan(null);
+        setIsCreatingPlan(false);
+        loadData();
+      } else {
+        showMsg('error', res?.message || 'Erreur lors de la sauvegarde du forfait.');
+      }
+    } catch (err: any) {
+      showMsg('error', err.message || 'Erreur serveur.');
+    }
+  };
+
+  const handleDeletePlan = async (planId: string) => {
+    if (!confirm(`Supprimer définitivement la formule ${planId} ?`)) return;
+    try {
+      const res = await mysqlApi.adminDeletePlan(planId);
+      if (res.success !== false) {
+        showMsg('success', 'Formule supprimée.');
+        loadData();
+      }
+    } catch (err: any) {
+      showMsg('error', err.message || 'Erreur suppression.');
+    }
+  };
+
+  // Gestion des Options de visibilité (Boosts)
+  const handleOpenEditOption = (opt: VisibilityOption) => {
+    setEditingOption(opt);
+    setIsCreatingOption(false);
+    const priceUsd = Number(opt.price_usd ?? (opt as any).price ?? 0);
+    const priceCdf = Number(opt.price_cdf ?? (opt as any).priceCDF ?? (priceUsd * 2850));
+
+    setOptionForm({
+      id: opt.id,
+      name: opt.name || '',
+      slug: (opt as any).slug || opt.id,
+      description: opt.description || '',
+      boost_type: opt.boost_type || 'featured',
+      duration_days: Number(opt.duration_days || 7),
+      price_usd: priceUsd,
+      price_cdf: priceCdf,
+      badge_text: opt.badge_text || '',
+      is_active: (opt as any).is_active !== false
+    });
+  };
+
+  const handleOpenCreateOption = () => {
+    setEditingOption(null);
+    setIsCreatingOption(true);
+    setOptionForm({
+      id: `opt_${Date.now()}`,
+      name: '',
+      slug: `boost_${Date.now()}`,
+      description: '',
+      boost_type: 'featured',
+      duration_days: 7,
+      price_usd: 15,
+      price_cdf: 42750,
+      badge_text: '⭐ Boost',
+      is_active: true
+    });
+  };
+
+  const handleSaveOption = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!optionForm.name) {
+      alert('Veuillez renseigner le nom de l\'option.');
+      return;
+    }
+
+    const payload = {
+      ...optionForm,
+      price_usd: Number(optionForm.price_usd),
+      price: Number(optionForm.price_usd),
+      price_cdf: Number(optionForm.price_cdf),
+      priceCDF: Number(optionForm.price_cdf),
+      duration_days: Number(optionForm.duration_days)
+    };
+
+    try {
+      let res;
+      if (editingOption) {
+        res = await mysqlApi.adminUpdateVisibilityOption(editingOption.id, payload);
+      } else {
+        res = await mysqlApi.adminCreateVisibilityOption(payload);
+      }
+
+      if (res && res.success !== false) {
+        showMsg('success', editingOption ? 'Tarif et détails du boost mis à jour.' : 'Nouvelle option de boost enregistrée.');
+        setEditingOption(null);
+        setIsCreatingOption(false);
+        loadData();
+      } else {
+        showMsg('error', res?.message || 'Erreur lors de la modification de l\'option.');
+      }
+    } catch (err: any) {
+      showMsg('error', err.message || 'Erreur serveur.');
+    }
+  };
+
+  const handleDeleteOption = async (optionId: string) => {
+    if (!confirm(`Supprimer l'option de boost ${optionId} ?`)) return;
+    try {
+      const res = await mysqlApi.adminDeleteVisibilityOption(optionId);
+      if (res.success !== false) {
+        showMsg('success', 'Option de visibilité supprimée.');
         loadData();
       }
     } catch (err: any) {
@@ -337,10 +612,10 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                         </td>
                         <td className="px-4 py-3.5">
                           <span className="font-black text-white block">
-                            {inv.total_amount || inv.amount} {inv.currency || 'USD'}
+                            {inv.total_amount || inv.amount || 0} {inv.currency || 'USD'}
                           </span>
                           <span className="text-[10px] text-slate-500 block">
-                            ~{Number(inv.total_amount_cdf || (inv.total_amount || 0) * 2800).toLocaleString()} CDF
+                            ~{Number(inv.total_amount_cdf || inv.amount_cdf || (Number(inv.total_amount || inv.amount || 0) * 2850)).toLocaleString()} CDF
                           </span>
                         </td>
                         <td className="px-4 py-3.5">
@@ -540,13 +815,22 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                         ? 'Assurance'
                         : ad.category}
                     </span>
-                    <button
-                      onClick={() => handleDeleteAd(ad.id)}
-                      className="text-slate-500 hover:text-rose-400 p-1"
-                      title="Supprimer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleOpenEditAd(ad)}
+                        className="text-slate-400 hover:text-emerald-400 p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                        title="Modifier la publicité"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAd(ad.id)}
+                        className="text-slate-500 hover:text-rose-400 p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                        title="Supprimer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <h4 className="font-bold text-sm text-white">{ad.title}</h4>
@@ -813,45 +1097,117 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
       {/* Sub-Tab 3: Formules d'abonnements */}
       {activeSubTab === 'plans' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">
-              Catalogue des Abonnements (Particuliers, Agences, Concessionnaires, Garages)
-            </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-white">
+                Catalogue des Abonnements (Particuliers, Courtiers, Agences, Promoteurs VIP)
+              </h3>
+              <p className="text-xs text-slate-400">
+                Ajustez les tarifs mensuels en USD & CDF, les plafonds d'annonces et les privilèges de chaque formule
+              </p>
+            </div>
+            <button
+              onClick={handleOpenCreatePlan}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1.5 shadow"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Créer une Formule</span>
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {plans.map((p) => (
-              <div
-                key={p.id}
-                className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase text-amber-400">
-                    {p.category || 'Général'}
-                  </span>
-                  <span className="text-xs font-mono font-bold text-slate-400">
-                    ID: {p.id}
-                  </span>
-                </div>
+            {plans.map((p) => {
+              const priceUsd = Number(p.priceMonthly ?? p.price_usd ?? p.price ?? 0);
+              const priceCdf = Number(p.priceMonthlyCDF ?? p.price_cdf ?? (priceUsd * 2850));
 
-                <h4 className="font-black text-base text-white">{p.name}</h4>
-                <div className="text-2xl font-black text-emerald-400">
-                  {p.priceMonthly === 0 ? 'Gratuit' : `${p.priceMonthly} USD / mois`}
-                </div>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {p.description || 'Formule active sur la plateforme.'}
-                </p>
+              return (
+                <div
+                  key={p.id}
+                  className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-3 flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-amber-400 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                        {p.category || 'Général'}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleOpenEditPlan(p)}
+                          className="text-slate-400 hover:text-emerald-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                          title="Modifier les tarifs et fonctionnalités"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        {p.id !== 'starter' && p.id !== 'pro' && p.id !== 'agency' && p.id !== 'enterprise' && (
+                          <button
+                            onClick={() => handleDeletePlan(p.id)}
+                            className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                <div className="pt-2 border-t border-slate-800 text-xs text-slate-300 space-y-1">
-                  <div>
-                    Max Annonces : <strong>{p.maxListings >= 999 ? 'Illimité' : p.maxListings}</strong>
+                    <div>
+                      <h4 className="font-black text-base text-white">{p.name}</h4>
+                      {p.badge && (
+                        <span className="inline-block text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20 mt-1">
+                          {p.badge}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80">
+                      <div className="text-2xl font-black text-emerald-400">
+                        {priceUsd === 0 ? 'Gratuit' : `${priceUsd} USD / mois`}
+                      </div>
+                      {priceUsd > 0 && (
+                        <span className="text-xs text-slate-400 font-semibold block mt-0.5">
+                          ~{priceCdf.toLocaleString()} CDF / mois
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      {p.description || 'Formule active sur la plateforme Kinshasa.'}
+                    </p>
+
+                    <div className="pt-2 border-t border-slate-800 text-xs text-slate-300 space-y-1 font-medium">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Max Annonces :</span>
+                        <strong className="text-white">
+                          {(p.maxListings ?? p.max_listings ?? 0) >= 500 ? 'Illimité' : (p.maxListings ?? p.max_listings ?? 3)}
+                        </strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Annonces Vedettes :</span>
+                        <strong className="text-amber-400">
+                          {p.featuredListings ?? p.max_featured_listings ?? 0}
+                        </strong>
+                      </div>
+                      {p.hasCrmLeads && (
+                        <div className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Leads Conciergerie inclus</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    Annonces Vedettes : <strong>{p.featuredListings || 0}</strong>
+
+                  <div className="pt-3 border-t border-slate-800/60">
+                    <button
+                      onClick={() => handleOpenEditPlan(p)}
+                      className="w-full py-2 rounded-xl bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Modifier le Tarif & Options</span>
+                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -859,36 +1215,586 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
       {/* Sub-Tab 4: Options de visibilité */}
       {activeSubTab === 'options' && (
         <div className="space-y-4">
-          <h3 className="text-base font-bold text-white">
-            Catalogue des Options de Visibilité & Boosts à la carte
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-white">
+                Catalogue des Options de Visibilité & Boosts à la carte
+              </h3>
+              <p className="text-xs text-slate-400">
+                Gérez les prix unitaires, la durée d'effet et les badges des boosts de biens
+              </p>
+            </div>
+            <button
+              onClick={handleOpenCreateOption}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1.5 shadow"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Créer une Option de Boost</span>
+            </button>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {options.map((opt) => (
-              <div
-                key={opt.id}
-                className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-3"
+            {options.map((opt) => {
+              const priceUsd = Number(opt.price_usd ?? (opt as any).price ?? 0);
+              const priceCdf = Number(opt.price_cdf ?? (opt as any).priceCDF ?? (priceUsd * 2850));
+
+              return (
+                <div
+                  key={opt.id}
+                  className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-3 flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                        {opt.boost_type}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleOpenEditOption(opt)}
+                          className="text-slate-400 hover:text-emerald-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                          title="Modifier le prix et la durée"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        {opt.id !== 'opt_featured_7d' && opt.id !== 'opt_premium_30d' && (
+                          <button
+                            onClick={() => handleDeleteOption(opt.id)}
+                            className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <h4 className="font-bold text-base text-white">{opt.name}</h4>
+
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xl font-black text-amber-400">
+                          {priceUsd} USD
+                        </span>
+                        <span className="text-xs font-mono text-slate-400 font-bold">
+                          {opt.duration_days} jours de validité
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-400 font-semibold block mt-0.5">
+                        ~{priceCdf.toLocaleString()} CDF
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      {opt.description}
+                    </p>
+
+                    {opt.badge_text && (
+                      <div className="inline-block text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Aperçu Badge : {opt.badge_text}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-800/60">
+                    <button
+                      onClick={() => handleOpenEditOption(opt)}
+                      className="w-full py-2 rounded-xl bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Modifier Tarif & Durée</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 1: ÉDITION & CRÉATION DE FORMULE D'ABONNEMENT     */}
+      {/* ======================================================== */}
+      {(editingPlan || isCreatingPlan) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 text-white space-y-5 shadow-2xl my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-extrabold text-lg text-white">
+                  {editingPlan ? `Modifier la Formule: ${editingPlan.name}` : 'Nouvelle Formule d\'Abonnement'}
+                </h3>
+              </div>
+              <button
+                onClick={() => { setEditingPlan(null); setIsCreatingPlan(false); }}
+                className="text-slate-400 hover:text-white text-base p-1"
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase text-emerald-400">
-                    {opt.boost_type}
-                  </span>
-                  <span className="text-xs font-mono font-black text-amber-400">
-                    {opt.price_usd} USD ({opt.duration_days}j)
-                  </span>
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePlan} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Nom de la formule *</label>
+                  <input
+                    type="text"
+                    required
+                    value={planForm.name}
+                    onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })}
+                    placeholder="Ex: Pro Courtier Indépendant"
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-bold focus:border-emerald-500 focus:outline-none"
+                  />
                 </div>
 
-                <h4 className="font-bold text-sm text-white">{opt.name}</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {opt.description}
-                </p>
-                {opt.badge_text && (
-                  <div className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">
-                    Badge: {opt.badge_text}
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Badge public</label>
+                  <input
+                    type="text"
+                    value={planForm.badge}
+                    onChange={(e) => setPlanForm({ ...planForm, badge: e.target.value })}
+                    placeholder="Ex: Courtier Pro, Agence Agréée"
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Catégorie cible</label>
+                  <select
+                    value={planForm.category}
+                    onChange={(e) => setPlanForm({ ...planForm, category: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="individual">Particulier / Propriétaire</option>
+                    <option value="pro">Courtier Indépendant Pro</option>
+                    <option value="agency">Agence Immobilière Certifiée</option>
+                    <option value="promoter">Promoteur Foncier VIP</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Prix USD ($) *</label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      required
+                      value={planForm.price_usd}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setPlanForm({
+                          ...planForm,
+                          price_usd: val,
+                          price_cdf: Math.round(val * 2850)
+                        });
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-emerald-400 font-black text-sm focus:border-emerald-500 focus:outline-none"
+                    />
                   </div>
-                )}
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Prix CDF (FC)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={planForm.price_cdf}
+                      onChange={(e) => setPlanForm({ ...planForm, price_cdf: parseInt(e.target.value) || 0 })}
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 font-mono focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Max Annonces Actives</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={planForm.max_listings}
+                    onChange={(e) => setPlanForm({ ...planForm, max_listings: parseInt(e.target.value) || 3 })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">500 ou plus = Illimité</span>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Annonces Vedettes Incluses</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={planForm.max_featured_listings}
+                    onChange={(e) => setPlanForm({ ...planForm, max_featured_listings: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
               </div>
-            ))}
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Description courte</label>
+                <textarea
+                  rows={2}
+                  value={planForm.description}
+                  onChange={(e) => setPlanForm({ ...planForm, description: e.target.value })}
+                  placeholder="Avantages principaux présentés sur la page de tarification..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">
+                  Fonctionnalités incluses (une par ligne)
+                </label>
+                <textarea
+                  rows={4}
+                  value={planForm.features_text}
+                  onChange={(e) => setPlanForm({ ...planForm, features_text: e.target.value })}
+                  placeholder="Jusqu'à 25 annonces actives&#10;Badge Vérifié Kinshasa&#10;Accès direct aux demandes de Conciergerie..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-xs focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-800 text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={planForm.recommended}
+                    onChange={(e) => setPlanForm({ ...planForm, recommended: e.target.checked })}
+                    className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0"
+                  />
+                  <span>Recommandé</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={planForm.has_verified_badge}
+                    onChange={(e) => setPlanForm({ ...planForm, has_verified_badge: e.target.checked })}
+                    className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0"
+                  />
+                  <span>Badge Officiel</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={planForm.has_crm_leads}
+                    onChange={(e) => setPlanForm({ ...planForm, has_crm_leads: e.target.checked })}
+                    className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0"
+                  />
+                  <span>Leads Conciergerie</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={planForm.is_active}
+                    onChange={(e) => setPlanForm({ ...planForm, is_active: e.target.checked })}
+                    className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0"
+                  />
+                  <span>Formule Active</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => { setEditingPlan(null); setIsCreatingPlan(false); }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow-lg"
+                >
+                  {editingPlan ? 'Mettre à jour la Formule' : 'Enregistrer la Formule'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 2: ÉDITION & CRÉATION D'OPTION DE VISIBILITÉ (BOOST) */}
+      {/* ======================================================== */}
+      {(editingOption || isCreatingOption) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 text-white space-y-5 shadow-2xl my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-400" />
+                <h3 className="font-extrabold text-lg text-white">
+                  {editingOption ? `Modifier le Boost: ${editingOption.name}` : 'Nouvelle Option de Boost'}
+                </h3>
+              </div>
+              <button
+                onClick={() => { setEditingOption(null); setIsCreatingOption(false); }}
+                className="text-slate-400 hover:text-white text-base p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveOption} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Nom de l'option *</label>
+                  <input
+                    type="text"
+                    required
+                    value={optionForm.name}
+                    onChange={(e) => setOptionForm({ ...optionForm, name: e.target.value })}
+                    placeholder="Ex: Mise en Avant 7 jours"
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-bold focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Type de boost</label>
+                  <select
+                    value={optionForm.boost_type}
+                    onChange={(e) => setOptionForm({ ...optionForm, boost_type: e.target.value as any })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="featured">Vedette (Carrousel Accueil & Tête de liste)</option>
+                    <option value="premium">Pack Premium (Cadre doré VIP)</option>
+                    <option value="urgent">Urgent Flash (Bandeau rouge)</option>
+                    <option value="refresh">Remontée 24h (Top liste instantané)</option>
+                    <option value="social_blast">Multi-Canal (WhatsApp VIP & Réseaux)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Prix USD ($) *</label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    required
+                    value={optionForm.price_usd}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setOptionForm({
+                        ...optionForm,
+                        price_usd: val,
+                        price_cdf: Math.round(val * 2850)
+                      });
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-amber-400 font-black text-sm focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Prix CDF (FC)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={optionForm.price_cdf}
+                    onChange={(e) => setOptionForm({ ...optionForm, price_cdf: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Durée d'activation (jours) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={optionForm.duration_days}
+                    onChange={(e) => setOptionForm({ ...optionForm, duration_days: parseInt(e.target.value) || 7 })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Badge visuel sur l'annonce</label>
+                  <input
+                    type="text"
+                    value={optionForm.badge_text}
+                    onChange={(e) => setOptionForm({ ...optionForm, badge_text: e.target.value })}
+                    placeholder="Ex: ⭐ En Vedette, 👑 Premium"
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Description du boost</label>
+                <textarea
+                  rows={3}
+                  value={optionForm.description}
+                  onChange={(e) => setOptionForm({ ...optionForm, description: e.target.value })}
+                  placeholder="Explication claire visible par l'utilisateur lors du choix du boost..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => { setEditingOption(null); setIsCreatingOption(false); }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow-lg"
+                >
+                  {editingOption ? 'Enregistrer les Modifications' : 'Créer l\'Option'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 3: ÉDITION D'UNE CAMPAGNE PUBLICITAIRE (BANNIÈRE)  */}
+      {/* ======================================================== */}
+      {editingAd && editAdForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 text-white space-y-5 shadow-2xl my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Megaphone className="w-5 h-5 text-purple-400" />
+                <h3 className="font-extrabold text-lg text-white">
+                  Modifier la Campagne : {editingAd.title}
+                </h3>
+              </div>
+              <button
+                onClick={() => { setEditingAd(null); setEditAdForm(null); }}
+                className="text-slate-400 hover:text-white text-base p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditAd} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-400 mb-1 font-semibold">Titre de la publicité *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editAdForm.title}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, title: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-bold focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Nom de l'Annonceur *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editAdForm.advertiser_name}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, advertiser_name: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Contact / WhatsApp</label>
+                  <input
+                    type="text"
+                    value={editAdForm.advertiser_contact}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, advertiser_contact: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Catégorie Sponsor</label>
+                  <select
+                    value={editAdForm.category}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, category: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="real_estate">Promoteur Foncier & Immobilier</option>
+                    <option value="construction">Entreprise BTP & Construction</option>
+                    <option value="architecture">Architecture & Aménagement</option>
+                    <option value="banking">Banque & Crédit Immobilier</option>
+                    <option value="insurance">Assurance & Caution Locative</option>
+                    <option value="general">Général Partenaire</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Emplacement</label>
+                  <select
+                    value={editAdForm.placement}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, placement: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="home_hero">Bannière Accueil (Cockpit Hero)</option>
+                    <option value="in_feed">Pancarte In-Feed (Au cœur des propriétés)</option>
+                    <option value="search_top">Tête de recherche</option>
+                    <option value="sidebar">Barre latérale (Sidebar)</option>
+                    <option value="footer_banner">Bannière bas de page</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-400 mb-1 font-semibold">URL de l'image (Bannière)</label>
+                  <input
+                    type="url"
+                    value={editAdForm.image_url}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, image_url: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Prix Facturé USD ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editAdForm.price_usd}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, price_usd: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-emerald-400 font-bold focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-400 mb-1 font-semibold">Lien cible (Clic ou WhatsApp)</label>
+                  <input
+                    type="text"
+                    value={editAdForm.target_url}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, target_url: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Statut</label>
+                  <select
+                    value={editAdForm.is_active ? 'active' : 'inactive'}
+                    onChange={(e) => setEditAdForm({ ...editAdForm, is_active: e.target.value === 'active' })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="active">Active (En diffusion)</option>
+                    <option value="inactive">Suspendue / Archivée</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => { setEditingAd(null); setEditAdForm(null); }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow-lg"
+                >
+                  Enregistrer les modifications
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

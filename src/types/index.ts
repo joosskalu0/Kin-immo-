@@ -38,6 +38,7 @@ export interface Property {
   price: number;
   currency: string;
   period?: 'month' | 'year' | 'total'; // For rental or sale
+  pricePeriod?: string;
   type: PropertyType;
   status: PropertyStatus;
   labels: PropertyLabel[];
@@ -105,6 +106,14 @@ export interface Property {
   boostExpiresAt?: string;
   refreshBumpAt?: string;
   published: boolean;
+
+  // Modération & Détection Anti-Fraude
+  fraudStatus?: FraudVerdict; // 'normal' | 'review_required' | 'suspect'
+  fraudScore?: number; // 0 - 100
+  fraudFlags?: FraudFlag[];
+  fraudLastCheckedAt?: string;
+  moderationNotes?: string;
+  userReportsCount?: number;
 }
 
 export interface VerificationDocument {
@@ -298,17 +307,27 @@ export interface SubscriptionPlan {
   badge?: string;
   priceMonthly: number; // in USD
   priceMonthlyCDF?: number; // in CDF (Francs Congolais)
+  price_usd?: number;
+  price_cdf?: number;
+  price?: number;
   currency: string;
   billingPeriod?: 'month' | 'year';
+  billing_period?: string;
   maxListings: number;
+  max_listings?: number;
   featuredListings: number;
+  max_featured_listings?: number;
   agentAccounts: number;
   features: string[];
   recommended?: boolean;
   isActive?: boolean;
+  is_active?: boolean;
   hasVerifiedBadge?: boolean;
+  has_verified_badge?: boolean;
   hasCrmLeads?: boolean;
+  has_crm_leads?: boolean;
   hasPrioritySupport?: boolean;
+  has_priority_support?: boolean;
 }
 
 export type BoostType = 'featured' | 'premium' | 'urgent' | 'refresh' | 'social_blast';
@@ -322,6 +341,8 @@ export interface VisibilityOption {
   duration_days: number;
   price_usd: number;
   price_cdf: number;
+  price?: number;
+  priceCDF?: number;
   badge_text?: string;
   icon: string;
   is_active: boolean;
@@ -355,7 +376,7 @@ export interface Advertisement {
   advertiser_phone?: string;
   advertiser_email?: string;
   category: 'real_estate' | 'construction' | 'architecture' | 'interior_design' | 'banking' | 'insurance' | 'legal' | 'general';
-  placement: 'home_hero' | 'search_top' | 'sidebar' | 'footer_banner' | 'interstitial';
+  placement: 'home_hero' | 'search_top' | 'sidebar' | 'footer_banner' | 'in_feed' | 'interstitial';
   image_url: string;
   target_url: string;
   alt_text?: string;
@@ -509,7 +530,7 @@ export type ConciergeRequestStatus =
 
 /**
  * Table : concierge_requests
- * Représente les mandats et demandes de conciergerie immobilière soumises par les clients
+ * Représente les demandes de conciergerie immobilière soumises par les clients
  */
 export interface ConciergeRequest {
   id: string;
@@ -543,7 +564,11 @@ export interface ConciergeRequest {
 
   // Propriétés de compatibilité et d'enrichissement pour l'interface UI
   reference?: string;
+  notes?: string | null;
   notesAdmin?: string;
+  preferencesClient?: {
+    remarques?: string;
+  };
   assigned_agent_name?: string | null;
   projet?: ConciergerieProjet;
   typeBien?: ConciergerieTypeBien;
@@ -606,4 +631,62 @@ export interface PropertyVisit {
 export type ConciergeRequestRecord = ConciergeRequest;
 export type PropertyVisitRecord = PropertyVisit;
 export type ConciergerieRequest = ConciergeRequest;
+
+/**
+ * -------------------------------------------------------------
+ * TYPES DÉTECTION DES ANNONCES SUSPECTES & ANTI-FRAUDE
+ * -------------------------------------------------------------
+ */
+export type FraudSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type FraudVerdict = 'normal' | 'review_required' | 'suspect'; // 🟢 Normal, 🟠 À vérifier, 🔴 Suspect
+
+export interface FraudFlag {
+  code:
+    | 'SAME_PHONE_MANY_LISTINGS'
+    | 'DUPLICATE_PHOTOS'
+    | 'ABNORMALLY_LOW_PRICE'
+    | 'IDENTICAL_LISTING'
+    | 'UNUSUAL_BEHAVIOR'
+    | 'SELLER_REPORTED_MULTIPLE_TIMES';
+  label: string;
+  severity: FraudSeverity;
+  score: number;
+  details: string;
+}
+
+export interface FraudAnalysisResult {
+  propertyId: string;
+  verdict: FraudVerdict;
+  riskScore: number;
+  analyzedAt: string;
+  flags: FraudFlag[];
+  checks: {
+    samePhoneCount: number;
+    duplicatePhotosFound: boolean;
+    duplicatePhotoUrls: string[];
+    priceAnomalyRatio?: number;
+    benchmarkPrice?: number;
+    identicalListingId?: string;
+    identicalListingTitle?: string;
+    similarityScore?: number;
+    unusualKeywordsFound: string[];
+    sellerReportsCount: number;
+  };
+  recommendation: string;
+}
+
+export interface PropertyUserReport {
+  id: string;
+  propertyId: string;
+  propertyTitle?: string;
+  agentId?: string;
+  reporterName?: string;
+  reporterContact?: string;
+  reason: 'fake_price' | 'scam_advance_payment' | 'stolen_photos' | 'unreachable_seller' | 'already_sold' | 'other';
+  reasonLabel?: string;
+  comment?: string;
+  createdAt: string;
+  status: 'pending' | 'resolved' | 'dismissed';
+}
+
 

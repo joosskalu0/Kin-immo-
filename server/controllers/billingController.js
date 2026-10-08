@@ -1,6 +1,110 @@
 const pool = require('../config/database');
 const crypto = require('crypto');
 
+function formatPlan(p) {
+  const priceUsd = Number(p.price_usd !== undefined ? p.price_usd : (p.priceMonthly || 0));
+  const priceCdf = Number(p.price_cdf !== undefined ? p.price_cdf : (p.priceMonthlyCDF || (priceUsd * 2850)));
+  const maxListings = Number(p.max_listings !== undefined ? p.max_listings : (p.maxListings || 3));
+  const featuredListings = Number(p.max_featured_listings !== undefined ? p.max_featured_listings : (p.featuredListings || 0));
+
+  let features = [];
+  if (Array.isArray(p.features)) {
+    features = p.features;
+  } else if (typeof p.features === 'string') {
+    try { features = JSON.parse(p.features); } catch (e) { features = []; }
+  }
+
+  if (!features || features.length === 0) {
+    if (p.id === 'starter') {
+      features = [
+        'Publication de 3 annonces immobilières actives',
+        'Fiche descriptive complète avec photos HD',
+        'Mise en relation directe avec les acheteurs',
+        'Messagerie et contacts WhatsApp directs'
+      ];
+    } else if (p.id === 'pro') {
+      features = [
+        'Jusqu\'à 25 annonces immobilières actives',
+        '3 annonces en vedette (Mise en avant)',
+        'Badge Officiel Courtier Vérifié Kinshasa',
+        'Accès direct aux demandes de Conciergerie (Leads)',
+        'Statistiques des vues et contacts WhatsApp',
+        'Support réactif 6j/7'
+      ];
+    } else if (p.id === 'agency') {
+      features = [
+        'Jusqu\'à 100 annonces immobilières actives',
+        '10 annonces en vedette incluses',
+        'Vitrine Agence Immobilière dédiée avec logo et agents',
+        'Gestion multi-comptes pour agents immobiliers',
+        'Badge Agence Certifiée & Agréée RDC',
+        'Rapports d\'activité mensuels et CRM leads',
+        'Support prioritaire dédié 7j/7'
+      ];
+    } else {
+      features = [
+        'Annonces immobilières illimitées (grands chantiers, lotissements)',
+        '30 annonces en tête de liste et carrousel d\'accueil',
+        'Bannières publicitaires régie incluses',
+        'Multi-diffusion WhatsApp VIP & Réseaux sociaux',
+        'Conseiller commercial et juridique dédié',
+        'Gestion prioritaire des visites VIP'
+      ];
+    }
+  }
+
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    category: p.category,
+    badge: p.badge,
+    price_usd: priceUsd,
+    price_cdf: priceCdf,
+    priceMonthly: priceUsd,
+    priceMonthlyCDF: priceCdf,
+    currency: 'USD',
+    billing_period: p.billing_period || 'monthly',
+    billingPeriod: 'month',
+    max_listings: maxListings,
+    maxListings: maxListings,
+    max_featured_listings: featuredListings,
+    featuredListings: featuredListings,
+    agentAccounts: p.category === 'agency' ? 10 : (p.category === 'promoter' ? 25 : 1),
+    features: features,
+    recommended: p.id === 'agency' || p.id === 'pro',
+    is_active: p.is_active !== false,
+    isActive: p.is_active !== false,
+    has_verified_badge: Boolean(p.has_verified_badge),
+    hasVerifiedBadge: Boolean(p.has_verified_badge),
+    has_crm_leads: Boolean(p.has_crm_leads),
+    hasCrmLeads: Boolean(p.has_crm_leads),
+    has_priority_support: Boolean(p.has_priority_support),
+    hasPrioritySupport: Boolean(p.has_priority_support)
+  };
+}
+
+function formatOption(opt) {
+  const priceUsd = Number(opt.price_usd !== undefined ? opt.price_usd : (opt.price || 0));
+  const priceCdf = Number(opt.price_cdf !== undefined ? opt.price_cdf : (opt.priceCDF || (priceUsd * 2850)));
+
+  return {
+    id: opt.id,
+    name: opt.name,
+    slug: opt.slug,
+    description: opt.description,
+    boost_type: opt.boost_type,
+    duration_days: Number(opt.duration_days || 7),
+    price_usd: priceUsd,
+    price_cdf: priceCdf,
+    price: priceUsd,
+    priceCDF: priceCdf,
+    badge_text: opt.badge_text,
+    icon: opt.icon || 'Sparkles',
+    is_active: opt.is_active !== false
+  };
+}
+
 /**
  * Récupérer la liste des formules d'abonnement actives
  * GET /api/billing/plans
@@ -18,7 +122,8 @@ async function getPlans(req, res, next) {
     sql += ' ORDER BY price_usd ASC';
 
     const [rows] = await pool.execute(sql, params);
-    res.json({ success: true, plans: rows });
+    const mapped = rows.map(formatPlan);
+    res.json({ success: true, plans: mapped });
   } catch (error) {
     // Repli de secours 100% immobilier si table non configurée
     const fallbackRealEstatePlans = [
@@ -45,7 +150,7 @@ async function getPlans(req, res, next) {
         category: 'individual',
         badge: 'Courtier Pro',
         price_usd: 29.00,
-        price_cdf: 81200.00,
+        price_cdf: 82650.00,
         billing_period: 'monthly',
         max_listings: 25,
         max_featured_listings: 3,
@@ -61,7 +166,7 @@ async function getPlans(req, res, next) {
         category: 'agency',
         badge: 'Agence Certifiée',
         price_usd: 79.00,
-        price_cdf: 221200.00,
+        price_cdf: 225150.00,
         billing_period: 'monthly',
         max_listings: 100,
         max_featured_listings: 10,
@@ -77,7 +182,7 @@ async function getPlans(req, res, next) {
         category: 'promoter',
         badge: 'Promoteur VIP',
         price_usd: 149.00,
-        price_cdf: 417200.00,
+        price_cdf: 424650.00,
         billing_period: 'monthly',
         max_listings: 500,
         max_featured_listings: 30,
@@ -87,7 +192,7 @@ async function getPlans(req, res, next) {
         is_active: true
       }
     ];
-    return res.json({ success: true, plans: fallbackRealEstatePlans });
+    return res.json({ success: true, plans: fallbackRealEstatePlans.map(formatPlan) });
   }
 }
 
@@ -100,7 +205,7 @@ async function getVisibilityOptions(req, res, next) {
     const [rows] = await pool.execute(
       'SELECT * FROM visibility_options WHERE is_active = TRUE ORDER BY price_usd ASC'
     );
-    res.json({ success: true, options: rows });
+    res.json({ success: true, options: rows.map(formatOption) });
   } catch (error) {
     // Fallback dynamique si la table n'a pas encore été importée
     const fallbackOptions = [
@@ -112,7 +217,7 @@ async function getVisibilityOptions(req, res, next) {
         boost_type: 'featured',
         duration_days: 7,
         price_usd: 10.0,
-        price_cdf: 28000.0,
+        price_cdf: 28500.0,
         badge_text: 'En Vedette ⭐',
         icon: 'Sparkles',
         is_active: true
@@ -125,7 +230,7 @@ async function getVisibilityOptions(req, res, next) {
         boost_type: 'premium',
         duration_days: 30,
         price_usd: 25.0,
-        price_cdf: 70000.0,
+        price_cdf: 71250.0,
         badge_text: '👑 Annonce Premium',
         icon: 'Crown',
         is_active: true
@@ -138,7 +243,7 @@ async function getVisibilityOptions(req, res, next) {
         boost_type: 'urgent',
         duration_days: 14,
         price_usd: 8.0,
-        price_cdf: 22400.0,
+        price_cdf: 22800.0,
         badge_text: '⚡ Urgent',
         icon: 'Zap',
         is_active: true
@@ -151,7 +256,7 @@ async function getVisibilityOptions(req, res, next) {
         boost_type: 'refresh',
         duration_days: 1,
         price_usd: 5.0,
-        price_cdf: 14000.0,
+        price_cdf: 14250.0,
         badge_text: 'Top Liste',
         icon: 'ArrowUpCircle',
         is_active: true
@@ -164,13 +269,13 @@ async function getVisibilityOptions(req, res, next) {
         boost_type: 'social_blast',
         duration_days: 14,
         price_usd: 35.0,
-        price_cdf: 98000.0,
+        price_cdf: 99750.0,
         badge_text: 'Multi-Canal VIP',
         icon: 'Share2',
         is_active: true
       }
     ];
-    res.json({ success: true, options: fallbackOptions });
+    res.json({ success: true, options: fallbackOptions.map(formatOption) });
   }
 }
 
@@ -185,7 +290,45 @@ async function getPaymentMethods(req, res, next) {
     );
     res.json({ success: true, paymentMethods: rows });
   } catch (error) {
-    next(error);
+    const fallbackPaymentMethods = [
+      {
+        id: 'pm_mpesa',
+        provider: 'mpesa',
+        account_name: 'KINIMMO SARL - Vodacom M-Pesa',
+        account_number: '+243 810 000 000',
+        merchant_code: '123456',
+        instructions: 'Envoyer le montant exact via M-Pesa puis insérer le code de transaction.',
+        is_active: true
+      },
+      {
+        id: 'pm_airtel',
+        provider: 'airtel',
+        account_name: 'KINIMMO SARL - Airtel Money RDC',
+        account_number: '+243 990 000 000',
+        merchant_code: '789012',
+        instructions: 'Paiement direct via Airtel Money RDC.',
+        is_active: true
+      },
+      {
+        id: 'pm_orange',
+        provider: 'orange',
+        account_name: 'KINIMMO SARL - Orange Money Kinshasa',
+        account_number: '+243 890 000 000',
+        merchant_code: '345678',
+        instructions: 'Paiement via Orange Money Kinshasa.',
+        is_active: true
+      },
+      {
+        id: 'pm_rawbank',
+        provider: 'bank_transfer',
+        account_name: 'KINIMMO RDC - Rawbank Kinshasa Gombe',
+        account_number: '01002-00012345678-90',
+        merchant_code: null,
+        instructions: 'Virement bancaire ou versement au guichet Rawbank.',
+        is_active: true
+      }
+    ];
+    return res.json({ success: true, paymentMethods: fallbackPaymentMethods });
   }
 }
 
@@ -759,6 +902,185 @@ async function deleteAdvertisement(req, res, next) {
   }
 }
 
+/**
+ * Gestion des formules d'abonnement (Admin)
+ */
+async function createPlan(req, res, next) {
+  try {
+    const {
+      name,
+      description,
+      category = 'individual',
+      badge,
+      price_usd = 0,
+      price_cdf = 0,
+      max_listings = 3,
+      max_featured_listings = 0,
+      features = [],
+      recommended = false,
+      is_active = true
+    } = req.body;
+
+    const id = req.body.id || 'plan_' + crypto.randomBytes(6).toString('hex');
+    const featuresJson = typeof features === 'string' ? features : JSON.stringify(features);
+
+    await pool.execute(
+      `INSERT INTO pricing_plans (
+        id, name, description, category, badge, price_usd, price_cdf,
+        max_listings, max_featured_listings, features, recommended, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, name, description || '', category, badge || null, price_usd, price_cdf,
+        max_listings, max_featured_listings, featuresJson, Boolean(recommended), Boolean(is_active)
+      ]
+    );
+
+    res.status(201).json({ success: true, message: 'Formule créée avec succès.', id });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function updatePlan(req, res, next) {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      description,
+      category,
+      badge,
+      price_usd,
+      price_cdf,
+      max_listings,
+      max_featured_listings,
+      features,
+      recommended,
+      is_active
+    } = req.body;
+
+    const featuresJson = features !== undefined ? (typeof features === 'string' ? features : JSON.stringify(features)) : null;
+
+    await pool.execute(
+      `UPDATE pricing_plans
+       SET name = COALESCE(?, name),
+           description = COALESCE(?, description),
+           category = COALESCE(?, category),
+           badge = COALESCE(?, badge),
+           price_usd = COALESCE(?, price_usd),
+           price_cdf = COALESCE(?, price_cdf),
+           max_listings = COALESCE(?, max_listings),
+           max_featured_listings = COALESCE(?, max_featured_listings),
+           features = COALESCE(?, features),
+           recommended = COALESCE(?, recommended),
+           is_active = COALESCE(?, is_active)
+       WHERE id = ?`,
+      [
+        name, description, category, badge, price_usd, price_cdf,
+        max_listings, max_featured_listings, featuresJson, recommended, is_active, id
+      ]
+    );
+
+    res.json({ success: true, message: 'Formule d\'abonnement mise à jour.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function deletePlan(req, res, next) {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM pricing_plans WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Formule supprimée.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Gestion des options de visibilité (Admin)
+ */
+async function createVisibilityOption(req, res, next) {
+  try {
+    const {
+      name,
+      slug,
+      description,
+      boost_type = 'featured',
+      duration_days = 7,
+      price_usd = 10,
+      price_cdf = 28500,
+      badge_text,
+      is_active = true
+    } = req.body;
+
+    const id = req.body.id || 'opt_' + crypto.randomBytes(6).toString('hex');
+
+    await pool.execute(
+      `INSERT INTO visibility_options (
+        id, name, slug, description, boost_type, duration_days,
+        price_usd, price_cdf, badge_text, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, name, slug || id, description || '', boost_type, duration_days,
+        price_usd, price_cdf, badge_text || null, Boolean(is_active)
+      ]
+    );
+
+    res.status(201).json({ success: true, message: 'Option de visibilité créée avec succès.', id });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function updateVisibilityOption(req, res, next) {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      slug,
+      description,
+      boost_type,
+      duration_days,
+      price_usd,
+      price_cdf,
+      badge_text,
+      is_active
+    } = req.body;
+
+    await pool.execute(
+      `UPDATE visibility_options
+       SET name = COALESCE(?, name),
+           slug = COALESCE(?, slug),
+           description = COALESCE(?, description),
+           boost_type = COALESCE(?, boost_type),
+           duration_days = COALESCE(?, duration_days),
+           price_usd = COALESCE(?, price_usd),
+           price_cdf = COALESCE(?, price_cdf),
+           badge_text = COALESCE(?, badge_text),
+           is_active = COALESCE(?, is_active)
+       WHERE id = ?`,
+      [
+        name, slug, description, boost_type, duration_days,
+        price_usd, price_cdf, badge_text, is_active, id
+      ]
+    );
+
+    res.json({ success: true, message: 'Option de visibilité mise à jour.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function deleteVisibilityOption(req, res, next) {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM visibility_options WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Option de visibilité supprimée.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getPlans,
   getVisibilityOptions,
@@ -775,6 +1097,12 @@ module.exports = {
   getAdminAdvertisements,
   createAdvertisement,
   updateAdvertisement,
-  deleteAdvertisement
+  deleteAdvertisement,
+  createPlan,
+  updatePlan,
+  deletePlan,
+  createVisibilityOption,
+  updateVisibilityOption,
+  deleteVisibilityOption
 };
 

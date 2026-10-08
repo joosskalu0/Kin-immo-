@@ -50,14 +50,14 @@ export const MonetizationPricingView: React.FC = () => {
         mysqlApi.getPaymentMethods()
       ]);
 
-      if (plansRes.success && (plansRes.plans || plansRes.data?.plans)) {
-        setPlans(plansRes.plans || plansRes.data?.plans);
+      if (plansRes.success && plansRes.plans) {
+        setPlans(plansRes.plans);
       }
-      if (optionsRes.success && (optionsRes.options || optionsRes.data?.options)) {
-        setVisibilityOptions(optionsRes.options || optionsRes.data?.options);
+      if (optionsRes.success && optionsRes.options) {
+        setVisibilityOptions(optionsRes.options);
       }
-      if (pmRes.success && (pmRes.paymentMethods || pmRes.data?.paymentMethods)) {
-        const methods = pmRes.paymentMethods || pmRes.data?.paymentMethods;
+      if (pmRes.success && pmRes.paymentMethods) {
+        const methods = pmRes.paymentMethods;
         setPaymentMethods(methods);
         if (methods.length > 0) {
           setSelectedPaymentMethodId(methods[0].id);
@@ -180,8 +180,10 @@ export const MonetizationPricingView: React.FC = () => {
                 {filteredPlans.map((plan) => {
                   const isPromoter = plan.category === 'promoter' || plan.id === 'enterprise';
                   const isAgency = plan.category === 'agency';
-                  const isCourtierPro = plan.category === 'individual' && plan.priceMonthly > 0;
-                  const isFree = plan.priceMonthly === 0;
+                  const priceUsd = Number(plan.priceMonthly ?? (plan as any).price_usd ?? (plan as any).price ?? 0);
+                  const priceCdf = Number(plan.priceMonthlyCDF ?? (plan as any).price_cdf ?? (plan as any).priceCDF ?? (priceUsd * 2850));
+                  const isCourtierPro = plan.category === 'individual' && priceUsd > 0;
+                  const isFree = priceUsd === 0;
 
                   return (
                     <div
@@ -245,7 +247,7 @@ export const MonetizationPricingView: React.FC = () => {
                           </p>
                         </div>
 
-                        {/* Prix */}
+                        {/* Prix garanti en USD et CDF */}
                         <div className="pt-2 border-t border-slate-100/20">
                           <div className="flex items-baseline gap-1">
                             <span
@@ -253,7 +255,7 @@ export const MonetizationPricingView: React.FC = () => {
                                 isPromoter ? 'text-white' : 'text-slate-900'
                               }`}
                             >
-                              {isFree ? 'Gratuit' : `${plan.priceMonthly} $`}
+                              {isFree ? 'Gratuit' : `${priceUsd} $`}
                             </span>
                             {!isFree && (
                               <span
@@ -271,7 +273,7 @@ export const MonetizationPricingView: React.FC = () => {
                                 isPromoter ? 'text-amber-400' : 'text-emerald-600 font-bold'
                               }`}
                             >
-                              ~{Number(plan.priceMonthlyCDF || plan.priceMonthly * 2800).toLocaleString()} CDF / mois
+                              ~{priceCdf.toLocaleString()} CDF / mois
                             </span>
                           )}
                         </div>
@@ -285,9 +287,9 @@ export const MonetizationPricingView: React.FC = () => {
                           >
                             <Check className="w-4 h-4 text-emerald-500 shrink-0" />
                             <span>
-                              {plan.maxListings >= 999
+                              {(plan.maxListings || (plan as any).max_listings || 3) >= 500
                                 ? 'Annonces immobilières illimitées'
-                                : `${plan.maxListings} annonces immobilières actives`}
+                                : `${plan.maxListings || (plan as any).max_listings || 3} annonces immobilières actives`}
                             </span>
                           </li>
                           <li
@@ -297,12 +299,12 @@ export const MonetizationPricingView: React.FC = () => {
                           >
                             <Check className="w-4 h-4 text-emerald-500 shrink-0" />
                             <span>
-                              {plan.featuredListings > 0
-                                ? `${plan.featuredListings} annonces en avant incluses`
+                              {(plan.featuredListings || (plan as any).max_featured_listings || 0) > 0
+                                ? `${plan.featuredListings || (plan as any).max_featured_listings} annonces en avant incluses`
                                 : 'Options de boost à la carte'}
                             </span>
                           </li>
-                          {plan.features.map((feat, idx) => (
+                          {(plan.features || []).map((feat, idx) => (
                             <li
                               key={idx}
                               className={`flex items-start gap-2 ${
@@ -384,10 +386,10 @@ export const MonetizationPricingView: React.FC = () => {
                     </span>
                     <div className="text-right">
                       <span className="text-base font-black text-emerald-700">
-                        {opt.price_usd} USD
+                        {Number(opt.price_usd ?? (opt as any).price ?? 0)} USD
                       </span>
                       <span className="text-[10px] text-slate-400 block">
-                        (~{Number(opt.price_cdf || opt.price_usd * 2800).toLocaleString()} CDF)
+                        (~{Number(opt.price_cdf ?? (opt.price_usd ? opt.price_usd * 2850 : 0)).toLocaleString()} CDF)
                       </span>
                     </div>
                   </div>
@@ -399,7 +401,7 @@ export const MonetizationPricingView: React.FC = () => {
 
         {/* Section Régie Publicitaire & Bannières */}
         {(activeTab === 'all' || activeTab === 'ads') && (
-          <div className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white p-8 sm:p-10 border border-slate-800 shadow-xl relative overflow-hidden">
+          <div className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white p-8 sm:p-10 border border-slate-800 shadow-xl relative overflow-hidden space-y-8">
             <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-8 items-center">
               <div className="lg:col-span-2 space-y-4">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-400/30 text-[11px] font-black uppercase">
@@ -443,7 +445,7 @@ export const MonetizationPricingView: React.FC = () => {
 
                 <div className="space-y-2 pt-2">
                   <a
-                    href="https://wa.me/243890000000?text=Bonjour,%20je%20souhaite%20réserver%20un%20espace%20publicitaire%20bannière%20sur%20votre%20plateforme%20immobilière"
+                    href="https://wa.me/243810000000?text=Bonjour,%20je%20souhaite%20réserver%20un%20espace%20publicitaire%20bannière%20sur%20Kinshasa%20Immobilier"
                     target="_blank"
                     rel="noreferrer"
                     className="w-full py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg"
@@ -457,6 +459,39 @@ export const MonetizationPricingView: React.FC = () => {
                   >
                     <span>Demander la grille tarifaire</span>
                   </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Grille Tarifaire des Espaces Publicitaires */}
+            <div className="border-t border-white/10 pt-6">
+              <h4 className="text-xs font-black uppercase tracking-wider text-amber-400 mb-4">
+                Grille des Tarifs Publicitaires Sponsors & Partenaires Habitat
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase block">Grand Écran Accueil</span>
+                  <div className="text-xl font-black text-white">250 USD <span className="text-xs text-slate-400 font-normal">/ mois</span></div>
+                  <span className="text-[11px] text-emerald-400 block font-semibold">~712 500 CDF</span>
+                  <p className="text-[11px] text-slate-300">Format panoramique en haut de page d'accueil sous la recherche.</p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase block">Pancarte In-Feed</span>
+                  <div className="text-xl font-black text-white">180 USD <span className="text-xs text-slate-400 font-normal">/ mois</span></div>
+                  <span className="text-[11px] text-emerald-400 block font-semibold">~513 000 CDF</span>
+                  <p className="text-[11px] text-slate-300">Insérée au cœur de la liste des biens pour une visibilité naturelle.</p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                  <span className="text-[10px] font-bold text-sky-400 uppercase block">Bannière Tête de Recherche</span>
+                  <div className="text-xl font-black text-white">150 USD <span className="text-xs text-slate-400 font-normal">/ mois</span></div>
+                  <span className="text-[11px] text-emerald-400 block font-semibold">~427 500 CDF</span>
+                  <p className="text-[11px] text-slate-300">Affichage prioritaire au-dessus des résultats de recherche.</p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                  <span className="text-[10px] font-bold text-purple-400 uppercase block">Barre Latérale & Fiche</span>
+                  <div className="text-xl font-black text-white">120 USD <span className="text-xs text-slate-400 font-normal">/ mois</span></div>
+                  <span className="text-[11px] text-emerald-400 block font-semibold">~342 000 CDF</span>
+                  <p className="text-[11px] text-slate-300">Format carré / vertical pour la vue scindée carte et navigation.</p>
                 </div>
               </div>
             </div>
@@ -475,7 +510,7 @@ export const MonetizationPricingView: React.FC = () => {
                   {selectedPlan.name}
                 </h3>
                 <p className="text-xs text-slate-300 mt-1">
-                  Montant : <strong>{selectedPlan.priceMonthly} USD</strong> (~{Number(selectedPlan.priceMonthlyCDF || selectedPlan.priceMonthly * 2800).toLocaleString()} CDF) par mois
+                  Montant : <strong>{Number(selectedPlan.priceMonthly ?? (selectedPlan as any).price_usd ?? 0)} USD</strong> (~{Number(selectedPlan.priceMonthlyCDF ?? (selectedPlan as any).price_cdf ?? ((Number(selectedPlan.priceMonthly ?? (selectedPlan as any).price_usd ?? 0)) * 2850)).toLocaleString()} CDF) par mois
                 </p>
               </div>
 

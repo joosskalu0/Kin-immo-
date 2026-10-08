@@ -769,5 +769,45 @@ CREATE TABLE IF NOT EXISTS `property_visits` (
   CONSTRAINT `fk_visits_agent` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ----------------------------------------------------------
+-- 15. Table des Notifications & File d'attente (notifications)
+-- Architecture de préparation d'envois différés (Client & Agent)
+-- Ne contacte aucune API externe sans accord préalable
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `notifications` (
+  `id` VARCHAR(64) NOT NULL,
+  `event_type` ENUM(
+    'client_request_confirmation',
+    'agent_request_assigned',
+    'visit_confirmation',
+    'visit_reminder',
+    'status_update',
+    'general'
+  ) NOT NULL,
+  `recipient_type` ENUM('client', 'agent', 'admin', 'user') NOT NULL,
+  `recipient_id` VARCHAR(64) DEFAULT NULL,
+  `recipient_name` VARCHAR(255) NOT NULL,
+  `recipient_email` VARCHAR(255) DEFAULT NULL,
+  `recipient_phone` VARCHAR(50) DEFAULT NULL,
+  `channel` ENUM('email', 'whatsapp', 'sms', 'in_app') NOT NULL DEFAULT 'email',
+  `title` VARCHAR(255) NOT NULL,
+  `content_text` TEXT NOT NULL,
+  `content_html` TEXT DEFAULT NULL,
+  `status` ENUM('pending', 'queued', 'sent', 'failed', 'cancelled') NOT NULL DEFAULT 'queued',
+  `metadata` JSON DEFAULT NULL,
+  `scheduled_for` TIMESTAMP NULL DEFAULT NULL,
+  `sent_at` TIMESTAMP NULL DEFAULT NULL,
+  `retry_count` INT NOT NULL DEFAULT 0,
+  `error_message` TEXT DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_notif_event_type` (`event_type`),
+  INDEX `idx_notif_recipient` (`recipient_type`, `recipient_id`),
+  INDEX `idx_notif_status` (`status`),
+  INDEX `idx_notif_scheduled` (`scheduled_for`),
+  INDEX `idx_notif_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Réactivation des vérifications de clés étrangères
 SET FOREIGN_KEY_CHECKS = 1;

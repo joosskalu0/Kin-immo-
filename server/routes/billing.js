@@ -26,5 +26,15 @@ router.post('/admin/advertisements', authenticateToken, requireAdmin, billingCon
 router.put('/admin/advertisements/:id', authenticateToken, requireAdmin, billingController.updateAdvertisement);
 router.delete('/admin/advertisements/:id', authenticateToken, requireAdmin, billingController.deleteAdvertisement);
 
+// Routes d'administration des forfaits et tarifs d'abonnement
+router.post('/admin/plans', authenticateToken, requireAdmin, billingController.createPlan);
+router.put('/admin/plans/:id', authenticateToken, requireAdmin, billingController.updatePlan);
+router.delete('/admin/plans/:id', authenticateToken, requireAdmin, billingController.deletePlan);
+
+// Routes d'administration des options de visibilité et boosts
+router.post('/admin/visibility-options', authenticateToken, requireAdmin, billingController.createVisibilityOption);
+router.put('/admin/visibility-options/:id', authenticateToken, requireAdmin, billingController.updateVisibilityOption);
+router.delete('/admin/visibility-options/:id', authenticateToken, requireAdmin, billingController.deleteVisibilityOption);
+
 module.exports = router;
 

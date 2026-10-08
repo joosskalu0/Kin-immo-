@@ -30,6 +30,7 @@ import {
   Navigation,
   Building2,
   ShieldCheck,
+  ShieldAlert,
   Edit,
   Trash2,
   Eye,
@@ -39,6 +40,7 @@ import { MortgageCalculator } from './MortgageCalculator';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
 import { SocialShareBar } from './SocialShareBar';
 import { ScheduleVisitModal } from './ScheduleVisitModal';
+import { ReportListingModal } from './ReportListingModal';
 
 interface PropertyDetailModalProps {
   onOpenShareModal: (propertyId: string) => void;
@@ -64,12 +66,14 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
     setEditingProperty,
     setIsSubmitPropertyOpen,
     requestConfirm,
+    addPropertyReport,
   } = useApp();
 
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'video' | 'virtual360' | 'calculator'>('photos');
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [activeVirtualRoom, setActiveVirtualRoom] = useState(0);
   const [isScheduleVisitOpen, setIsScheduleVisitOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // Tour / Contact Form State
   const [requestType, setRequestType] = useState<'info' | 'tour'>('info');
@@ -105,14 +109,14 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
   const property = properties.find((p) => p.id === activePropertyModalId);
   if (!property) {
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center space-y-4 shadow-2xl text-slate-100">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto animate-pulse">
+      <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center space-y-4 shadow-2xl text-slate-900">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mx-auto animate-pulse">
             <Building2 className="w-7 h-7" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">Chargement de l'annonce...</h3>
-            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+            <h3 className="text-base font-bold text-slate-900">Chargement de l'annonce...</h3>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
               Récupération des détails, photos et critères de la propriété.
             </p>
           </div>
@@ -120,7 +124,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             <button
               type="button"
               onClick={() => setActivePropertyModalId(null)}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
             >
               Fermer et voir toutes les annonces
             </button>
@@ -174,36 +178,36 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-5xl my-auto overflow-hidden shadow-2xl text-slate-100 flex flex-col max-h-[95vh]">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-5xl my-auto overflow-hidden shadow-2xl text-slate-900 flex flex-col max-h-[95vh]">
         {/* Top Sticky Header Bar */}
-        <div className="p-4 sm:p-5 bg-slate-950 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+        <div className="p-4 sm:p-5 bg-white border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
+            <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
               <button
                 type="button"
                 onClick={() => setActivePropertyModalId(null)}
-                className="hover:text-emerald-400 font-bold flex items-center gap-1 text-slate-300 transition-colors shrink-0 cursor-pointer"
+                className="hover:text-emerald-700 font-bold flex items-center gap-1 text-slate-600 transition-colors shrink-0 cursor-pointer"
                 title="Retourner à l'accueil"
               >
-                <Home className="w-3.5 h-3.5 text-emerald-400" />
+                <Home className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Accueil</span>
               </button>
-              <span className="text-slate-600">›</span>
-              <span className="text-emerald-400 font-semibold shrink-0">{property.category}</span>
-              <span className="text-slate-600">•</span>
-              <span className="flex items-center gap-1 text-slate-300 truncate max-w-[200px] sm:max-w-xs md:max-w-sm" title={`${property.address}, ${property.city}`}>
-                <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span className="text-slate-300">›</span>
+              <span className="text-emerald-700 font-bold shrink-0">{property.category}</span>
+              <span className="text-slate-300">•</span>
+              <span className="flex items-center gap-1 text-slate-600 truncate max-w-[200px] sm:max-w-xs md:max-w-sm" title={`${property.address}, ${property.city}`}>
+                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                 <span className="truncate">{property.address}, {property.city}</span>
               </span>
               {property.status === 'sold' && (
-                <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm shrink-0">
+                <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-xs shrink-0">
                   <CheckCircle2 className="w-3 h-3 fill-white text-rose-600" />
                   VENDU
                 </span>
               )}
             </div>
-            <h2 className="text-base sm:text-xl font-bold text-white truncate mt-1" title={property.title}>
+            <h2 className="text-base sm:text-xl font-black text-slate-900 truncate mt-1" title={property.title}>
               {property.title}
             </h2>
           </div>
@@ -213,10 +217,10 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             <button
               type="button"
               onClick={() => setActivePropertyModalId(null)}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs flex items-center gap-1.5 transition-all border border-slate-700 shadow-sm active:scale-95 shrink-0 cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 font-bold text-xs flex items-center gap-1.5 transition-all border border-slate-200 shadow-xs active:scale-95 shrink-0 cursor-pointer"
               title="Retourner à l'accueil et fermer cette fiche"
             >
-              <Home className="w-4 h-4 text-emerald-400" />
+              <Home className="w-4 h-4 text-emerald-600" />
               <span>Accueil</span>
             </button>
             {/* Quick Toggle Sold Button for Admin / Agent / Agency / Owner */}
@@ -240,12 +244,12 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 }}
                 className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border shrink-0 ${
                   property.status === 'sold'
-                    ? 'bg-rose-600/20 text-rose-300 border-rose-500/40 hover:bg-rose-600 hover:text-white'
-                    : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-rose-600 hover:text-white hover:border-rose-500'
+                    ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                    : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200'
                 }`}
                 title={property.status === 'sold' ? 'Remettre en vente' : 'Déclarer ce bien comme vendu'}
               >
-                <CheckCircle2 className={`w-3.5 h-3.5 ${property.status === 'sold' ? 'text-rose-400' : 'text-slate-400'}`} />
+                <CheckCircle2 className={`w-3.5 h-3.5 ${property.status === 'sold' ? 'text-rose-600' : 'text-slate-400'}`} />
                 <span className="hidden md:inline">{property.status === 'sold' ? 'Bien Vendu ✓' : 'Marquer Vendu'}</span>
               </button>
             )}
@@ -259,10 +263,10 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   setActivePropertyModalId(null);
                   setIsSubmitPropertyOpen(true);
                 }}
-                className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-amber-500/30 shrink-0"
+                className="px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs flex items-center gap-1.5 transition-all border border-amber-200 shrink-0"
                 title="Modifier cette annonce"
               >
-                <Edit className="w-3.5 h-3.5 text-amber-400" />
+                <Edit className="w-3.5 h-3.5 text-amber-600" />
                 <span className="hidden md:inline">Modifier</span>
               </button>
             )}
@@ -282,10 +286,10 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                     }
                   });
                 }}
-                className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-600/30 text-rose-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-rose-500/30 shrink-0"
+                className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs flex items-center gap-1.5 transition-all border border-rose-200 shrink-0"
                 title="Supprimer cette annonce"
               >
-                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                 <span className="hidden md:inline">Supprimer</span>
               </button>
             )}
@@ -293,31 +297,41 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             {/* Programmer une Visite - Primary Highlight CTA */}
             <button
               onClick={() => setIsScheduleVisitOpen(true)}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-emerald-500/25 active:scale-95 shrink-0 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 active:scale-95 shrink-0 cursor-pointer"
               title="Programmer une visite sur place ou vidéo"
             >
-              <Calendar className="w-3.5 h-3.5 text-slate-950" />
+              <Calendar className="w-3.5 h-3.5 text-white" />
               <span>Visiter ce bien</span>
             </button>
 
             {/* Download PDF */}
             <button
               onClick={handleDownloadPDF}
-              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700 shrink-0 cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-200 shrink-0 cursor-pointer"
               title="Télécharger la fiche PDF de ce bien"
             >
-              <FileDown className="w-4 h-4 text-emerald-400" />
+              <FileDown className="w-4 h-4 text-emerald-600" />
               <span className="hidden md:inline">PDF Flyer</span>
             </button>
 
             {/* Share */}
             <button
               onClick={() => onOpenShareModal(property.id)}
-              className="px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 font-bold text-xs flex items-center gap-1.5 transition-all border border-sky-500/30 shrink-0 cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs flex items-center gap-1.5 transition-all border border-sky-200 shrink-0 cursor-pointer"
               title="Partager sur les réseaux sociaux (WhatsApp, Facebook, etc.)"
             >
-              <Share2 className="w-4 h-4 text-sky-400" />
+              <Share2 className="w-4 h-4 text-sky-600" />
               <span className="hidden md:inline">Partager</span>
+            </button>
+
+            {/* Signaler l'annonce */}
+            <button
+              onClick={() => setIsReportModalOpen(true)}
+              className="px-2.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs flex items-center gap-1.5 transition-all border border-amber-200 shrink-0 cursor-pointer"
+              title="Signaler un prix anormal, une arnaque ou des photos volées"
+            >
+              <ShieldAlert className="w-4 h-4 text-amber-600" />
+              <span className="hidden md:inline">Signaler</span>
             </button>
 
             {/* Wishlist */}
@@ -326,7 +340,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               className={`p-2 rounded-xl transition-all shrink-0 cursor-pointer ${
                 isFavorite
                   ? 'bg-rose-500 text-white shadow-md shadow-rose-500/20'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200'
               }`}
               title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
             >
@@ -336,7 +350,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             {/* Close */}
             <button
               onClick={() => setActivePropertyModalId(null)}
-              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+              className="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
               title="Fermer cette fiche"
             >
               <X className="w-5 h-5" />
@@ -348,30 +362,30 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-6">
           {/* Sold Alert Banner */}
           {property.status === 'sold' && (
-            <div className="p-4 bg-red-950/40 border border-red-500/40 rounded-2xl flex items-center justify-between gap-3 text-red-200 text-xs shadow-lg">
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between gap-3 text-rose-900 text-xs shadow-xs">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center text-white shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-rose-600 flex items-center justify-center text-white shrink-0">
                   <CheckCircle2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="font-black text-white text-sm">Ce bien immobilier a été VENDU</p>
-                  <p className="text-[11px] text-red-300">Transaction enregistrée avec succès. Vous pouvez contacter l'agent pour des biens similaires dans le secteur.</p>
+                  <p className="font-black text-rose-900 text-sm">Ce bien immobilier a été VENDU</p>
+                  <p className="text-[11px] text-rose-700">Transaction enregistrée avec succès. Vous pouvez contacter l'agent pour des biens similaires dans le secteur.</p>
                 </div>
               </div>
-              <span className="px-3 py-1 rounded-xl bg-red-600 text-white font-black text-xs uppercase tracking-wider shrink-0">
+              <span className="px-3 py-1 rounded-xl bg-rose-600 text-white font-black text-xs uppercase tracking-wider shrink-0">
                 Transaction Conclue
               </span>
             </div>
           )}
           {/* Media Header / Lightbox */}
           <div className="space-y-3">
-            <div className="flex border-b border-slate-800 text-xs">
+            <div className="flex border-b border-slate-200 text-xs">
               <button
                 onClick={() => setActiveMediaTab('photos')}
-                className={`py-2.5 px-4 font-semibold border-b-2 transition-colors ${
+                className={`py-2.5 px-4 font-bold border-b-2 transition-colors ${
                   activeMediaTab === 'photos'
-                    ? 'border-emerald-500 text-emerald-400'
-                    : 'border-transparent text-slate-400'
+                    ? 'border-emerald-600 text-emerald-700'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Photos ({property.images.length})
@@ -380,54 +394,54 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               {property.videoUrl && (
                 <button
                   onClick={() => setActiveMediaTab('video')}
-                  className={`py-2.5 px-4 font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                  className={`py-2.5 px-4 font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
                     activeMediaTab === 'video'
-                      ? 'border-emerald-500 text-emerald-400'
-                      : 'border-transparent text-slate-400'
+                      ? 'border-emerald-600 text-emerald-700'
+                      : 'border-transparent text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <Play className="w-3.5 h-3.5 text-emerald-400" />
+                  <Play className="w-3.5 h-3.5 text-emerald-600" />
                   Vidéo HD
                 </button>
               )}
 
               <button
                 onClick={() => setActiveMediaTab('virtual360')}
-                className={`py-2.5 px-4 font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                className={`py-2.5 px-4 font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
                   activeMediaTab === 'virtual360'
-                    ? 'border-emerald-500 text-emerald-400'
-                    : 'border-transparent text-slate-400'
+                    ? 'border-emerald-600 text-emerald-700'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Layers className="w-3.5 h-3.5 text-teal-400" />
+                <Layers className="w-3.5 h-3.5 text-teal-600" />
                 Visite 360° Virtuelle
               </button>
 
               <button
                 onClick={() => setActiveMediaTab('calculator')}
-                className={`py-2.5 px-4 font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                className={`py-2.5 px-4 font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
                   activeMediaTab === 'calculator'
-                    ? 'border-emerald-500 text-emerald-400'
-                    : 'border-transparent text-slate-400'
+                    ? 'border-emerald-600 text-emerald-700'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Calculator className="w-3.5 h-3.5 text-emerald-400" />
+                <Calculator className="w-3.5 h-3.5 text-emerald-600" />
                 Calculateur de Prêt
               </button>
             </div>
 
             {activeMediaTab === 'photos' && (
               <div className="space-y-3">
-                <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-xl">
+                <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-md">
                   <img
                     src={property.images[selectedImageIndex] || property.images[0]}
                     alt={property.title}
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute top-4 left-4 flex items-center gap-2">
-                    <div className="bg-slate-950/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-slate-800">
-                      <span className="text-xl font-bold text-emerald-400">{formattedPrice}</span>
-                      {property.period === 'month' && <span className="text-xs text-slate-400"> /mois</span>}
+                    <div className="bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-md">
+                      <span className="text-xl font-black text-emerald-700">{formattedPrice}</span>
+                      {property.period === 'month' && <span className="text-xs text-slate-600 font-medium"> /mois</span>}
                     </div>
                     {property.status === 'sold' && (
                       <div className="bg-red-600/90 text-white font-black text-xs uppercase px-3 py-1.5 rounded-xl border border-red-400 shadow-lg flex items-center gap-1">
@@ -441,9 +455,9 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   {property.videoUrl && (
                     <button
                       onClick={() => setActiveMediaTab('video')}
-                      className="absolute bottom-4 right-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2.5 rounded-2xl font-black text-xs flex items-center gap-2 shadow-2xl shadow-emerald-500/40 backdrop-blur-md transition-all transform hover:scale-105 active:scale-95 z-10"
+                      className="absolute bottom-4 right-4 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-2xl font-black text-xs flex items-center gap-2 shadow-xl backdrop-blur-md transition-all transform hover:scale-105 active:scale-95 z-10"
                     >
-                      <Play className="w-4 h-4 fill-slate-950 text-slate-950" />
+                      <Play className="w-4 h-4 fill-white text-white" />
                       <span>Regarder la Visite Vidéo HD</span>
                     </button>
                   )}
@@ -457,7 +471,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                         key={idx}
                         onClick={() => setSelectedImageIndex(idx)}
                         className={`relative w-20 h-14 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${
-                          selectedImageIndex === idx ? 'border-emerald-500 scale-105' : 'border-slate-800 opacity-60'
+                          selectedImageIndex === idx ? 'border-emerald-600 ring-2 ring-emerald-500/20 scale-105' : 'border-slate-200 opacity-70 hover:opacity-100'
                         }`}
                       >
                         <img src={img} alt={`Thumb ${idx}`} className="w-full h-full object-cover" />
@@ -476,14 +490,14 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   posterImage={property.images[0]}
                   autoPlay={true}
                 />
-                <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-                  <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                <div className="flex items-center justify-between text-xs text-slate-600 px-1">
+                  <span className="flex items-center gap-1.5 text-emerald-700 font-bold">
                     <Video className="w-4 h-4" />
                     Visite immersive & guidée de la propriété
                   </span>
                   <button
                     onClick={() => setActiveMediaTab('photos')}
-                    className="hover:text-white underline font-medium"
+                    className="hover:text-slate-900 underline font-medium"
                   >
                     Retourner à la galerie photos ({property.images.length})
                   </button>
@@ -492,18 +506,18 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             )}
 
             {activeMediaTab === 'virtual360' && (
-              <div className="space-y-4 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+              <div className="space-y-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-2.5 w-2.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"></span>
                     </span>
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                       Simulateur de Visite Virtuelle 360°
                     </span>
                   </div>
-                  <span className="text-[11px] text-teal-400 font-semibold bg-teal-500/10 px-2.5 py-1 rounded-full border border-teal-500/20">
+                  <span className="text-[11px] text-teal-800 font-bold bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
                     Mode Interactif
                   </span>
                 </div>
@@ -521,8 +535,8 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                       onClick={() => setActiveVirtualRoom(idx)}
                       className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all border ${
                         activeVirtualRoom === idx
-                          ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-md shadow-teal-500/20'
-                          : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+                          ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
                       <span>{room.title}</span>
@@ -531,7 +545,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 </div>
 
                 {/* Simulated 360 viewer canvas */}
-                <div className="relative aspect-video rounded-2xl overflow-hidden border border-slate-800 group select-none">
+                <div className="relative aspect-video rounded-2xl overflow-hidden border border-slate-200 group select-none">
                   <img
                     src={
                       property.images[activeVirtualRoom % property.images.length] ||
@@ -540,10 +554,10 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                     alt="Visite 360"
                     className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
                   />
-                  <div className="absolute inset-0 bg-slate-950/20 pointer-events-none" />
+                  <div className="absolute inset-0 bg-slate-900/10 pointer-events-none" />
 
                   {/* 360 Badge */}
-                  <div className="absolute top-3 left-3 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-teal-400 font-black text-xs flex items-center gap-1.5 shadow-lg">
+                  <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200 text-teal-800 font-black text-xs flex items-center gap-1.5 shadow-sm">
                     <Layers className="w-3.5 h-3.5" />
                     <span>Vue 360° - Déplacez le curseur pour explorer</span>
                   </div>
@@ -552,7 +566,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   <div className="absolute top-1/2 left-1/3 -translate-x-1/2 -translate-y-1/2 group-hover:scale-110 transition-transform">
                     <button
                       onClick={() => setIsScheduleVisitOpen(true)}
-                      className="bg-emerald-500/90 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-full shadow-xl flex items-center gap-1 hover:bg-emerald-400 border border-white/20 animate-bounce"
+                      className="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1 hover:bg-emerald-500 border border-white/40 animate-bounce"
                     >
                       <Calendar className="w-3 h-3" />
                       <span>Voir en vrai (Visite)</span>
@@ -562,7 +576,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   <div className="absolute bottom-4 right-4 flex items-center gap-2">
                     <button
                       onClick={() => setIsScheduleVisitOpen(true)}
-                      className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-lg transition-all"
+                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-1.5 shadow-md transition-all"
                     >
                       <Calendar className="w-3.5 h-3.5" />
                       <span>Programmer la Visite Réelle</span>
@@ -584,32 +598,32 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
           />
 
           {/* Grid Layout: Left Details, Right Lead Form */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4 border-t border-slate-800">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4 border-t border-slate-200">
             {/* Left 2 Cols: Details */}
             <div className="lg:col-span-2 space-y-6">
               {/* Specs Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs text-slate-300">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs text-slate-600">
                 <div>
                   <span className="text-slate-500 block">Chambres</span>
-                  <span className="text-sm font-bold text-white flex items-center gap-1 mt-0.5">
-                    <Bed className="w-4 h-4 text-emerald-400" /> {property.bedrooms}
+                  <span className="text-sm font-black text-slate-900 flex items-center gap-1 mt-0.5">
+                    <Bed className="w-4 h-4 text-emerald-600" /> {property.bedrooms}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Salles de bain</span>
-                  <span className="text-sm font-bold text-white flex items-center gap-1 mt-0.5">
-                    <Bath className="w-4 h-4 text-emerald-400" /> {property.bathrooms}
+                  <span className="text-sm font-black text-slate-900 flex items-center gap-1 mt-0.5">
+                    <Bath className="w-4 h-4 text-emerald-600" /> {property.bathrooms}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Surface</span>
-                  <span className="text-sm font-bold text-white flex items-center gap-1 mt-0.5">
-                    <Maximize className="w-4 h-4 text-emerald-400" /> {property.area} m²
+                  <span className="text-sm font-black text-slate-900 flex items-center gap-1 mt-0.5">
+                    <Maximize className="w-4 h-4 text-emerald-600" /> {property.area} m²
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Garages</span>
-                  <span className="text-sm font-bold text-white flex items-center gap-1 mt-0.5">
+                  <span className="text-sm font-black text-slate-900 flex items-center gap-1 mt-0.5">
                     🚗 {property.garages || 0}
                   </span>
                 </div>
@@ -617,50 +631,50 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
 
               {/* Description */}
               <div>
-                <h4 className="text-sm font-bold text-white mb-2">Description du Bien</h4>
-                <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line bg-slate-950/50 p-4 rounded-2xl border border-slate-800/60">
+                <h4 className="text-sm font-black text-slate-900 mb-2">Description du Bien</h4>
+                <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-2xl border border-slate-200">
                   {property.description}
                 </p>
               </div>
 
               {/* Localisation Kinshasa (Commune, Quartier, Avenue) */}
-              <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/20 space-y-3">
-                <h4 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-emerald-400" />
+              <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200 space-y-3">
+                <h4 className="text-sm font-black text-emerald-800 flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-emerald-600" />
                   Localisation à Kinshasa
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                     <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
-                      <Compass className="w-3.5 h-3.5 text-emerald-400" /> Commune
+                      <Compass className="w-3.5 h-3.5 text-emerald-600" /> Commune
                     </span>
-                    <span className="text-sm font-bold text-white mt-0.5 block">
+                    <span className="text-sm font-black text-slate-900 mt-0.5 block">
                       {property.commune || 'Kinshasa'}
                     </span>
                   </div>
 
-                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                     <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
-                      <Navigation className="w-3.5 h-3.5 text-emerald-400" /> Quartier
+                      <Navigation className="w-3.5 h-3.5 text-emerald-600" /> Quartier
                     </span>
-                    <span className="text-sm font-bold text-white mt-0.5 block">
+                    <span className="text-sm font-black text-slate-900 mt-0.5 block">
                       {property.quartier || 'Centre'}
                     </span>
                   </div>
 
-                  <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                     <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
-                      <Building2 className="w-3.5 h-3.5 text-emerald-400" /> Avenue / Voie
+                      <Building2 className="w-3.5 h-3.5 text-emerald-600" /> Avenue / Voie
                     </span>
-                    <span className="text-sm font-bold text-white mt-0.5 block truncate">
+                    <span className="text-sm font-black text-slate-900 mt-0.5 block truncate">
                       {property.avenue || property.address}
                     </span>
                   </div>
                 </div>
 
                 {property.referencePoint && (
-                  <div className="text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 text-slate-300 flex items-start gap-2">
-                    <span className="text-emerald-400 font-semibold shrink-0">Repère / Réf :</span>
+                  <div className="text-xs bg-white p-2.5 rounded-xl border border-slate-200 text-slate-700 flex items-start gap-2">
+                    <span className="text-emerald-700 font-bold shrink-0">Repère / Réf :</span>
                     <span>{property.referencePoint}</span>
                   </div>
                 )}
@@ -668,8 +682,8 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
 
               {/* DYNAMIC FIELDS BUILDER SECTION */}
               <div>
-                <h4 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-emerald-400" />
+                <h4 className="text-sm font-black text-slate-900 mb-3 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-emerald-600" />
                   Caractéristiques & Critères Complémentaires
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -681,12 +695,12 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                       return (
                         <div
                           key={field.id}
-                          className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between text-xs"
+                          className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs"
                         >
-                          <span className="text-slate-400 font-medium">
+                          <span className="text-slate-600 font-medium">
                             {field.label['fr'] || field.key}
                           </span>
-                          <span className="font-bold text-slate-200">
+                          <span className="font-bold text-slate-900">
                             {val} {field.unit || ''}
                           </span>
                         </div>
@@ -698,14 +712,14 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               {/* Amenities */}
               {property.amenities.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-bold text-white mb-3">Équipements & Prestations</h4>
+                  <h4 className="text-sm font-black text-slate-900 mb-3">Équipements & Prestations</h4>
                   <div className="flex flex-wrap gap-2">
                     {property.amenities.map((item) => (
                       <span
                         key={item}
-                        className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 flex items-center gap-1.5"
+                        className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 font-semibold flex items-center gap-1.5"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                         {item}
                       </span>
                     ))}
@@ -715,27 +729,27 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
 
               {/* PRIVATE FIELDS (ADMIN / AGENT ONLY) */}
               {(user?.role === 'admin' || user?.role === 'agent') && property.privateFields && (
-                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-3">
-                  <div className="flex items-center gap-2 text-amber-300 font-bold">
-                    <Lock className="w-4 h-4 text-amber-400" />
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs space-y-3">
+                  <div className="flex items-center gap-2 text-amber-800 font-bold">
+                    <Lock className="w-4 h-4 text-amber-600" />
                     Champs Privés Agent & Administration (PRO)
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-slate-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-slate-800">
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Propriétaire</span>
-                      <span className="font-semibold">{property.privateFields.ownerName || 'N/C'}</span>
+                      <span className="text-slate-500 block text-[10px]">Propriétaire</span>
+                      <span className="font-bold">{property.privateFields.ownerName || 'N/C'}</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Tél. Propriétaire</span>
-                      <span className="font-semibold">{property.privateFields.ownerPhone || 'N/C'}</span>
+                      <span className="text-slate-500 block text-[10px]">Tél. Propriétaire</span>
+                      <span className="font-bold">{property.privateFields.ownerPhone || 'N/C'}</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Commission Agence</span>
-                      <span className="font-semibold text-emerald-400">{property.privateFields.commissionRate || 4}%</span>
+                      <span className="text-slate-500 block text-[10px]">Commission Agence</span>
+                      <span className="font-bold text-emerald-700">{property.privateFields.commissionRate || 4}%</span>
                     </div>
                   </div>
                   {property.privateFields.internalNotes && (
-                    <div className="text-[11px] text-amber-200/90 pt-1 border-t border-amber-500/20">
+                    <div className="text-[11px] text-amber-900 pt-1 border-t border-amber-200">
                       <strong>Notes Agent:</strong> {property.privateFields.internalNotes}
                     </div>
                   )}
@@ -747,7 +761,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
             <div className="space-y-4">
               {/* Agent Card */}
               {agent && (
-                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-3">
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
                       <img
@@ -756,27 +770,27 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                         className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/40"
                       />
                       {(agent.isVerified || agent.verificationStatus === 'verified') && (
-                        <span className="absolute -bottom-1 -right-1 p-0.5 bg-slate-950 rounded-full border border-emerald-500 text-emerald-400">
+                        <span className="absolute -bottom-1 -right-1 p-0.5 bg-white rounded-full border border-emerald-500 text-emerald-600">
                           <ShieldCheck className="w-3.5 h-3.5 fill-emerald-500/20" />
                         </span>
                       )}
                     </div>
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <h4 className="font-bold text-white text-sm">{agent.name}</h4>
+                        <h4 className="font-bold text-slate-900 text-sm">{agent.name}</h4>
                         {(agent.isVerified || agent.verificationStatus === 'verified') && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-black">
-                            <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 text-[10px] font-black">
+                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
                             <span>Vérifié</span>
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-emerald-400 font-medium">{agent.title}</p>
+                      <p className="text-[11px] text-emerald-700 font-semibold">{agent.title}</p>
                       <p className="text-[10px] text-slate-500">{agent.agencyName}</p>
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                  <div className="pt-2 border-t border-slate-200 space-y-2">
                     <div className="grid grid-cols-2 gap-2">
                       {/* WhatsApp Direct */}
                       <a
@@ -784,7 +798,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => recordPropertyAction(property.id, 'whatsapp')}
-                        className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all"
+                        className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all"
                       >
                         <MessageCircle className="w-4 h-4 fill-white" />
                         <span>WhatsApp</span>
@@ -794,31 +808,31 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                       <a
                         href={`tel:${agent.phone}`}
                         onClick={() => recordPropertyAction(property.id, 'call')}
-                        className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-all"
+                        className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-200 transition-all"
                       >
-                        <Phone className="w-4 h-4 text-emerald-400" />
+                        <Phone className="w-4 h-4 text-emerald-600" />
                         <span>Appeler</span>
                       </a>
                     </div>
 
-                    <div className="text-[11px] text-slate-400 pt-1 flex items-center justify-between">
+                    <div className="text-[11px] text-slate-500 pt-1 flex items-center justify-between">
                       <span className="truncate">{agent.email}</span>
-                      <span className="text-emerald-400 font-semibold">{agent.phone}</span>
+                      <span className="text-emerald-700 font-bold">{agent.phone}</span>
                     </div>
                   </div>
                 </div>
               )}
 
               {/* Inquiry & Tour Form Widget */}
-              <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 text-xs">
-                <h4 className="font-bold text-white text-sm">Demande d'Information & Visite</h4>
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4 text-xs">
+                <h4 className="font-black text-slate-900 text-sm">Demande d'Information & Visite</h4>
 
-                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 rounded-xl border border-slate-800">
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-200 rounded-xl">
                   <button
                     type="button"
                     onClick={() => setRequestType('info')}
-                    className={`py-1.5 rounded-lg font-semibold transition-colors ${
-                      requestType === 'info' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'
+                    className={`py-1.5 rounded-lg font-bold transition-colors ${
+                      requestType === 'info' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     Information
@@ -826,8 +840,8 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   <button
                     type="button"
                     onClick={() => setRequestType('tour')}
-                    className={`py-1.5 rounded-lg font-semibold transition-colors ${
-                      requestType === 'tour' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'
+                    className={`py-1.5 rounded-lg font-bold transition-colors ${
+                      requestType === 'tour' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     Réserver Visite
@@ -835,7 +849,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 </div>
 
                 {isSent ? (
-                  <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500 text-emerald-400 text-center font-bold">
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-center font-bold">
                     ✓ Demande envoyée directement à l'agent !
                   </div>
                 ) : (
@@ -846,7 +860,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                       placeholder="Votre nom"
                       value={leadName}
                       onChange={(e) => setLeadName(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                     />
 
                     <input
@@ -855,7 +869,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                       placeholder="Votre email"
                       value={leadEmail}
                       onChange={(e) => setLeadEmail(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                     />
 
                     <input
@@ -864,7 +878,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                       placeholder="Téléphone"
                       value={leadPhone}
                       onChange={(e) => setLeadPhone(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
                     />
 
                     {requestType === 'tour' && (
@@ -873,13 +887,13 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                           type="date"
                           value={tourDate}
                           onChange={(e) => setTourDate(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500"
+                          className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-2 text-slate-900 focus:outline-none focus:border-emerald-600"
                         />
                         <input
                           type="time"
                           value={tourTime}
                           onChange={(e) => setTourTime(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500"
+                          className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-2 text-slate-900 focus:outline-none focus:border-emerald-600"
                         />
                       </div>
                     )}
@@ -888,12 +902,12 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                       rows={3}
                       value={leadMessage}
                       onChange={(e) => setLeadMessage(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
                     />
 
                     <button
                       type="submit"
-                      className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold text-xs hover:scale-[1.02] transition-transform shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2"
+                      className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs hover:scale-[1.01] transition-transform shadow-xs flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <Send className="w-4 h-4" /> Envoyez la demande
                     </button>
@@ -904,21 +918,21 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
           </div>
 
           {/* Bottom Navigation / Return to Home Banner */}
-          <div className="pt-6 pb-2 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="pt-6 pb-2 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
             <button
               type="button"
               onClick={() => {
                 setActivePropertyModalId(null);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition-all active:scale-95 cursor-pointer"
+              className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition-all active:scale-95 cursor-pointer"
               title="Quitter la fiche et retourner à la liste complète des annonces"
             >
               <Home className="w-4 h-4" />
               <span>← Retour à l'Accueil & Voir toutes les annonces de Kinshasa</span>
             </button>
-            <p className="text-[11px] text-slate-400 text-center sm:text-right">
-              Réf. Annonce : <span className="font-mono text-emerald-400 font-semibold">{property.id}</span>
+            <p className="text-[11px] text-slate-500 text-center sm:text-right">
+              Réf. Annonce : <span className="font-mono text-emerald-700 font-bold">{property.id}</span>
             </p>
           </div>
         </div>
@@ -929,6 +943,14 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
         property={property}
         isOpen={isScheduleVisitOpen}
         onClose={() => setIsScheduleVisitOpen(false)}
+      />
+
+      {/* Report Listing Modal */}
+      <ReportListingModal
+        property={property}
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        onSubmitReport={addPropertyReport}
       />
     </div>
   );

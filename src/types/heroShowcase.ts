@@ -11,11 +11,11 @@ export interface ArchitecturalSlide {
   propertyId?: string;
   isActive?: boolean;
   order?: number;
-  contactName?: string; // Nom de l'agent, promoteur ou agence mandataire pour ce bien mis en avant
+  contactName?: string; // Nom de l'agent, promoteur ou conseiller pour ce bien mis en avant
   contactPhone?: string; // Numéro de téléphone direct pour ce bien mis en avant
   contactWhatsapp?: string; // Numéro WhatsApp direct pour ce bien mis en avant
-  contactEmail?: string; // Email direct de l'agence mandataire ou promoteur
-  contactRole?: string; // Rôle (ex: Promoteur Officiel, Agence Mandataire, Agent Référent)
+  contactEmail?: string; // Email direct pour ce bien
+  contactRole?: string; // Rôle (ex: Promoteur Immobilier, Conseiller Immobilier, Service Commercial)
   legalStatus?: string; // Statut juridique et foncier vérifié (ex: Titre Foncier Notarié, Certificat d'Enregistrement)
   stats: {
     floors?: string;
@@ -44,7 +44,7 @@ export const INITIAL_ARCHITECTURAL_SLIDES: ArchitecturalSlide[] = [
     isActive: true,
     order: 1,
     contactName: 'Congo Luxury Homes & Development',
-    contactRole: 'Promoteur & Agence Mandataire',
+    contactRole: 'Promoteur Immobilier Direct',
     contactPhone: '+243 81 000 0001',
     contactWhatsapp: '+243 81 000 0001',
     contactEmail: 'contact@congoluxuryhomes.cd',
@@ -80,10 +80,10 @@ export const INITIAL_ARCHITECTURAL_SLIDES: ArchitecturalSlide[] = [
     isActive: true,
     order: 2,
     contactName: 'Agence Immo Kin Gombe SARL',
-    contactRole: 'Agence Mandataire Exclusif',
+    contactRole: 'Conseiller Immobilier Référent',
     contactPhone: '+243 82 123 4567',
     contactWhatsapp: '+243 82 123 4567',
-    contactEmail: 'mandats-gombe@kinimmo.com',
+    contactEmail: 'contact@kinimmo.com',
     legalStatus: 'Titre Foncier Définitif & Certificat Hypothécaire Purifié',
     stats: {
       floors: '12 Étages',

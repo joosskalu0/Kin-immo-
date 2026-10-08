@@ -325,7 +325,7 @@ export const SecuritySettingsModal: React.FC = () => {
             <div className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800 text-xs space-y-2">
               <span className="font-bold text-white block">Pourquoi activer la 2FA à Kinshasa ?</span>
               <p className="text-slate-400 text-[11px] leading-relaxed">
-                Le système de double authentification exige la saisie d'un code unique à 6 chiffres depuis votre smartphone à chaque connexion. Cela protège vos mandats immobiliers, transactions et coordonnées contre toute tentative d'usurpation.
+                Le système de double authentification exige la saisie d'un code unique à 6 chiffres depuis votre smartphone à chaque connexion. Cela protège vos annonces immobilières, transactions et coordonnées contre toute tentative d'usurpation.
               </p>
             </div>
           </div>

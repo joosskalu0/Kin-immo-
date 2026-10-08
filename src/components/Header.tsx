@@ -21,8 +21,9 @@ import {
   BadgeCheck,
   Menu,
   X,
-  Bot,
   UserPlus,
+  Briefcase,
+  Phone,
 } from 'lucide-react';
 import { CurrencyCode, LanguageCode } from '../types';
 
@@ -32,7 +33,7 @@ interface HeaderProps {
   onOpenAssistant?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpenAssistant }) => {
+export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => {
   const {
     language,
     setLanguage,
@@ -69,56 +70,6 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
   return (
     <>
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 text-slate-800 transition-all shadow-sm">
-        {/* Top Utility Bar */}
-        <div className="bg-slate-50 px-3 sm:px-4 py-1 text-xs text-slate-600 border-b border-slate-200">
-          <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-2">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1.5 text-emerald-700 font-bold text-[11px]">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                KIN IMMOBILIER • Kinshasa & RDC
-              </span>
-              <span className="hidden sm:inline text-slate-300">|</span>
-              <span className="hidden sm:inline text-[11px] text-slate-600">
-                Plateforme Immobilière Certifiée • Annonces Vérifiées & Carte Interactive
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3 ms-auto text-[11px]">
-              {/* Language Selector */}
-              <div className="relative flex items-center gap-1 group cursor-pointer">
-                <Globe className="w-3.5 h-3.5 text-slate-500" />
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value as LanguageCode)}
-                  className="bg-transparent text-slate-700 hover:text-slate-900 cursor-pointer outline-none border-none text-[11px] font-semibold"
-                >
-                  {languages.map((l) => (
-                    <option key={l.code} value={l.code} className="bg-white text-slate-800">
-                      {l.flag} {l.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Currency Selector */}
-              <div className="relative flex items-center gap-1 group cursor-pointer">
-                <Coins className="w-3.5 h-3.5 text-slate-500" />
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
-                  className="bg-transparent text-slate-700 hover:text-slate-900 cursor-pointer outline-none border-none text-[11px] font-semibold"
-                >
-                  {Object.values(currencies).map((c) => (
-                    <option key={c.code} value={c.code} className="bg-white text-slate-800">
-                      {c.symbol} ({c.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Main Navbar */}
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
           {/* Kin Immobilier Logo */}
@@ -148,124 +99,8 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
             </div>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="hidden lg:flex items-center gap-1">
-            <button
-              onClick={handleGoHome}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
-                currentTab === 'home'
-                  ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
-                  : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'
-              }`}
-              title="Retourner à la page d'accueil"
-            >
-              <Home className="w-4 h-4" />
-              Accueil
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('map')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-                currentTab === 'map'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-              Carte
-            </button>
-
-            <button
-              onClick={handleGoHome}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-                currentTab === 'grid'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Grid className="w-3.5 h-3.5" />
-              Grille
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('agencies')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-                currentTab === 'agencies'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              Agences
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('agents')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-                currentTab === 'agents'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              Agents
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('conciergerie')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
-                currentTab === 'conciergerie'
-                  ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/25 ring-2 ring-emerald-500/30'
-                  : 'text-slate-700 hover:text-slate-950 hover:bg-emerald-50 hover:text-emerald-800'
-              }`}
-              title="Conciergerie Immobilière Kinimmo - Recherche & Accompagnement"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Conciergerie</span>
-              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">
-                VIP
-              </span>
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('pricing')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-                currentTab === 'pricing'
-                  ? 'bg-amber-50 text-amber-900 border border-amber-300 font-bold shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Coins className="w-3.5 h-3.5 text-amber-600" />
-              Tarifs
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('dashboard')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-                currentTab === 'dashboard'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <UserIcon className="w-3.5 h-3.5" />
-              Mon Espace
-            </button>
-          </nav>
-
           {/* Right Action Tools */}
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* AI Assistant Quick Trigger */}
-            {onOpenAssistant && (
-              <button
-                onClick={onOpenAssistant}
-                title="Conseiller IA Kinshasa"
-                className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs border border-emerald-200 transition-all shadow-sm active:scale-95"
-              >
-                <Bot className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Conseiller IA</span>
-              </button>
-            )}
-
             {/* Wishlist */}
             <button
               onClick={() => setCurrentTab('wishlist')}
@@ -297,10 +132,23 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
             {/* Submit Property Button */}
             <button
               onClick={() => setIsSubmitPropertyOpen(true)}
-              className="hidden sm:flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/20 hover:scale-[1.02] active:scale-95 transition-all"
+              className="hidden sm:flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/20 hover:scale-[1.02] active:scale-95 transition-all cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
               Publier
+            </button>
+
+            {/* Bouton Devenir Partenaire */}
+            <button
+              onClick={() => {
+                const partnerMsg = encodeURIComponent("Bonjour KINIMMO Partenariats, je souhaite devenir partenaire officiel (agence immobilière, promoteur ou agent indépendant) à Kinshasa.");
+                window.open(`https://wa.me/243845294616?text=${partnerMsg}`, '_blank', 'noopener,noreferrer');
+              }}
+              title="Devenir Agence Partenaire ou Promoteur Agréé"
+              className="hidden md:flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs transition-all cursor-pointer shadow-2xs active:scale-95"
+            >
+              <Briefcase className="w-3.5 h-3.5 text-amber-700" />
+              <span>Devenir Partenaire</span>
             </button>
 
             {/* User Account / Auth Menu */}
@@ -321,26 +169,15 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                 <button
                   onClick={() => setIsSecurityModalOpen(true)}
                   title="2FA & Sécurité"
-                  className="p-2.5 min-h-[42px] rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all flex items-center gap-1.5 text-xs font-semibold active:scale-95"
+                  className="p-2.5 min-h-[42px] rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all flex items-center gap-1.5 text-xs font-semibold active:scale-95 cursor-pointer"
                 >
                   <ShieldCheck className="w-4 h-4 text-emerald-700" />
                   <span className="hidden md:inline text-[11px] font-bold">2FA & Sécurité</span>
                 </button>
 
-                {user.role === 'admin' && (
-                  <button
-                    onClick={() => setCurrentTab('admin')}
-                    title="Accéder au Panneau d'Administration"
-                    className="p-2.5 min-h-[42px] rounded-xl bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-700 transition-all flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
-                  >
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span className="hidden md:inline text-[11px] font-bold">Panneau Admin</span>
-                  </button>
-                )}
-
                 <button
                   onClick={() => setCurrentTab('dashboard')}
-                  className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 transition-colors border border-slate-200"
+                  className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer"
                 >
                   <img
                     src={user.avatar}
@@ -359,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
 
                 <button
                   onClick={logOut}
-                  title="Se déconnecter de Firebase"
+                  title="Se déconnecter"
                   className="p-2 text-slate-500 hover:text-rose-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" />
@@ -368,35 +205,84 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
             ) : (
               <button
                 onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2.5 min-h-[42px] rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs border border-slate-800 transition-all active:scale-95 shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-2.5 min-h-[42px] rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs border border-slate-800 transition-all active:scale-95 shadow-sm cursor-pointer"
               >
                 <UserIcon className="w-4 h-4 text-emerald-400" />
                 <span className="hidden sm:inline">Connexion</span>
               </button>
             )}
 
-            {/* Mobile Hamburger Toggle Button */}
+            {/* Bouton Menu Propre & Moderne */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               aria-label="Menu principal"
-              className="lg:hidden p-2.5 min-w-[44px] min-h-[44px] rounded-xl bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 flex items-center justify-center active:scale-95 transition-transform"
+              className="p-2.5 px-3 min-h-[42px] rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 flex items-center gap-1.5 active:scale-95 transition-all font-bold text-xs cursor-pointer shadow-2xs"
+              title="Menu principal"
             >
-              {isMobileMenuOpen ? <X className="w-5 h-5 text-emerald-700" /> : <Menu className="w-5 h-5" />}
+              {isMobileMenuOpen ? (
+                <X className="w-4 h-4 text-emerald-700" />
+              ) : (
+                <Menu className="w-4 h-4 text-slate-700" />
+              )}
+              <span className="font-bold">Menu</span>
             </button>
           </div>
         </div>
 
-        {/* Mobile Slide-down Overlay & Menu Panel */}
+        {/* Slide-down Menu Panel */}
         {isMobileMenuOpen && (
           <>
             {/* Backdrop */}
             <div
-              className="fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-sm lg:hidden transition-opacity"
+              className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm transition-opacity"
               onClick={() => setIsMobileMenuOpen(false)}
             />
 
-            {/* Mobile Menu Panel */}
-            <div className="fixed inset-x-0 top-[102px] z-40 bg-white border-b border-slate-200 px-4 py-5 space-y-4 shadow-xl max-h-[82vh] overflow-y-auto lg:hidden rounded-b-3xl animate-in slide-in-from-top duration-200">
+            {/* Menu Panel */}
+            <div className="fixed inset-x-3 sm:inset-x-auto sm:right-6 sm:w-96 top-18 sm:top-20 z-50 bg-white border border-slate-200 px-4 sm:px-5 py-5 space-y-4 shadow-2xl max-h-[82vh] overflow-y-auto rounded-3xl animate-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-700">
+                  Menu & Raccourcis
+                </span>
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Language & Currency Quick Switcher */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-2.5 flex items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <Globe className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value as LanguageCode)}
+                    className="bg-transparent text-slate-800 font-bold cursor-pointer outline-none text-xs"
+                  >
+                    {languages.map((l) => (
+                      <option key={l.code} value={l.code} className="bg-white text-slate-900">
+                        {l.flag} {l.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Coins className="w-4 h-4 text-amber-600 shrink-0" />
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+                    className="bg-transparent text-slate-800 font-bold cursor-pointer outline-none text-xs"
+                  >
+                    {Object.values(currencies).map((c) => (
+                      <option key={c.code} value={c.code} className="bg-white text-slate-900">
+                        {c.symbol} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
               {/* User Profile Card Header inside Mobile Menu */}
               {user ? (
                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2.5">
@@ -453,12 +339,56 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                     setIsAuthModalOpen(true);
                     setIsMobileMenuOpen(false);
                   }}
-                  className="w-full py-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-white font-extrabold text-sm flex items-center justify-center gap-2 active:scale-98 transition-all shadow-sm"
+                  className="w-full py-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-white font-extrabold text-sm flex items-center justify-center gap-2 active:scale-98 transition-all shadow-sm cursor-pointer"
                 >
                   <UserIcon className="w-4 h-4 text-emerald-400" />
                   <span>Se Connecter / S'inscrire</span>
                 </button>
               )}
+
+              {/* Espace Devenir Partenaire */}
+              <div className="bg-gradient-to-r from-amber-500/10 via-amber-50 to-emerald-50 border border-amber-300/80 rounded-2xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold shadow-2xs">
+                      <Briefcase className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">
+                        Espace Partenaires & Agences
+                      </h4>
+                      <p className="text-[10px] text-slate-600 font-medium">
+                        Agences certifiées, promoteurs neufs & agents
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500 text-white">
+                    B2B
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 pt-0.5">
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      const partnerMsg = encodeURIComponent("Bonjour KINIMMO Partenariats, je souhaite devenir partenaire (agence immobilière, promoteur ou agent indépendant) sur votre plateforme.");
+                      window.open(`https://wa.me/243845294616?text=${partnerMsg}`, '_blank', 'noopener,noreferrer');
+                    }}
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-98"
+                  >
+                    <Briefcase className="w-3.5 h-3.5" />
+                    <span>Devenir Partenaire</span>
+                  </button>
+                  <a
+                    href="tel:+243845294616"
+                    className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-2xs"
+                    title="Ligne directe Partenariats"
+                  >
+                    <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Ligne Directe</span>
+                  </a>
+                </div>
+              </div>
 
               <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 px-1 pt-1">
                 Navigation Principale
@@ -570,23 +500,6 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
                   <span>Tarifs & Abonnements</span>
                 </button>
 
-                {user?.role === 'admin' && (
-                  <button
-                    onClick={() => {
-                      setCurrentTab('admin');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3.5 min-h-[48px] rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2.5 col-span-2 ${
-                      currentTab === 'admin'
-                        ? 'bg-slate-900 text-emerald-400 border border-emerald-500 shadow-md'
-                        : 'bg-slate-900 text-white hover:bg-slate-800 border border-slate-700'
-                    }`}
-                  >
-                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>Panneau d'Administration</span>
-                  </button>
-                )}
-
                 <button
                   onClick={() => {
                     setCurrentTab('dashboard');
@@ -667,13 +580,18 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
         </button>
 
         <button
-          onClick={() => setCurrentTab('dashboard')}
-          className={`flex flex-col items-center justify-center min-w-[52px] min-h-[48px] gap-1 transition-all active:scale-90 ${
-            currentTab === 'dashboard' ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className={`flex flex-col items-center justify-center min-w-[52px] min-h-[48px] gap-1 transition-all active:scale-90 cursor-pointer ${
+            isMobileMenuOpen ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
           }`}
+          title="Menu principal"
         >
-          <UserIcon className={`w-5 h-5 ${currentTab === 'dashboard' ? 'text-emerald-600' : ''}`} />
-          <span>Espace</span>
+          {isMobileMenuOpen ? (
+            <X className="w-5 h-5 text-emerald-600" />
+          ) : (
+            <Menu className="w-5 h-5" />
+          )}
+          <span>Menu</span>
         </button>
       </nav>
     </>

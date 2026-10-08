@@ -227,6 +227,44 @@ export async function fetchConciergerieRequests(): Promise<ConciergerieRequest[]
 }
 
 /**
+ * Mise à jour complète d'une demande de conciergerie (Champs, client, projet, agent, statut, notes)
+ */
+export async function updateConciergeRequestFull(
+  id: string,
+  updateData: Partial<ConciergeRequest>
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/concierge-requests/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updateData)
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data) {
+        return { success: true, data: json.data };
+      }
+    }
+  } catch {}
+
+  try {
+    const nowIso = new Date().toISOString();
+    const updatePayload = {
+      ...updateData,
+      updated_at: nowIso,
+      updatedAt: nowIso
+    };
+    await updateDoc(doc(db, 'concierge_requests', id), updatePayload);
+    try {
+      await updateDoc(doc(db, 'conciergerieRequests', id), updatePayload);
+    } catch {}
+    return { success: true, data: { id, ...updatePayload } };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erreur lors de la mise à jour.' };
+  }
+}
+
+/**
  * Mise à jour du statut d'une demande de conciergerie
  */
 export async function updateConciergeRequestStatus(

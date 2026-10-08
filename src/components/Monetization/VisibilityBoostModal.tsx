@@ -228,10 +228,10 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                           </span>
                           <div className="text-right">
                             <span className="text-sm font-black text-emerald-700">
-                              {opt.price_usd} $
+                              {Number(opt.price_usd ?? (opt as any).price ?? 0)} $
                             </span>
                             <span className="text-[10px] text-slate-500 block">
-                              (~{Number(opt.price_cdf || opt.price_usd * 2800).toLocaleString()} CDF)
+                              (~{Number(opt.price_cdf ?? ((Number(opt.price_usd ?? (opt as any).price ?? 0)) * 2850)).toLocaleString()} CDF)
                             </span>
                           </div>
                         </div>
@@ -310,9 +310,9 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                 <div>
                   <span className="text-xs text-slate-500">Montant total à régler :</span>
                   <div className="text-xl font-black text-slate-900">
-                    {selectedOption?.price_usd} USD{' '}
+                    {Number(selectedOption?.price_usd ?? (selectedOption as any)?.price ?? 0)} USD{' '}
                     <span className="text-xs text-emerald-600 font-bold">
-                      ({Number(selectedOption?.price_cdf || (selectedOption?.price_usd || 0) * 2800).toLocaleString()} CDF)
+                      (~{Number(selectedOption?.price_cdf ?? ((Number(selectedOption?.price_usd ?? (selectedOption as any)?.price ?? 0)) * 2850)).toLocaleString()} CDF)
                     </span>
                   </div>
                 </div>
