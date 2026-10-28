@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Agency, Agent, User, VerificationDocument } from '../types';
-import { saveAgencyToFirestore, saveAgentToFirestore, saveUserToFirestore } from '../lib/firebase';
 import { registerUserAccount } from '../lib/authStore';
 import {
   X,
@@ -306,11 +305,6 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
       addAgency(newAgency);
       addAgent(chiefAgent);
       setUser(agencyUser);
-
-      // Save to Firestore
-      saveAgencyToFirestore(newAgency).catch((e) => console.error('Firestore save agency error:', e));
-      saveAgentToFirestore(chiefAgent).catch((e) => console.error('Firestore save agent error:', e));
-      saveUserToFirestore(agencyUser).catch((e) => console.error('Firestore save user error:', e));
 
       // Save user & password to authStore
       registerUserAccount(agencyUser, password);

@@ -465,10 +465,66 @@ async function deleteProperty(req, res, next) {
   }
 }
 
+/**
+ * Mettre à jour le statut du cycle de vie de l'annonce
+ * PUT/PATCH /api/properties/:id/status
+ * Statuts stricts : DRAFT, PENDING_REVIEW, PUBLISHED, RENTED, SOLD, ARCHIVED
+ */
+async function updatePropertyListingStatus(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { status, note } = req.body;
+    const validStatuses = ['DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'RENTED', 'SOLD', 'ARCHIVED'];
+    const targetStatus = String(status || '').toUpperCase();
+
+    if (!validStatuses.includes(targetStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Statut invalide. Statuts autorisés : ${validStatuses.join(', ')}`
+      });
+    }
+
+    const [existing] = await pool.execute('SELECT * FROM properties WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'Propriété introuvable.' });
+    }
+
+    const prop = existing[0];
+    const isOwner = prop.agent_id === req.user?.id;
+    const isSameAgency = req.user?.agency_id && prop.agency_id === req.user.agency_id;
+    const canManage = isOwner || (isSameAgency && ['agency_owner', 'agency_manager'].includes(req.user?.agency_role)) || req.user?.role === 'admin';
+
+    if (!canManage) {
+      return res.status(403).json({
+        success: false,
+        message: 'Non autorisé à modifier le statut de cette annonce.'
+      });
+    }
+
+    const legacyStatus = targetStatus === 'SOLD' ? 'sold' : (targetStatus === 'RENTED' ? 'for-rent' : prop.status);
+    const published = targetStatus === 'PUBLISHED' ? 1 : 0;
+
+    await pool.execute(
+      'UPDATE properties SET status = ?, published = ? WHERE id = ?',
+      [legacyStatus, published, id]
+    );
+
+    res.json({
+      success: true,
+      message: `Statut de l'annonce mis à jour vers ${targetStatus}.`,
+      listingStatus: targetStatus,
+      isAvailable: targetStatus === 'PUBLISHED'
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getProperties,
   getPropertyById,
   createProperty,
   updateProperty,
-  deleteProperty
+  deleteProperty,
+  updatePropertyListingStatus
 };

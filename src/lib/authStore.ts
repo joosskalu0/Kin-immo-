@@ -1,7 +1,6 @@
 import { User, Agent, Agency } from '../types';
 import { getAdminCredentials, verifyAdminPin } from './adminCredentials';
 import { initialAgents, initialAgencies } from '../data/mockData';
-import { saveUserToFirestore } from './firebase';
 
 export interface StoredUserAccount extends User {
   password?: string;
@@ -245,9 +244,6 @@ export const registerUserAccount = (user: User, password?: string): StoredUserAc
   inMemoryAccounts = [...accounts];
   saveStoredLocalAccounts(inMemoryAccounts);
 
-  // Save profile to Firestore WITHOUT the password!
-  saveUserToFirestore(user).catch((err) => console.error('Firestore saveUser error in authStore:', err));
-
   return accountToSave;
 };
 
@@ -469,12 +465,6 @@ export const adminResetUserPassword = async (
   accounts[idx] = updatedAccount;
   inMemoryAccounts = [...accounts];
   saveStoredLocalAccounts(inMemoryAccounts);
-
-  try {
-    await saveUserToFirestore(updatedAccount);
-  } catch (e: any) {
-    console.warn("Firestore save user password error:", e);
-  }
 
   return { success: true };
 };

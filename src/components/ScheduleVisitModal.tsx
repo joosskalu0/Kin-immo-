@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Property } from '../types';
 import { convertAndFormatPrice } from '../utils/currency';
+import { openWhatsApp } from '../utils/whatsapp';
+import { trackVideoVisitRequest } from '../utils/analytics';
 import {
   Calendar,
   Clock,
@@ -66,13 +68,15 @@ export const ScheduleVisitModal: React.FC<ScheduleVisitModalProps> = ({
       tourTime: selectedTime,
     });
 
+    trackVideoVisitRequest(property, { date: selectedDate, time: selectedTime });
+
     setIsSuccess(true);
   };
 
   const handleWhatsAppDirect = () => {
-    const cleanPhone = agentPhone.replace(/[^0-9]/g, '');
+    trackVideoVisitRequest(property, { date: selectedDate, time: selectedTime });
     const visitLabel = visitType === 'in_person' ? 'sur place à Kinshasa' : 'en visio / vidéo WhatsApp';
-    const text = encodeURIComponent(
+    const message =
       `Bonjour ! Je souhaite planifier une visite ${visitLabel} pour votre annonce :\n\n` +
       `🏠 *${property.title}*\n` +
       `📍 Commune : ${property.commune || property.city || 'Kinshasa'}\n` +
@@ -81,9 +85,8 @@ export const ScheduleVisitModal: React.FC<ScheduleVisitModalProps> = ({
       `👤 Nom : ${clientName}\n` +
       `📞 Téléphone : ${clientPhone}\n` +
       (notes ? `📝 Précision : ${notes}\n` : '') +
-      `\nMerci de me confirmer votre disponibilité.`
-    );
-    window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
+      `\nMerci de me confirmer votre disponibilité.`;
+    openWhatsApp(agentPhone, message);
     onClose();
   };
 

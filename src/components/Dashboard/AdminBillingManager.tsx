@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Invoice, InvoiceItem, Agent, Agency, User } from '../../types';
-import { subscribeToUsers } from '../../lib/firebase';
 import { AdminPlansPricingManager } from './AdminPlansPricingManager';
 import {
   Receipt,
@@ -51,6 +50,7 @@ export const AdminBillingManager: React.FC = () => {
     requestConfirm,
     agents,
     agencies,
+    allUsers,
     user
   } = useApp();
 
@@ -91,22 +91,16 @@ export const AdminBillingManager: React.FC = () => {
   const [notes, setNotes] = useState('Paiement par Orange Money RDC : +243 84 529 4616 (Titulaire : IMMOCRAFT / KIN IMMOBILIER SARL)');
 
   // Registered Users state (Nouveaux venus & membres inscrits)
-  const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
-
-  useEffect(() => {
-    const unsub = subscribeToUsers((firestoreUsers) => {
-      const mergedMap = new Map<string, User>();
-      firestoreUsers.forEach((u) => {
-        if (u.email) mergedMap.set(u.email.toLowerCase(), u);
-      });
-      if (user && user.email) {
-        mergedMap.set(user.email.toLowerCase(), user);
-      }
-      setRegisteredUsers(Array.from(mergedMap.values()));
+  const registeredUsers = React.useMemo(() => {
+    const mergedMap = new Map<string, User>();
+    (allUsers || []).forEach((u) => {
+      if (u.email) mergedMap.set(u.email.toLowerCase(), u);
     });
-
-    return () => unsub();
-  }, [user]);
+    if (user && user.email) {
+      mergedMap.set(user.email.toLowerCase(), user);
+    }
+    return Array.from(mergedMap.values());
+  }, [allUsers, user]);
 
   // Combined targets: registered users (nouveaux venus) + demo agents (excluding administrators)
   const isAdministrator = (email?: string, name?: string, role?: string, id?: string) => {
@@ -924,7 +918,6 @@ export const AdminBillingManager: React.FC = () => {
                               onConfirm: () => {
                                 deleteUser(agt.id);
                                 deleteAgent(agt.id);
-                                setRegisteredUsers((prev) => prev.filter((u) => u.id !== agt.id && u.email !== agt.email));
                               }
                             });
                           }}

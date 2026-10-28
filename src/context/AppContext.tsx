@@ -15,8 +15,14 @@ import {
   SubscriptionPlan,
   SiteContactSettings,
   PropertyUserReport,
+  PropertyVideo,
+  PropertyVideoStatus,
+  ListingLifecycleStatus,
+  AgencyCollaborator,
+  AgencyTransaction
 } from '../types';
 import { analyzePropertyForFraud } from '../utils/suspiciousListingDetector';
+import { createStatusHistoryEntry } from '../utils/propertyStatusHelpers';
 
 export interface ConfirmOptions {
   title?: string;
@@ -110,6 +116,16 @@ interface AppContextType {
   addProperty: (property: Property) => Promise<void> | void;
   updateProperty: (property: Property) => Promise<void> | void;
   deleteProperty: (id: string) => void;
+  updatePropertyListingStatus: (propertyId: string, status: ListingLifecycleStatus, note?: string) => Promise<{ success: boolean; message?: string }>;
+  assignPropertyToAgent: (propertyId: string, assignedAgentId: string, assignedAgentName: string) => Promise<void>;
+
+  // Agency Collaborators & Transactions
+  agencyCollaborators: AgencyCollaborator[];
+  inviteAgencyCollaborator: (data: any) => Promise<{ success: boolean; message?: string; collaborator?: AgencyCollaborator }>;
+  updateAgencyCollaborator: (id: string, data: Partial<AgencyCollaborator>) => Promise<void>;
+  deleteAgencyCollaborator: (id: string) => Promise<void>;
+  agencyTransactions: AgencyTransaction[];
+  createAgencyTransaction: (data: any) => Promise<{ success: boolean; transaction?: AgencyTransaction }>;
 
   agents: Agent[];
   addAgent: (agent: Agent) => void;
@@ -228,6 +244,19 @@ interface AppContextType {
   reports: PropertyUserReport[];
   addPropertyReport: (report: Omit<PropertyUserReport, 'id' | 'createdAt' | 'status'>) => Promise<void> | void;
   resolvePropertyReport: (reportId: string, action: 'resolved' | 'dismissed') => void;
+
+  // Kinimmo Visites (Vidéos Verticales Immersives & Modération)
+  propertyVideos: PropertyVideo[];
+  loadPropertyVideos: () => Promise<void>;
+  addPropertyVideo: (videoData: {
+    propertyId: string;
+    videoUrl: string;
+    thumbnailUrl?: string;
+    description?: string;
+    status?: PropertyVideoStatus;
+  }) => Promise<{ success: boolean; message?: string }>;
+  updatePropertyVideoStatus: (id: string, status: PropertyVideoStatus, reason?: string) => Promise<void>;
+  deletePropertyVideo: (id: string) => Promise<void>;
 }
 
 const defaultFilters: PropertyFilters = {
@@ -513,6 +542,238 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
   };
+
+  // -----------------------------------------------------------
+  // KINIMMO VISITES (Vidéos Verticales Immersives & Modération)
+  // -----------------------------------------------------------
+  const VIDEOS_STORAGE_KEY = 'kinimmo_property_videos_v1';
+  const [propertyVideos, setPropertyVideos] = useState<PropertyVideo[]>(() => {
+    try {
+      const saved = localStorage.getItem(VIDEOS_STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+
+    // Vidéos initiales approuvées reliées aux annonces réelles de Kinshasa
+    return [
+      {
+        id: 'vid_demo_1',
+        propertyId: 'prop_1',
+        userId: 'agent_1',
+        videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-modern-luxury-house-patio-and-pool-walkthrough-40541-large.mp4',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&auto=format&fit=crop&q=80',
+        description: 'Visite guidée immersive de la villa d\'exception avec piscine à Ngaliema Macampagne.',
+        status: 'approved',
+        viewsCount: 1420,
+        createdAt: '2026-10-01T10:00:00Z',
+        updatedAt: '2026-10-01T10:00:00Z',
+        propertyTitle: 'Villa Diplomatique Haute Sécurité avec Piscine',
+        propertyPrice: 1250000,
+        propertyCurrency: 'USD',
+        propertyCommune: 'Ngaliema',
+        propertyQuartier: 'Macampagne',
+        propertyType: 'villa',
+        propertyStatus: 'for-sale',
+        propertyBedrooms: 5,
+        propertyBathrooms: 4,
+        agentName: 'Dieudonné Mwamba',
+        agencyName: 'Congo Luxury Homes',
+        agentPhone: '+243 81 000 0001',
+        agentWhatsapp: '+243 81 000 0001',
+        agentVerified: true
+      },
+      {
+        id: 'vid_demo_2',
+        propertyId: 'prop_2',
+        userId: 'agent_1',
+        videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-interior-of-a-modern-living-room-with-large-windows-41584-large.mp4',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&auto=format&fit=crop&q=80',
+        description: 'Magnifique duplex avec vue imprenable sur le Fleuve Congo à Gombe.',
+        status: 'approved',
+        viewsCount: 890,
+        createdAt: '2026-10-03T11:20:00Z',
+        updatedAt: '2026-10-03T11:20:00Z',
+        propertyTitle: 'Appartement Haut Standing Vue Fleuve',
+        propertyPrice: 3500,
+        propertyCurrency: 'USD',
+        propertyCommune: 'Gombe',
+        propertyQuartier: 'Centre des Affaires',
+        propertyType: 'apartment',
+        propertyStatus: 'for-rent',
+        propertyBedrooms: 3,
+        propertyBathrooms: 2,
+        agentName: 'Patrick Kalombo',
+        agencyName: 'Immo Kin Gombe SARL',
+        agentPhone: '+243 82 123 4567',
+        agentWhatsapp: '+243 82 123 4567',
+        agentVerified: true
+      },
+      {
+        id: 'vid_demo_3',
+        propertyId: 'prop_3',
+        userId: 'agent_2',
+        videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-luxury-home-interior-with-modern-furniture-41589-large.mp4',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&auto=format&fit=crop&q=80',
+        description: 'Résidence moderne et lumineuse à Mont Fleuri avec autonomie solaire intégrale.',
+        status: 'approved',
+        viewsCount: 654,
+        createdAt: '2026-10-05T09:15:00Z',
+        updatedAt: '2026-10-05T09:15:00Z',
+        propertyTitle: 'Résidence Contemporaine Mont Fleuri',
+        propertyPrice: 780000,
+        propertyCurrency: 'USD',
+        propertyCommune: 'Ngaliema',
+        propertyQuartier: 'Mont Fleuri',
+        propertyType: 'villa',
+        propertyStatus: 'for-sale',
+        propertyBedrooms: 4,
+        propertyBathrooms: 3,
+        agentName: 'Dieudonné Mwamba',
+        agencyName: 'Congo Luxury Homes',
+        agentPhone: '+243 81 000 0001',
+        agentWhatsapp: '+243 81 000 0001',
+        agentVerified: true
+      },
+      {
+        id: 'vid_demo_4',
+        propertyId: 'prop_4',
+        userId: 'agent_2',
+        videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-moving-through-a-corridor-in-a-modern-house-41586-large.mp4',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&auto=format&fit=crop&q=80',
+        description: 'Maison familiale sécurisée avec grand jardin et forage à Limete Résidentiel.',
+        status: 'approved',
+        viewsCount: 420,
+        createdAt: '2026-10-07T14:40:00Z',
+        updatedAt: '2026-10-07T14:40:00Z',
+        propertyTitle: 'Maison Familiale Jardin & Forage',
+        propertyPrice: 2200,
+        propertyCurrency: 'USD',
+        propertyCommune: 'Limete',
+        propertyQuartier: 'Résidentiel',
+        propertyType: 'house',
+        propertyStatus: 'for-rent',
+        propertyBedrooms: 4,
+        propertyBathrooms: 3,
+        agentName: 'Patrick Kalombo',
+        agencyName: 'Immo Kin Gombe SARL',
+        agentPhone: '+243 82 123 4567',
+        agentWhatsapp: '+243 82 123 4567',
+        agentVerified: true
+      }
+    ];
+  });
+
+  const saveVideosLocally = (videos: PropertyVideo[]) => {
+    try {
+      localStorage.setItem(VIDEOS_STORAGE_KEY, JSON.stringify(videos));
+    } catch {}
+  };
+
+  const loadPropertyVideos = async () => {
+    try {
+      const res = await mysqlApi.getApprovedVideos();
+      if (res.success && res.data?.videos && res.data.videos.length > 0) {
+        setPropertyVideos(res.data.videos);
+        saveVideosLocally(res.data.videos);
+      }
+    } catch (e) {
+      console.warn('Could not load videos from MySQL API, using local videos:', e);
+    }
+  };
+
+  const addPropertyVideo = async (videoData: {
+    propertyId: string;
+    videoUrl: string;
+    thumbnailUrl?: string;
+    description?: string;
+    status?: PropertyVideoStatus;
+  }): Promise<{ success: boolean; message?: string }> => {
+    const linkedProp = properties.find((p) => p.id === videoData.propertyId);
+    if (!linkedProp) {
+      throw new Error('Annonce immobilière introuvable pour cette vidéo.');
+    }
+
+    const newVideo: PropertyVideo = {
+      id: `vid_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      propertyId: videoData.propertyId,
+      userId: user?.id || 'agent_current',
+      videoUrl: videoData.videoUrl,
+      thumbnailUrl: videoData.thumbnailUrl || linkedProp.images?.[0],
+      description: videoData.description || '',
+      status: videoData.status || 'pending',
+      viewsCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      propertyTitle: linkedProp.title,
+      propertyPrice: linkedProp.price,
+      propertyCurrency: linkedProp.currency,
+      propertyCommune: linkedProp.commune,
+      propertyQuartier: linkedProp.quartier,
+      propertyType: linkedProp.type,
+      propertyStatus: linkedProp.status,
+      propertyBedrooms: linkedProp.bedrooms,
+      propertyBathrooms: linkedProp.bathrooms,
+      propertyAddress: linkedProp.address,
+      propertyFeatured: linkedProp.featured,
+      agentName: user?.name || linkedProp.agencyName || 'Conseiller Kinimmo',
+      agencyName: linkedProp.agencyName,
+      agentPhone: linkedProp.contactPhone || user?.phone,
+      agentWhatsapp: linkedProp.contactPhone || user?.phone,
+      agentAvatar: user?.avatar,
+      agentVerified: user?.isVerified || false
+    };
+
+    // Tenter la persistance via l'API MySQL
+    try {
+      await mysqlApi.createVideo(videoData);
+    } catch (e) {
+      console.warn('MySQL API createVideo fallback to local storage:', e);
+    }
+
+    setPropertyVideos((prev) => {
+      const updated = [newVideo, ...prev];
+      saveVideosLocally(updated);
+      return updated;
+    });
+
+    return {
+      success: true,
+      message: newVideo.status === 'draft'
+        ? 'Brouillon de vidéo enregistré avec succès.'
+        : 'Vidéo soumise à validation administrative avec succès.'
+    };
+  };
+
+  const updatePropertyVideoStatus = async (id: string, status: PropertyVideoStatus, reason?: string) => {
+    try {
+      await mysqlApi.adminModerateVideo(id, status, reason);
+    } catch (e) {
+      console.warn('MySQL API adminModerateVideo fallback to local state:', e);
+    }
+
+    setPropertyVideos((prev) => {
+      const updated = prev.map((v) =>
+        v.id === id ? { ...v, status, rejectionReason: reason, updatedAt: new Date().toISOString() } : v
+      );
+      saveVideosLocally(updated);
+      return updated;
+    });
+  };
+
+  const deletePropertyVideo = async (id: string) => {
+    try {
+      await mysqlApi.deleteVideo(id);
+    } catch (e) {
+      console.warn('MySQL API deleteVideo fallback to local state:', e);
+    }
+
+    setPropertyVideos((prev) => {
+      const updated = prev.filter((v) => v.id !== id);
+      saveVideosLocally(updated);
+      return updated;
+    });
+  };
   const [filters, setFilters] = useState<PropertyFilters>(defaultFilters);
 
   // Modals & Deep Linking
@@ -537,6 +798,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setHeroSlides(remoteSlides);
       }
     }).catch(() => {});
+
+    // Charger les vidéos approuvées depuis l'API backend
+    loadPropertyVideos().catch(() => {});
+
     return () => {
       isMounted = false;
     };
@@ -842,7 +1107,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setCdfExchangeRate(firestorePricing.cdfExchangeRate);
         }
         if (firestorePricing.pricingDisplayCurrency) {
-          setPricingDisplayCurrency(firestorePricing.pricingDisplayCurrency);
+          setPricingDisplayCurrency(firestorePricing.pricingDisplayCurrency as 'USD' | 'CDF' | 'BOTH');
         }
         if (Array.isArray(firestorePricing.subscriptionPlans) && firestorePricing.subscriptionPlans.length > 0) {
           setSubscriptionPlans(firestorePricing.subscriptionPlans);
@@ -930,10 +1195,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Properties Actions
   const addProperty = async (property: Property) => {
+    // Règle métier : la publication d'un bien est strictement réservée aux utilisateurs connectés
+    if (!user) {
+      throw new Error("Règle métier Kinimmo : Vous devez être connecté pour publier une annonce.");
+    }
+
     // Exécution automatique de l'algorithme de détection des annonces suspectes
     const fraudAnalysis = analyzePropertyForFraud(property, properties, reports);
     const enrichedProperty: Property = {
       ...property,
+      agentId: user.agentId || user.id || property.agentId,
+      agencyId: user.agencyId || (user.role === 'agency' ? user.id : property.agencyId),
+      contactEmail: user.email || property.contactEmail,
+      contactPhone: user.phone || property.contactPhone,
       fraudStatus: fraudAnalysis.verdict,
       fraudScore: fraudAnalysis.riskScore,
       fraudFlags: fraudAnalysis.flags,
@@ -958,6 +1232,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateProperty = async (property: Property) => {
+    // Règle métier : la modification d'un bien est strictement réservée aux utilisateurs connectés
+    if (!user) {
+      throw new Error("Règle métier Kinimmo : Vous devez être connecté pour modifier une annonce.");
+    }
+
     // Ré-analyse lors de toute modification
     const fraudAnalysis = analyzePropertyForFraud(property, properties, reports);
     const enrichedProperty: Property = {
@@ -989,6 +1268,287 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return next;
     });
     deletePropertyFromFirestore(id).catch((err) => console.error('Firestore delete property error:', err));
+  };
+
+  // Règles des annonces : Mise à jour du statut du cycle de vie
+  const updatePropertyListingStatus = async (propertyId: string, status: ListingLifecycleStatus, note?: string) => {
+    // 1. Enregistrer le nouveau statut côté serveur
+    try {
+      await mysqlApi.updatePropertyListingStatus(propertyId, status, note);
+    } catch (e) {
+      console.warn('MySQL API status update notice (fallback local durable):', e);
+    }
+
+    // 2. Mettre à jour immédiatement les données du tableau de bord
+    let updatedPropertyObj: Property | null = null;
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id === propertyId) {
+          const oldStatus = p.listingStatus || (p.status === 'sold' ? 'SOLD' : 'PUBLISHED');
+          const historyEntry = createStatusHistoryEntry(oldStatus, status, user, note);
+          const history = Array.isArray(p.statusHistory) ? [...p.statusHistory, historyEntry] : [historyEntry];
+
+          const isAvailable = status === 'PUBLISHED';
+          const legacyStatus = status === 'SOLD' ? 'sold' : (status === 'RENTED' ? 'for-rent' : p.status);
+
+          const updated: Property = {
+            ...p,
+            listingStatus: status,
+            isAvailable,
+            status: legacyStatus,
+            published: status === 'PUBLISHED',
+            statusHistory: history,
+            updatedAt: new Date().toISOString()
+          };
+          updatedPropertyObj = updated;
+          return updated;
+        }
+        return p;
+      });
+      saveDurableLocalProperties(next);
+      return next;
+    });
+
+    if (updatedPropertyObj) {
+      savePropertyToFirestore(updatedPropertyObj).catch(() => {});
+    }
+
+    return {
+      success: true,
+      message: `Statut du bien mis à jour vers ${status}.`
+    };
+  };
+
+  const assignPropertyToAgent = async (propertyId: string, assignedAgentId: string, assignedAgentName: string) => {
+    try {
+      await mysqlApi.assignProperty(propertyId, assignedAgentId, assignedAgentName);
+    } catch (e) {}
+
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id === propertyId) {
+          return {
+            ...p,
+            assignedAgentId,
+            assignedAgentName,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return p;
+      });
+      saveDurableLocalProperties(next);
+      return next;
+    });
+  };
+
+  // Collaborateurs d'agence
+  const COLLABORATORS_STORAGE_KEY = 'kinimmo_agency_collaborators_store';
+  const [agencyCollaborators, setAgencyCollaborators] = useState<AgencyCollaborator[]>(() => {
+    try {
+      const saved = localStorage.getItem(COLLABORATORS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: 'collab_dieudonne',
+        agencyId: 'agency_congo_luxury',
+        userId: 'usr_dieudonne_01',
+        name: 'Dieudonné Mwamba',
+        email: 'dieudonne@congoluxuryhomes.cd',
+        phone: '+243 81 000 0001',
+        whatsapp: '+243 81 000 0001',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        role: 'agency_owner',
+        permissions: { canEditAllProperties: true, canAssignProperties: true, canAssignLeads: true, canViewBilling: true, canManageTeam: true },
+        status: 'active',
+        invitedAt: '2026-01-01T08:00:00Z',
+        joinedAt: '2026-01-01T08:30:00Z',
+        activeListingsCount: 12,
+        totalLeadsCount: 48
+      },
+      {
+        id: 'collab_patrick',
+        agencyId: 'agency_immo_kinshasa',
+        userId: 'usr_patrick_02',
+        name: 'Patrick Kalombo',
+        email: 'patrick@immokingombe.cd',
+        phone: '+243 82 123 4567',
+        whatsapp: '+243 82 123 4567',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+        role: 'agency_manager',
+        permissions: { canEditAllProperties: true, canAssignProperties: true, canAssignLeads: true, canViewBilling: false, canManageTeam: true },
+        status: 'active',
+        invitedAt: '2026-01-10T09:00:00Z',
+        joinedAt: '2026-01-10T10:00:00Z',
+        activeListingsCount: 8,
+        totalLeadsCount: 32
+      },
+      {
+        id: 'collab_sarah',
+        agencyId: 'agency_fleuve_habitat',
+        userId: 'usr_sarah_03',
+        name: 'Sarah Mbuyi',
+        email: 'sarah@fleuvecongoimmo.cd',
+        phone: '+243 99 876 5432',
+        whatsapp: '+243 99 876 5432',
+        avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+        role: 'agency_agent',
+        permissions: { canEditAllProperties: false, canAssignProperties: false, canAssignLeads: false, canViewBilling: false, canManageTeam: false },
+        status: 'active',
+        invitedAt: '2026-02-01T11:00:00Z',
+        joinedAt: '2026-02-02T09:15:00Z',
+        activeListingsCount: 5,
+        totalLeadsCount: 19
+      }
+    ];
+  });
+
+  const saveCollaboratorsLocally = (collabs: AgencyCollaborator[]) => {
+    try {
+      localStorage.setItem(COLLABORATORS_STORAGE_KEY, JSON.stringify(collabs));
+    } catch {}
+  };
+
+  const inviteAgencyCollaborator = async (data: any) => {
+    const newCollab: AgencyCollaborator = {
+      id: `collab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      agencyId: data.agencyId || user?.agencyId || user?.id || 'agency_default',
+      userId: `usr_${Date.now()}`,
+      name: data.name,
+      email: data.email,
+      phone: data.phone || '',
+      whatsapp: data.whatsapp || data.phone || '',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      role: data.role || 'agency_agent',
+      permissions: data.permissions || { canEditAllProperties: false, canAssignProperties: false, canAssignLeads: false, canViewBilling: false, canManageTeam: false },
+      status: 'invited',
+      invitedAt: new Date().toISOString(),
+      activeListingsCount: 0,
+      totalLeadsCount: 0
+    };
+
+    setAgencyCollaborators((prev) => {
+      const next = [newCollab, ...prev];
+      saveCollaboratorsLocally(next);
+      return next;
+    });
+
+    try {
+      await mysqlApi.inviteAgencyCollaborator(newCollab);
+    } catch {}
+
+    return { success: true, message: `Collaborateur ${data.name} invité avec succès.`, collaborator: newCollab };
+  };
+
+  const updateAgencyCollaborator = async (id: string, data: Partial<AgencyCollaborator>) => {
+    setAgencyCollaborators((prev) => {
+      const next = prev.map((c) => (c.id === id ? { ...c, ...data } : c));
+      saveCollaboratorsLocally(next);
+      return next;
+    });
+    try {
+      await mysqlApi.updateAgencyCollaborator(id, data);
+    } catch {}
+  };
+
+  const deleteAgencyCollaborator = async (id: string) => {
+    setAgencyCollaborators((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      saveCollaboratorsLocally(next);
+      return next;
+    });
+    try {
+      await mysqlApi.deleteAgencyCollaborator(id);
+    } catch {}
+  };
+
+  // Transactions d'agence
+  const TRANSACTIONS_STORAGE_KEY = 'kinimmo_agency_transactions_store';
+  const [agencyTransactions, setAgencyTransactions] = useState<AgencyTransaction[]>(() => {
+    try {
+      const saved = localStorage.getItem(TRANSACTIONS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: 'tx_001',
+        agencyId: 'agency_congo_luxury',
+        propertyId: 'prop_1',
+        propertyTitle: 'Villa Diplomatique Haute Sécurité avec Piscine',
+        agentId: 'collab_dieudonne',
+        agentName: 'Dieudonné Mwamba',
+        clientName: 'Ambassade & Mission Diplomatique',
+        clientContact: '+243 81 999 8888',
+        type: 'sale',
+        amount: 1250000,
+        currency: 'USD',
+        commissionRate: 5.0,
+        commissionAmount: 62500,
+        status: 'closed',
+        notes: 'Acte notarié signé avec succès à la Gombe.',
+        closedAt: '2026-09-15T14:00:00Z',
+        createdAt: '2026-08-20T10:00:00Z'
+      },
+      {
+        id: 'tx_002',
+        agencyId: 'agency_immo_kinshasa',
+        propertyId: 'prop_2',
+        propertyTitle: 'Appartement Haut Standing Vue Fleuve',
+        agentId: 'collab_patrick',
+        agentName: 'Patrick Kalombo',
+        clientName: 'Directeur Général Multinationale Télécom',
+        clientContact: '+243 82 555 4444',
+        type: 'rent',
+        amount: 3500,
+        currency: 'USD',
+        commissionRate: 100.0,
+        commissionAmount: 3500,
+        status: 'closed',
+        notes: 'Bail locatif d\'un an renouvelable.',
+        closedAt: '2026-10-01T16:30:00Z',
+        createdAt: '2026-09-25T11:00:00Z'
+      }
+    ];
+  });
+
+  const saveTransactionsLocally = (txs: AgencyTransaction[]) => {
+    try {
+      localStorage.setItem(TRANSACTIONS_STORAGE_KEY, JSON.stringify(txs));
+    } catch {}
+  };
+
+  const createAgencyTransaction = async (data: any) => {
+    const newTx: AgencyTransaction = {
+      id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      agencyId: data.agencyId || user?.agencyId || user?.id || 'agency_default',
+      propertyId: data.propertyId || '',
+      propertyTitle: data.propertyTitle || 'Propriété Kinshasa',
+      agentId: data.agentId || user?.id || 'agent_current',
+      agentName: data.agentName || user?.name || 'Agent Immobilier',
+      clientName: data.clientName || 'Client Particulier',
+      clientContact: data.clientContact || '',
+      type: data.type || 'sale',
+      amount: Number(data.amount) || 0,
+      currency: data.currency || 'USD',
+      commissionRate: Number(data.commissionRate) || 5,
+      commissionAmount: Number(data.commissionAmount) || (Number(data.amount || 0) * 0.05),
+      status: data.status || 'closed',
+      notes: data.notes || '',
+      closedAt: data.closedAt || new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    };
+
+    setAgencyTransactions((prev) => {
+      const next = [newTx, ...prev];
+      saveTransactionsLocally(next);
+      return next;
+    });
+
+    try {
+      await mysqlApi.createAgencyTransaction(newTx);
+    } catch {}
+
+    return { success: true, transaction: newTx };
   };
 
   // Agent Actions
@@ -1812,6 +2372,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reports,
         addPropertyReport,
         resolvePropertyReport,
+        propertyVideos,
+        loadPropertyVideos,
+        addPropertyVideo,
+        updatePropertyVideoStatus,
+        deletePropertyVideo,
+        updatePropertyListingStatus,
+        assignPropertyToAgent,
+        agencyCollaborators,
+        inviteAgencyCollaborator,
+        updateAgencyCollaborator,
+        deleteAgencyCollaborator,
+        agencyTransactions,
+        createAgencyTransaction,
       }}
     >
       <div dir={languages.find((l) => l.code === language)?.dir || 'ltr'}>

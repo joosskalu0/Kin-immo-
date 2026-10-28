@@ -15,8 +15,11 @@ import {
   ShieldCheck,
   AlertCircle,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  AlertTriangle,
+  Ban
 } from 'lucide-react';
+import { canBoostProperty, getListingLifecycleStatus, LISTING_STATUS_CONFIG } from '../../utils/propertyStatusHelpers';
 
 interface VisibilityBoostModalProps {
   isOpen: boolean;
@@ -185,6 +188,23 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
             </div>
           )}
 
+          {!canBoostProperty(property).allowed && (
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-start gap-3">
+              <Ban className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-bold text-amber-900">
+                  Boost de visibilité non disponible pour ce bien
+                </h4>
+                <p className="mt-1 leading-relaxed text-amber-800">
+                  {canBoostProperty(property).reason}
+                </p>
+                <p className="mt-1 text-[11px] text-amber-700">
+                  Statut actuel de l'annonce : <strong>{LISTING_STATUS_CONFIG[getListingLifecycleStatus(property)]?.label}</strong>.
+                </p>
+              </div>
+            </div>
+          )}
+
           {!orderSuccess ? (
             <>
               {/* Étape 1 : Choix de l'option de visibilité */}
@@ -328,8 +348,8 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                   <button
                     type="button"
                     onClick={handleOrderBoost}
-                    disabled={isSubmitting}
-                    className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-lg shadow-emerald-600/20 flex items-center gap-2 disabled:opacity-50 active:scale-95 transition-all"
+                    disabled={isSubmitting || !canBoostProperty(property).allowed}
+                    className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-lg shadow-emerald-600/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
                   >
                     {isSubmitting ? (
                       <>

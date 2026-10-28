@@ -267,14 +267,14 @@ export const QuickInteractiveFilters: React.FC = () => {
   return (
     <div className="w-full space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+        <span className="text-xs font-black text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+          <Sparkles className="w-4 h-4 text-emerald-600" />
           Filtres Rapides Intelligents (1-Click)
         </span>
         {!isAllSelected && (
           <button
             onClick={resetFilters}
-            className="text-[11px] text-rose-600 hover:text-rose-700 font-semibold underline"
+            className="text-xs text-rose-600 hover:text-rose-700 font-bold underline"
           >
             Réinitialiser les filtres
           </button>
@@ -288,19 +288,19 @@ export const QuickInteractiveFilters: React.FC = () => {
             <button
               key={badge.id}
               onClick={() => toggleQuickFilter(badge.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap flex items-center gap-2 transition-all duration-200 active:scale-95 border ${
+              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap flex items-center gap-2 transition-all duration-200 active:scale-95 border ${
                 badge.isActive
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm font-bold'
-                  : 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-200 shadow-sm'
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm font-black'
+                  : 'bg-white hover:bg-slate-100 text-slate-800 hover:text-slate-900 border-slate-200 shadow-sm'
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${badge.isActive ? 'text-white' : 'text-emerald-600'}`} />
+              <Icon className={`w-4 h-4 ${badge.isActive ? 'text-white' : 'text-emerald-600'}`} />
               <span>{badge.label}</span>
               <span
-                className={`text-[10px] px-1.5 py-0.5 rounded-full font-extrabold ${
+                className={`text-xs px-2 py-0.5 rounded-full font-black ${
                   badge.isActive
                     ? 'bg-white/20 text-white'
-                    : 'bg-slate-100 text-slate-600'
+                    : 'bg-slate-100 text-slate-700'
                 }`}
               >
                 {badge.count}

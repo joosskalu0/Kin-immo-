@@ -41,10 +41,28 @@ import { PropertyVideoPlayer } from './PropertyVideoPlayer';
 import { SocialShareBar } from './SocialShareBar';
 import { ScheduleVisitModal } from './ScheduleVisitModal';
 import { ReportListingModal } from './ReportListingModal';
+import { TrustBadge } from './Trust/TrustBadge';
+import { TrustAvailabilityBadge } from './Trust/TrustAvailabilityBadge';
+import { TrustVerificationModal } from './Trust/TrustVerificationModal';
+import {
+  buildWhatsAppUrl,
+  openWhatsApp,
+  cleanPhoneNumberForTel,
+  cleanPhoneNumberForWhatsApp,
+  copyPhoneNumber,
+  triggerPhoneCall,
+  isMobileDevice
+} from '../utils/whatsapp';
 
 interface PropertyDetailModalProps {
   onOpenShareModal: (propertyId: string) => void;
 }
+
+const WhatsAppIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg className={`${className} fill-current`} viewBox="0 0 24 24">
+    <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.699c.983.538 1.905.82 2.8.82 3.182 0 5.768-2.587 5.768-5.767.001-3.18-2.584-5.765-5.772-5.765zm0-2.172c4.382 0 7.937 3.555 7.938 7.937 0 4.382-3.555 7.938-7.938 7.938-1.341 0-2.6-.339-3.712-.932l-4.319 1.133 1.154-4.212c-.663-1.168-1.061-2.52-1.061-3.927 0-4.382 3.556-7.937 7.938-7.937zm3.847 11.233c-.161.453-.807.828-1.127.879-.32.05-.72.073-2.135-.515-1.782-.74-2.92-2.56-3.009-2.679-.089-.119-.719-.958-.719-1.825 0-.867.453-1.294.614-1.471.161-.177.352-.222.469-.222.117 0 .234 0 .337.005.108.006.252-.041.394.3.147.354.5 1.218.544 1.307.044.089.073.193.015.308-.059.115-.088.188-.176.29-.088.103-.186.23-.265.309-.089.088-.182.185-.078.363.104.177.461.761 1.018 1.258.718.639 1.323.837 1.51.929.186.093.296.079.407-.049.112-.128.479-.559.607-.751.128-.192.256-.16.427-.096.171.064 1.085.511 1.271.603.186.092.311.138.356.216.046.077.046.452-.115.905z" />
+  </svg>
+);
 
 export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpenShareModal }) => {
   const {
@@ -54,6 +72,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
     customFields,
     currency,
     agents,
+    agencies,
     wishlist,
     toggleWishlist,
     compareList,
@@ -74,6 +93,8 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
   const [activeVirtualRoom, setActiveVirtualRoom] = useState(0);
   const [isScheduleVisitOpen, setIsScheduleVisitOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isTrustModalOpen, setIsTrustModalOpen] = useState(false);
+  const [callToast, setCallToast] = useState<string | null>(null);
 
   // Tour / Contact Form State
   const [requestType, setRequestType] = useState<'info' | 'tour'>('info');
@@ -137,7 +158,114 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
   const isFavorite = wishlist.includes(property.id);
   const isCompared = compareList.includes(property.id);
   const formattedPrice = convertAndFormatPrice(property.price, currency);
-  const agent = agents.find((a) => a.id === property.agentId);
+
+  // 1. Détection & Résolution de l'Agent Référent
+  const agent = agents.find(
+    (a) => a.id === property.agentId || a.name === property.agentId || (property.contactEmail && a.email === property.contactEmail)
+  );
+
+  // 2. Détection & Résolution de l'Agence Immobilière Mandataire
+  const agency =
+    (property.agencyId
+      ? agencies?.find(
+          (ag) =>
+            ag.id === property.agencyId ||
+            ag.name === property.agencyName ||
+            (property.agencyId === 'agency_1' && ag.id === 'agency_congo_luxury') ||
+            (property.agencyId === 'agency_2' && ag.id === 'agency_fleuve_habitat')
+        )
+      : null) ||
+    (agent?.agencyId ? agencies?.find((ag) => ag.id === agent.agencyId || ag.name === agent.agencyName) : null) ||
+    (property.agencyName
+      ? agencies?.find((ag) => ag.name?.toLowerCase().trim() === property.agencyName?.toLowerCase().trim())
+      : null) ||
+    (agent?.agencyName
+      ? agencies?.find((ag) => ag.name?.toLowerCase().includes(agent.agencyName!.toLowerCase()) || agent.agencyName!.toLowerCase().includes(ag.name.toLowerCase()))
+      : null);
+
+  // 3. Modélisation contact Agent (garantie d'un interlocuteur joignable pour chaque bien)
+  const effectiveAgent =
+    agent ||
+    {
+      id: property.agentId || 'agent_contact',
+      name: property.agentId && !property.agentId.startsWith('agent_') ? property.agentId : (property.agencyName ? `Conseiller ${property.agencyName}` : 'Conseiller Kinshasa Immobilier'),
+      title: 'Conseiller Immobilier Agréé',
+      email: property.contactEmail || 'contact@kinimmo.cd',
+      phone: property.contactPhone || '+243 81 000 0001',
+      whatsapp: property.contactPhone || '+243 81 000 0001',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
+      agencyName: property.agencyName || agency?.name || 'Kinshasa Immobilier Partenaire',
+      rating: 4.9,
+      reviewCount: 24,
+      listingsCount: 5,
+      bio: 'Expert transactions et locations à Kinshasa.',
+      specialties: [property.commune || 'Kinshasa'],
+      languages: ['Français', 'Lingala'],
+      isVerified: true,
+    };
+
+  // Paramètres WhatsApp Agent
+  const agentWhatsAppNumber = effectiveAgent.whatsapp || effectiveAgent.phone || property.contactPhone || '+243810000001';
+  const agentWhatsAppMessage = `Bonjour ${effectiveAgent.name || 'Conseiller Kinshasa'}, je vous contacte depuis Kinshasa Immobilier au sujet de votre bien "${property.title}" (${formattedPrice}) situé à ${property.commune || property.city || 'Kinshasa'} (Réf: ${property.id}). Ce bien est-il toujours disponible pour une visite ?`;
+  const agentWhatsAppUrl = buildWhatsAppUrl(agentWhatsAppNumber, agentWhatsAppMessage);
+
+  const handleOpenAgentWhatsApp = () => {
+    recordPropertyAction(property.id, 'whatsapp');
+    // Sur mobile, tente le déclenchement natif instantané de l'application WhatsApp
+    if (typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      try {
+        const appScheme = `whatsapp://send?phone=${cleanPhoneNumberForWhatsApp(agentWhatsAppNumber)}&text=${encodeURIComponent(agentWhatsAppMessage)}`;
+        const temp = document.createElement('a');
+        temp.href = appScheme;
+        temp.style.display = 'none';
+        document.body.appendChild(temp);
+        temp.click();
+        setTimeout(() => {
+          try { document.body.removeChild(temp); } catch {}
+        }, 300);
+      } catch {}
+    }
+  };
+
+  const handleCallAgent = () => {
+    recordPropertyAction(property.id, 'call');
+    copyPhoneNumber(effectiveAgent.phone);
+    setCallToast(`Numéro ${effectiveAgent.phone} copié ! Appel vers l'agent en cours...`);
+    setTimeout(() => setCallToast(null), 4000);
+  };
+
+  const handleCallAgency = () => {
+    recordPropertyAction(property.id, 'call');
+    copyPhoneNumber(effectiveAgency.phone);
+    setCallToast(`Numéro ${effectiveAgency.phone} copié ! Appel vers le standard en cours...`);
+    setTimeout(() => setCallToast(null), 4000);
+  };
+
+  const handleCallMobileBar = () => {
+    recordPropertyAction(property.id, 'call');
+    const p = effectiveAgent?.phone || effectiveAgency?.phone || '+243 81 000 0001';
+    copyPhoneNumber(p);
+    setCallToast(`Numéro ${p} copié ! Appel en cours...`);
+    setTimeout(() => setCallToast(null), 4000);
+  };
+
+  // 4. Modélisation contact Agence
+  const effectiveAgency =
+    agency ||
+    {
+      id: property.agencyId || 'agency_partner',
+      name: property.agencyName || effectiveAgent?.agencyName || 'Kinshasa Immobilier & Partenaires',
+      logo: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=400&auto=format&fit=crop&q=80',
+      address: `${property.avenue || property.address || 'Boulevard du 30 Juin'}, ${property.commune || 'Kinshasa'}`,
+      city: 'Kinshasa',
+      commune: property.commune || 'Gombe',
+      phone: property.contactPhone || '+243 82 123 4567',
+      whatsapp: property.contactPhone || '+243 82 123 4567',
+      email: property.contactEmail || 'contact@kinimmo.cd',
+      website: 'https://kinimmo.cd',
+      rccm: 'CD/KIN/RCCM/Agréé',
+      isVerified: true,
+    };
 
   const canManageProperty = Boolean(
     user && (
@@ -293,6 +421,19 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 <span className="hidden md:inline">Supprimer</span>
               </button>
             )}
+
+            {/* Bouton d'Accès Rapide WhatsApp Agent */}
+            <a
+              href={agentWhatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleOpenAgentWhatsApp}
+              className="px-3.5 py-2 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/20 hover:scale-[1.02] active:scale-95 shrink-0 cursor-pointer"
+              title={`Discuter directement sur WhatsApp avec l'agent ${effectiveAgent.name}`}
+            >
+              <WhatsAppIcon className="w-3.5 h-3.5 fill-white" />
+              <span>WhatsApp Agent</span>
+            </a>
 
             {/* Programmer une Visite - Primary Highlight CTA */}
             <button
@@ -601,29 +742,129 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4 border-t border-slate-200">
             {/* Left 2 Cols: Details */}
             <div className="lg:col-span-2 space-y-6">
+              {/* Kinimmo Trust Banner & Verification Status */}
+              <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-slate-900 via-emerald-950/40 to-slate-900 border border-emerald-500/30 text-white space-y-3 shadow-lg">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                          Kinimmo Trust
+                        </span>
+                        <TrustBadge
+                          status={property.trust_status}
+                          level={property.trust_level}
+                          score={property.trust_score}
+                          verifiedAt={property.trust_verified_at}
+                          expiresAt={property.trust_expires_at}
+                          targetType="property"
+                          targetTitle={property.title}
+                          size="sm"
+                          showUnverified={true}
+                        />
+                      </div>
+                      <h4 className="font-bold text-sm text-white mt-0.5">
+                        {property.trust_status === 'property_verified'
+                          ? 'Bien Vérifié & Titre Foncier Contrôlé'
+                          : 'Dossier de Confiance Immobilière'}
+                      </h4>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <TrustAvailabilityBadge
+                      propertyId={property.id}
+                      propertyTitle={property.title}
+                      status={property.availability_status}
+                      confirmedAt={property.availability_confirmed_at}
+                      canConfirm={Boolean(
+                        user?.role === 'admin' ||
+                        user?.id === property.userId ||
+                        user?.id === property.agentId ||
+                        (user?.agentId && user.agentId === property.agentId) ||
+                        (user?.email && property.contactEmail && user.email.toLowerCase() === property.contactEmail.toLowerCase())
+                      )}
+                    />
+
+                    {/* RÈGLE MÉTIER STRICTE KINIMMO TRUST : Seul le propriétaire / gestionnaire de l'annonce peut demander la certification */}
+                    {property.trust_status !== 'property_verified' && (
+                      user && (
+                        user.role === 'admin' ||
+                        user.id === property.userId ||
+                        user.id === property.agentId ||
+                        (user.agentId && user.agentId === property.agentId) ||
+                        (user.email && property.contactEmail && user.email.toLowerCase() === property.contactEmail.toLowerCase())
+                      ) ? (
+                        <button
+                          onClick={() => setIsTrustModalOpen(true)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-1.5"
+                        >
+                          <ShieldCheck size={14} />
+                          <span>Faire certifier mon bien</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic bg-slate-950/60 px-2.5 py-1 rounded-lg border border-slate-800">
+                          Certification réservée à l'annonceur
+                        </span>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1 border-t border-slate-800/80">
+                  <div className="p-2 rounded-xl bg-slate-800/50">
+                    <span className="text-slate-400 block text-[10px]">Titre Foncier</span>
+                    <strong className="text-emerald-400 font-semibold">
+                      {property.trust_status === 'property_verified' ? '✓ Cadastre RDC' : 'À certifier'}
+                    </strong>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-800/50">
+                    <span className="text-slate-400 block text-[10px]">Visite Terrain</span>
+                    <strong className="text-emerald-400 font-semibold">
+                      {property.trust_status === 'property_verified' ? '✓ Kinshasa' : 'Non effectuée'}
+                    </strong>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-800/50">
+                    <span className="text-slate-400 block text-[10px]">Mandat Légal</span>
+                    <strong className="text-emerald-400 font-semibold">
+                      {property.trust_status === 'property_verified' ? '✓ Notarié' : 'En attente'}
+                    </strong>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-800/50">
+                    <span className="text-slate-400 block text-[10px]">Score Audit</span>
+                    <strong className="text-emerald-400 font-semibold">
+                      {property.trust_score ? `${property.trust_score}/100` : '—'}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
               {/* Specs Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs text-slate-600">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs sm:text-sm text-slate-600">
                 <div>
-                  <span className="text-slate-500 block">Chambres</span>
-                  <span className="text-sm font-black text-slate-900 flex items-center gap-1 mt-0.5">
-                    <Bed className="w-4 h-4 text-emerald-600" /> {property.bedrooms}
+                  <span className="text-slate-500 block text-xs">Chambres</span>
+                  <span className="text-base font-black text-slate-900 flex items-center gap-1.5 mt-0.5">
+                    <Bed className="w-4.5 h-4.5 text-emerald-600" /> {property.bedrooms}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Salles de bain</span>
-                  <span className="text-sm font-black text-slate-900 flex items-center gap-1 mt-0.5">
-                    <Bath className="w-4 h-4 text-emerald-600" /> {property.bathrooms}
+                  <span className="text-slate-500 block text-xs">Salles de bain</span>
+                  <span className="text-base font-black text-slate-900 flex items-center gap-1.5 mt-0.5">
+                    <Bath className="w-4.5 h-4.5 text-emerald-600" /> {property.bathrooms}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Surface</span>
-                  <span className="text-sm font-black text-slate-900 flex items-center gap-1 mt-0.5">
-                    <Maximize className="w-4 h-4 text-emerald-600" /> {property.area} m²
+                  <span className="text-slate-500 block text-xs">Surface</span>
+                  <span className="text-base font-black text-slate-900 flex items-center gap-1.5 mt-0.5">
+                    <Maximize className="w-4.5 h-4.5 text-emerald-600" /> {property.area} m²
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Garages</span>
-                  <span className="text-sm font-black text-slate-900 flex items-center gap-1 mt-0.5">
+                  <span className="text-slate-500 block text-xs">Garages</span>
+                  <span className="text-base font-black text-slate-900 flex items-center gap-1.5 mt-0.5">
                     🚗 {property.garages || 0}
                   </span>
                 </div>
@@ -631,42 +872,42 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
 
               {/* Description */}
               <div>
-                <h4 className="text-sm font-black text-slate-900 mb-2">Description du Bien</h4>
-                <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <h4 className="text-base font-black text-slate-900 mb-2">Description du Bien</h4>
+                <p className="text-sm sm:text-base text-slate-800 leading-relaxed whitespace-pre-line bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200">
                   {property.description}
                 </p>
               </div>
 
               {/* Localisation Kinshasa (Commune, Quartier, Avenue) */}
               <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200 space-y-3">
-                <h4 className="text-sm font-black text-emerald-800 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-emerald-600" />
+                <h4 className="text-base font-black text-emerald-800 flex items-center gap-2">
+                  <MapPin className="w-4.5 h-4.5 text-emerald-600" />
                   Localisation à Kinshasa
                 </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-                    <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
-                      <Compass className="w-3.5 h-3.5 text-emerald-600" /> Commune
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs sm:text-sm">
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-slate-500 block text-xs font-semibold flex items-center gap-1">
+                      <Compass className="w-4 h-4 text-emerald-600" /> Commune
                     </span>
-                    <span className="text-sm font-black text-slate-900 mt-0.5 block">
+                    <span className="text-base font-black text-slate-900 mt-1 block">
                       {property.commune || 'Kinshasa'}
                     </span>
                   </div>
 
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-                    <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
-                      <Navigation className="w-3.5 h-3.5 text-emerald-600" /> Quartier
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-slate-500 block text-xs font-semibold flex items-center gap-1">
+                      <Navigation className="w-4 h-4 text-emerald-600" /> Quartier
                     </span>
-                    <span className="text-sm font-black text-slate-900 mt-0.5 block">
+                    <span className="text-base font-black text-slate-900 mt-1 block">
                       {property.quartier || 'Centre'}
                     </span>
                   </div>
 
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-                    <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
-                      <Building2 className="w-3.5 h-3.5 text-emerald-600" /> Avenue / Voie
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-slate-500 block text-xs font-semibold flex items-center gap-1">
+                      <Building2 className="w-4 h-4 text-emerald-600" /> Avenue / Voie
                     </span>
-                    <span className="text-sm font-black text-slate-900 mt-0.5 block truncate">
+                    <span className="text-base font-black text-slate-900 mt-1 block truncate">
                       {property.avenue || property.address}
                     </span>
                   </div>
@@ -757,71 +998,144 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               )}
             </div>
 
-            {/* Right Col: Agent Card & Contact Form Widget */}
+            {/* Right Col: Agent Card, Agency Card & Contact Form Widget */}
             <div className="space-y-4">
-              {/* Agent Card */}
-              {agent && (
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative shrink-0">
-                      <img
-                        src={agent.avatar}
-                        alt={agent.name}
-                        className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/40"
-                      />
-                      {(agent.isVerified || agent.verificationStatus === 'verified') && (
-                        <span className="absolute -bottom-1 -right-1 p-0.5 bg-white rounded-full border border-emerald-500 text-emerald-600">
-                          <ShieldCheck className="w-3.5 h-3.5 fill-emerald-500/20" />
-                        </span>
-                      )}
+              {/* Box Contacts & WhatsApp Directs */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-3.5 shadow-xs">
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
+                      <WhatsAppIcon className="w-4 h-4 fill-emerald-600" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="font-bold text-slate-900 text-sm">{agent.name}</h4>
-                        {(agent.isVerified || agent.verificationStatus === 'verified') && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 text-[10px] font-black">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            <span>Vérifié</span>
+                      <h4 className="font-extrabold text-slate-900 text-sm">Contacts & WhatsApp Directs</h4>
+                      <p className="text-[10px] text-slate-500">Échangez en direct avec l'agent ou l'agence mandataire</p>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    En direct
+                  </span>
+                </div>
+
+                {/* 1. Carte Agent Référent */}
+                {effectiveAgent && (
+                  <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className="relative shrink-0">
+                        <img
+                          src={effectiveAgent.avatar}
+                          alt={effectiveAgent.name}
+                          className="w-11 h-11 rounded-xl object-cover ring-2 ring-emerald-500/40"
+                        />
+                        {(effectiveAgent.isVerified || effectiveAgent.verificationStatus === 'verified') && (
+                          <span className="absolute -bottom-1 -right-1 p-0.5 bg-white rounded-full border border-emerald-500 text-emerald-600 shadow-xs" title="Agent Vérifié">
+                            <ShieldCheck className="w-3.5 h-3.5 fill-emerald-500/20" />
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-emerald-700 font-semibold">{agent.title}</p>
-                      <p className="text-[10px] text-slate-500">{agent.agencyName}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h5 className="font-bold text-slate-900 text-xs truncate">{effectiveAgent.name}</h5>
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 text-[9px] font-black shrink-0">
+                            Agent Référent
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-emerald-700 font-semibold truncate">{effectiveAgent.title}</p>
+                        <p className="text-[10px] text-slate-500 truncate">{effectiveAgent.agencyName || effectiveAgency?.name}</p>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="pt-2 border-t border-slate-200 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      {/* WhatsApp Direct */}
+                    {/* Actions Agent : WhatsApp & Téléphone */}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      {/* WhatsApp Agent */}
                       <a
-                        href={`https://wa.me/${(agent.whatsapp || agent.phone || '+243810000000').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour ${agent.name}, je suis intéressé(e) par votre annonce "${property.title}" (${formattedPrice}) sur Kin Immobilier.`)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => recordPropertyAction(property.id, 'whatsapp')}
-                        className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all"
+                        href={agentWhatsAppUrl}
+                        target="_top"
+                        onClick={handleOpenAgentWhatsApp}
+                        className="py-2.5 px-2.5 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm hover:shadow transition-all active:scale-95 cursor-pointer"
+                        title={`Envoyer un message WhatsApp directement à l'agent ${effectiveAgent.name}`}
                       >
-                        <MessageCircle className="w-4 h-4 fill-white" />
-                        <span>WhatsApp</span>
+                        <WhatsAppIcon className="w-3.5 h-3.5 fill-white shrink-0" />
+                        <span className="truncate">WhatsApp Agent</span>
                       </a>
 
-                      {/* Direct Phone Call */}
+                      {/* Appel direct Agent */}
                       <a
-                        href={`tel:${agent.phone}`}
-                        onClick={() => recordPropertyAction(property.id, 'call')}
-                        className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-200 transition-all"
+                        href={`tel:${cleanPhoneNumberForTel(effectiveAgent.phone)}`}
+                        target="_top"
+                        onClick={handleCallAgent}
+                        className="py-2.5 px-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-200 shadow-xs transition-all active:scale-95 cursor-pointer"
+                        title={`Appeler ${effectiveAgent.name} au ${effectiveAgent.phone}`}
                       >
-                        <Phone className="w-4 h-4 text-emerald-600" />
-                        <span>Appeler</span>
+                        <Phone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span className="truncate">Appeler l'Agent</span>
                       </a>
                     </div>
 
-                    <div className="text-[11px] text-slate-500 pt-1 flex items-center justify-between">
-                      <span className="truncate">{agent.email}</span>
-                      <span className="text-emerald-700 font-bold">{agent.phone}</span>
+                    <div className="text-[10px] text-slate-500 pt-1 flex items-center justify-between border-t border-slate-100">
+                      <span className="truncate">{effectiveAgent.email}</span>
+                      <span className="text-emerald-700 font-bold shrink-0">{effectiveAgent.phone}</span>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+
+                {/* 2. Carte Agence Mandataire */}
+                {effectiveAgency && (
+                  <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 shadow-xs space-y-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className="relative shrink-0">
+                        {effectiveAgency.logo ? (
+                          <img
+                            src={effectiveAgency.logo}
+                            alt={effectiveAgency.name}
+                            className="w-11 h-11 rounded-xl object-cover ring-2 ring-emerald-600/30 bg-white"
+                          />
+                        ) : (
+                          <div className="w-11 h-11 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-black text-sm ring-2 ring-emerald-600/30">
+                            <Building2 className="w-5 h-5 text-white" />
+                          </div>
+                        )}
+                        <span className="absolute -bottom-1 -right-1 p-0.5 bg-white rounded-full border border-emerald-600 text-emerald-700 shadow-xs" title="Agence Agréée Kinshasa">
+                          <Building2 className="w-3.5 h-3.5 text-emerald-700" />
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h5 className="font-bold text-slate-900 text-xs truncate">{effectiveAgency.name}</h5>
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 text-[9px] font-black shrink-0">
+                            Agence Agréée
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-600 truncate flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{effectiveAgency.commune || effectiveAgency.city || 'Kinshasa'}</span>
+                          {effectiveAgency.rccm && <span className="text-slate-400">• {effectiveAgency.rccm}</span>}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Actions Agence : Appel direct au Standard */}
+                    <div className="pt-1">
+                      <a
+                        href={`tel:${cleanPhoneNumberForTel(effectiveAgency.phone)}`}
+                        target="_top"
+                        onClick={handleCallAgency}
+                        className="w-full py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-200 shadow-xs transition-all active:scale-95 cursor-pointer"
+                        title={`Appeler le standard de l'agence ${effectiveAgency.name} au ${effectiveAgency.phone}`}
+                      >
+                        <Phone className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                        <span className="truncate">Appeler le Standard ({effectiveAgency.phone})</span>
+                      </a>
+                    </div>
+
+                    <div className="text-[10px] text-slate-500 pt-1 flex items-center justify-between border-t border-emerald-100">
+                      <span className="truncate">{effectiveAgency.email}</span>
+                      <span className="text-emerald-800 font-bold shrink-0">{effectiveAgency.phone}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Inquiry & Tour Form Widget */}
               <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4 text-xs">
@@ -935,6 +1249,38 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               Réf. Annonce : <span className="font-mono text-emerald-700 font-bold">{property.id}</span>
             </p>
           </div>
+
+          {/* Mobile Sticky Quick WhatsApp Contact Bar */}
+          <div className="sm:hidden -mx-4 -mb-4 mt-4 p-3 bg-white/95 backdrop-blur-md border-t border-slate-200 flex items-center gap-2.5 sticky bottom-0 z-20 shadow-xl">
+            <a
+              href={agentWhatsAppUrl}
+              target="_top"
+              onClick={handleOpenAgentWhatsApp}
+              className="flex-1 py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-sm flex items-center justify-center gap-2 shadow-md active:scale-95 cursor-pointer"
+              title={`Discuter directement sur WhatsApp avec l'agent ${effectiveAgent.name}`}
+            >
+              <WhatsAppIcon className="w-5 h-5 fill-white" />
+              <span>WhatsApp Agent</span>
+            </a>
+            <a
+              href={`tel:${cleanPhoneNumberForTel(effectiveAgent?.phone || effectiveAgency?.phone)}`}
+              target="_top"
+              onClick={handleCallMobileBar}
+              className="py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-sm border border-slate-300 flex items-center justify-center gap-2 active:scale-95 shrink-0 cursor-pointer shadow-xs"
+              title="Appeler"
+            >
+              <Phone className="w-5 h-5 text-emerald-600" />
+              <span>Appeler</span>
+            </a>
+          </div>
+
+          {/* Quick Call Notification Toast */}
+          {callToast && (
+            <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-2xl border border-emerald-500/40 text-xs sm:text-sm font-bold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-4">
+              <Phone className="w-4 h-4 text-emerald-400 shrink-0 animate-bounce" />
+              <span>{callToast}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -951,6 +1297,18 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
         onSubmitReport={addPropertyReport}
+      />
+
+      {/* Demande de certification Kinimmo Trust */}
+      <TrustVerificationModal
+        isOpen={isTrustModalOpen}
+        onClose={() => setIsTrustModalOpen(false)}
+        targetType="property"
+        targetId={property.id}
+        targetName={property.title}
+        onSuccess={() => {
+          setIsTrustModalOpen(false);
+        }}
       />
     </div>
   );

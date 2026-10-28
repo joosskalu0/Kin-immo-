@@ -4,6 +4,14 @@ import { Agent, Agency } from '../types';
 import { AgentVerificationSubmitModal } from './Dashboard/AgentVerificationSubmitModal';
 import { AgencyRegistrationModal } from './AgencyRegistrationModal';
 import {
+  buildWhatsAppUrl,
+  openWhatsApp,
+  cleanPhoneNumberForTel,
+  cleanPhoneNumberForWhatsApp,
+  triggerPhoneCall,
+  isMobileDevice
+} from '../utils/whatsapp';
+import {
   Home,
   Search,
   Star,
@@ -728,11 +736,23 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                       </button>
                     )}
 
+                    {/* Bouton WhatsApp direct pour l'Agent */}
+                    <a
+                      href={buildWhatsAppUrl(agent.whatsapp || agent.phone, `Bonjour ${agent.name}, je vous contacte depuis Kinshasa Immobilier.`)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs sm:text-sm transition-transform hover:scale-105 flex items-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer shrink-0"
+                      title={`Échanger directement avec ${agent.name} sur WhatsApp`}
+                    >
+                      <MessageSquare className="w-4 h-4 fill-white" />
+                      <span className="font-bold">WhatsApp</span>
+                    </a>
+
                     <button
                       onClick={() => setContactAgentModal(agent)}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition-transform hover:scale-105 flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
+                      className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm transition-transform hover:scale-105 flex items-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer"
                     >
-                      <MessageSquare className="w-3.5 h-3.5" /> Contacter
+                      <MessageSquare className="w-4 h-4" /> Contacter
                     </button>
                   </div>
                 </div>
@@ -840,20 +860,26 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                       <p className="text-[11px] font-mono text-emerald-400">RCCM: {agency.rccm}</p>
                     )}
                     <p className="text-slate-300 leading-relaxed">{agency.description}</p>
-                    <div className="pt-2 text-slate-400 flex flex-wrap items-center gap-3">
-                      <a href={`tel:${agency.phone}`} className="text-emerald-400 hover:underline">📞 {agency.phone}</a>
-                      {agency.whatsapp && (
-                        <a
-                          href={`https://wa.me/${agency.whatsapp.replace(/[^0-9]/g, '')}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-emerald-400 hover:underline"
-                        >
-                          💬 WhatsApp
-                        </a>
-                      )}
-                      <span>👥 {agency.agentsCount} agents</span>
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 font-semibold border border-slate-700">
+                    <div className="pt-2 text-slate-400 flex flex-wrap items-center gap-2.5">
+                      <a
+                        href={`tel:${cleanPhoneNumberForTel(agency.phone)}`}
+                        target="_top"
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
+                      >
+                        <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{agency.phone}</span>
+                      </a>
+                      <a
+                        href={buildWhatsAppUrl(agency.whatsapp || agency.phone, `Bonjour l'équipe ${agency.name}, je vous contacte depuis Kinshasa Immobilier.`)}
+                        target="_top"
+                        className="px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                        title={`Contacter l'agence ${agency.name} sur WhatsApp`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 fill-white" />
+                        <span>WhatsApp</span>
+                      </a>
+                      <span className="text-xs text-slate-400">👥 {agency.agentsCount} agents</span>
+                      <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-200 font-semibold border border-slate-700 text-xs">
                         🏡 <strong className="text-white">{agencyListingsCount}</strong> annonces
                       </span>
                     </div>
@@ -892,18 +918,18 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
             {/* Quick WhatsApp & Call Buttons */}
             <div className="grid grid-cols-2 gap-2 pt-1">
               <a
-                href={`https://wa.me/${(contactAgentModal.whatsapp || contactAgentModal.phone || '+243810000000').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour ${contactAgentModal.name}, je vous contacte depuis Kin Immobilier pour une recherche de propriété.`)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all"
+                href={buildWhatsAppUrl(contactAgentModal.whatsapp || contactAgentModal.phone, `Bonjour ${contactAgentModal.name}, je vous contacte depuis Kinshasa Immobilier pour une recherche de propriété.`)}
+                target="_top"
+                className="py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all cursor-pointer active:scale-95"
               >
                 <MessageSquare className="w-4 h-4 fill-white" />
                 <span>WhatsApp Direct</span>
               </a>
 
               <a
-                href={`tel:${contactAgentModal.phone}`}
-                className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-all"
+                href={`tel:${cleanPhoneNumberForTel(contactAgentModal.phone)}`}
+                target="_top"
+                className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-all cursor-pointer active:scale-95"
               >
                 <Phone className="w-4 h-4 text-emerald-400" />
                 <span>Appeler ({contactAgentModal.phone})</span>

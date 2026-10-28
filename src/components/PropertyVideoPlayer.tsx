@@ -11,7 +11,14 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-react';
-import { detectVideoType, getYouTubeEmbedUrl, getVimeoEmbedUrl } from '../utils/videoHelpers';
+import {
+  detectVideoType,
+  getYouTubeEmbedUrl,
+  getVimeoEmbedUrl,
+  isCloudinaryUrl,
+  getCloudinaryOptimizedVideoUrl,
+  getCloudinaryAutoThumbnail
+} from '../utils/videoHelpers';
 
 interface PropertyVideoPlayerProps {
   videoUrl: string;
@@ -33,6 +40,10 @@ export const PropertyVideoPlayer: React.FC<PropertyVideoPlayerProps> = ({
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const isCloudinary = isCloudinaryUrl(videoUrl);
+  const effectiveVideoSrc = isCloudinary ? getCloudinaryOptimizedVideoUrl(videoUrl, { quality: 'auto:good' }) : videoUrl;
+  const effectivePoster = posterImage || (isCloudinary ? getCloudinaryAutoThumbnail(videoUrl) : undefined);
 
   if (!videoUrl) {
     return (
@@ -159,8 +170,8 @@ export const PropertyVideoPlayer: React.FC<PropertyVideoPlayerProps> = ({
         <>
           <video
             ref={videoRef}
-            src={videoUrl}
-            poster={posterImage}
+            src={effectiveVideoSrc}
+            poster={effectivePoster}
             playsInline
             controls
             preload="metadata"
@@ -169,6 +180,14 @@ export const PropertyVideoPlayer: React.FC<PropertyVideoPlayerProps> = ({
             onError={() => setHasError(true)}
             className="w-full h-full object-cover bg-black cursor-pointer"
           />
+
+          {/* Cloudinary Stream Indicator */}
+          {isCloudinary && (
+            <div className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-slate-900/80 backdrop-blur-md border border-cyan-500/30 text-[10px] font-black text-cyan-300 pointer-events-none flex items-center gap-1 z-10 shadow-lg">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              Cloudinary HD Mobile
+            </div>
+          )}
 
           {/* Quick Play Overlay if not playing */}
           {!isPlaying && (

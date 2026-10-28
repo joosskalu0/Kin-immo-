@@ -36,6 +36,7 @@ import {
   AlertOctagon,
   ShieldAlert,
   ShieldCheck,
+  User as UserIcon,
 } from 'lucide-react';
 import { SAMPLE_REAL_ESTATE_VIDEOS, detectVideoType } from '../utils/videoHelpers';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
@@ -45,6 +46,7 @@ export const PropertyFormModal: React.FC = () => {
   const {
     isSubmitPropertyOpen,
     setIsSubmitPropertyOpen,
+    setIsAuthModalOpen,
     editingProperty,
     setEditingProperty,
     addProperty,
@@ -187,6 +189,46 @@ export const PropertyFormModal: React.FC = () => {
     setSubmitError(null);
     setStep(1);
   };
+
+  // Règle métier : La publication d'un bien est strictement réservée aux utilisateurs connectés
+  if (!user) {
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl text-slate-100 p-6 sm:p-8 text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-black uppercase tracking-wider">
+              Règle Métier Kinimmo
+            </span>
+            <h3 className="text-xl sm:text-2xl font-black text-white">Connexion Obligatoire</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              La publication d'un bien immobilier est strictement réservée aux utilisateurs connectés afin de garantir l'authenticité des annonces, la sécurité des transactions et la traçabilité des contacts.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2.5 pt-2">
+            <button
+              onClick={() => {
+                handleClose();
+                setIsAuthModalOpen(true);
+              }}
+              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            >
+              <UserIcon className="w-4 h-4" />
+              <span>Se Connecter / Créer un Compte</span>
+            </button>
+            <button
+              onClick={handleClose}
+              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-all cursor-pointer"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleAddImage = () => {
     if (newImageUrl.trim()) {
@@ -334,6 +376,13 @@ export const PropertyFormModal: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Règle métier : la publication d'un bien est strictement réservée aux utilisateurs connectés
+    if (!user) {
+      setSubmitError('Règle métier Kinimmo : Vous devez être connecté pour publier une annonce.');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     const propertyData: Property = {
       id: editingProperty ? editingProperty.id : `prop_${Date.now()}`,
       title,
@@ -366,18 +415,18 @@ export const PropertyFormModal: React.FC = () => {
       virtualTourUrl: virtualTourUrl || undefined,
       customFields: customFieldsState,
       privateFields: {
-        ownerName: ownerName || user?.name || '',
-        ownerPhone: ownerPhone || user?.phone || '',
-        ownerEmail: ownerEmail || user?.email || '',
+        ownerName: ownerName || user.name || '',
+        ownerPhone: ownerPhone || user.phone || '',
+        ownerEmail: ownerEmail || user.email || '',
         commissionRate,
         internalNotes,
         keyBoxCode,
       },
-      agentId: editingProperty?.agentId || user?.agentId || user?.id || user?.email || 'agent_1',
-      agencyId: editingProperty?.agencyId || user?.agencyId || (user?.role === 'agency' ? user.id : undefined),
-      agencyName: editingProperty?.agencyName || user?.agencyName || undefined,
-      contactEmail: editingProperty?.contactEmail || user?.email || undefined,
-      contactPhone: editingProperty?.contactPhone || user?.phone || undefined,
+      agentId: editingProperty?.agentId || user.agentId || user.id,
+      agencyId: editingProperty?.agencyId || user.agencyId || (user.role === 'agency' ? user.id : undefined),
+      agencyName: editingProperty?.agencyName || user.agencyName || (user.role === 'agency' ? user.name : undefined),
+      contactEmail: editingProperty?.contactEmail || user.email || undefined,
+      contactPhone: editingProperty?.contactPhone || user.phone || undefined,
       createdAt: editingProperty ? editingProperty.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       viewsCount: editingProperty ? editingProperty.viewsCount : 1,

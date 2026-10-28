@@ -17,7 +17,6 @@ import {
   Phone,
   ArrowRight,
   HelpCircle,
-  Megaphone,
   BarChart3,
   Loader2,
   Award
@@ -27,7 +26,7 @@ export const MonetizationPricingView: React.FC = () => {
   const { user, setIsAuthModalOpen } = useApp();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [visibilityOptions, setVisibilityOptions] = useState<VisibilityOption[]>([]);
-  const [activeTab, setActiveTab] = useState<'all' | 'individual' | 'agency' | 'promoter' | 'boosts' | 'ads'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'individual' | 'agency' | 'promoter' | 'boosts'>('all');
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>('pm_mpesa');
@@ -135,8 +134,7 @@ export const MonetizationPricingView: React.FC = () => {
               { id: 'individual', label: 'Particuliers & Bailleurs', icon: Home },
               { id: 'agency', label: 'Courtiers & Agences Pro', icon: Building2 },
               { id: 'promoter', label: 'Promoteurs & Bâtisseurs', icon: Landmark },
-              { id: 'boosts', label: 'Options de Visibilité', icon: Zap },
-              { id: 'ads', label: 'Régie Publicitaire Habitat', icon: Megaphone }
+              { id: 'boosts', label: 'Options de Visibilité', icon: Zap }
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -395,105 +393,6 @@ export const MonetizationPricingView: React.FC = () => {
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-
-        {/* Section Régie Publicitaire & Bannières */}
-        {(activeTab === 'all' || activeTab === 'ads') && (
-          <div className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white p-8 sm:p-10 border border-slate-800 shadow-xl relative overflow-hidden space-y-8">
-            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-8 items-center">
-              <div className="lg:col-span-2 space-y-4">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-400/30 text-[11px] font-black uppercase">
-                  <Megaphone className="w-3.5 h-3.5" />
-                  <span>Régie Publicitaire & Partenaires Habitat</span>
-                </div>
-
-                <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white leading-tight">
-                  Diffusez vos bannières auprès de milliers d'acquéreurs, locataires et investisseurs à Kinshasa
-                </h2>
-
-                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                  Idéal pour les <strong>promoteurs immobiliers</strong>, les <strong>entreprises de construction & génie civil</strong>,
-                  les cabinets d'architecture, les architectes d'intérieur et les <strong>banques</strong> (crédit immobilier, caution locative).
-                  Formats bannière Accueil, tête de recherche et barre latérale avec suivi précis des impressions et clics.
-                </p>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-2">
-                  <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                    <span className="text-amber-400 font-black text-base block">+25 000</span>
-                    <span className="text-[11px] text-slate-400">Vues mensuelles qualifiées</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                    <span className="text-emerald-400 font-black text-base block">100% Ciblée</span>
-                    <span className="text-[11px] text-slate-400">Acheteurs, Bailleurs & Décideurs RDC</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-white/5 border border-white/10 col-span-2 sm:col-span-1">
-                    <span className="text-sky-400 font-black text-base block">Rapports Clairs</span>
-                    <span className="text-[11px] text-slate-400">Impressions & Clics en direct</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 rounded-2xl bg-white/10 border border-white/15 backdrop-blur-sm space-y-4">
-                <h3 className="font-black text-base text-white">
-                  Réserver un emplacement publicitaire
-                </h3>
-                <p className="text-xs text-slate-300">
-                  Nos conseillers régie vous accompagnent dans le calibrage visuel et le ciblage de vos campagnes.
-                </p>
-
-                <div className="space-y-2 pt-2">
-                  <a
-                    href="https://wa.me/243810000000?text=Bonjour,%20je%20souhaite%20réserver%20un%20espace%20publicitaire%20bannière%20sur%20Kinshasa%20Immobilier"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg"
-                  >
-                    <Phone className="w-4 h-4" />
-                    <span>Contacter par WhatsApp (+243)</span>
-                  </a>
-                  <a
-                    href="mailto:contact@kinshasa-immobilier.cd?subject=Demande%20Régie%20Publicitaire%20Immobilier"
-                    className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center justify-center gap-2 border border-white/20"
-                  >
-                    <span>Demander la grille tarifaire</span>
-                  </a>
-                </div>
-              </div>
-            </div>
-
-            {/* Grille Tarifaire des Espaces Publicitaires */}
-            <div className="border-t border-white/10 pt-6">
-              <h4 className="text-xs font-black uppercase tracking-wider text-amber-400 mb-4">
-                Grille des Tarifs Publicitaires Sponsors & Partenaires Habitat
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-                  <span className="text-[10px] font-bold text-amber-400 uppercase block">Grand Écran Accueil</span>
-                  <div className="text-xl font-black text-white">250 USD <span className="text-xs text-slate-400 font-normal">/ mois</span></div>
-                  <span className="text-[11px] text-emerald-400 block font-semibold">~712 500 CDF</span>
-                  <p className="text-[11px] text-slate-300">Format panoramique en haut de page d'accueil sous la recherche.</p>
-                </div>
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-                  <span className="text-[10px] font-bold text-emerald-400 uppercase block">Pancarte In-Feed</span>
-                  <div className="text-xl font-black text-white">180 USD <span className="text-xs text-slate-400 font-normal">/ mois</span></div>
-                  <span className="text-[11px] text-emerald-400 block font-semibold">~513 000 CDF</span>
-                  <p className="text-[11px] text-slate-300">Insérée au cœur de la liste des biens pour une visibilité naturelle.</p>
-                </div>
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-                  <span className="text-[10px] font-bold text-sky-400 uppercase block">Bannière Tête de Recherche</span>
-                  <div className="text-xl font-black text-white">150 USD <span className="text-xs text-slate-400 font-normal">/ mois</span></div>
-                  <span className="text-[11px] text-emerald-400 block font-semibold">~427 500 CDF</span>
-                  <p className="text-[11px] text-slate-300">Affichage prioritaire au-dessus des résultats de recherche.</p>
-                </div>
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-                  <span className="text-[10px] font-bold text-purple-400 uppercase block">Barre Latérale & Fiche</span>
-                  <div className="text-xl font-black text-white">120 USD <span className="text-xs text-slate-400 font-normal">/ mois</span></div>
-                  <span className="text-[11px] text-emerald-400 block font-semibold">~342 000 CDF</span>
-                  <p className="text-[11px] text-slate-300">Format carré / vertical pour la vue scindée carte et navigation.</p>
-                </div>
-              </div>
             </div>
           </div>
         )}

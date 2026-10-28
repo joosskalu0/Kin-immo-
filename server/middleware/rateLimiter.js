@@ -64,8 +64,16 @@ const adClickLimiter = createRateLimiter({
   message: { success: false, message: 'Activité de clics suspecte détectée.' }
 });
 
+// Limiteur pour les actions sensibles (publications vidéos, signalements, demandes de visite)
+const sensitiveActionLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Trop d\'actions soumises. Veuillez patienter une minute avant de réessayer.' }
+});
+
 module.exports = {
   createRateLimiter,
   apiLimiter,
-  adClickLimiter
+  adClickLimiter,
+  sensitiveActionLimiter
 };

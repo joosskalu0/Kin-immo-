@@ -2,7 +2,7 @@
  * Video Helper Utilities for Real Estate Walkthroughs and Tours
  */
 
-export type VideoType = 'youtube' | 'vimeo' | 'direct' | 'unknown';
+export type VideoType = 'cloudinary' | 'youtube' | 'vimeo' | 'direct' | 'unknown';
 
 export interface SampleVideoOption {
   id: string;
@@ -51,6 +51,10 @@ export function detectVideoType(url?: string): VideoType {
   if (!url || typeof url !== 'string') return 'unknown';
 
   const clean = url.trim().toLowerCase();
+
+  if (clean.includes('res.cloudinary.com') || clean.includes('cloudinary.com')) {
+    return 'cloudinary';
+  }
 
   if (
     clean.startsWith('data:video/') ||
@@ -136,3 +140,12 @@ export function getVimeoEmbedUrl(url: string, autoPlay = false): string | null {
 
   return null;
 }
+
+/**
+ * Re-export des fonctions Cloudinary
+ */
+export {
+  isCloudinaryUrl,
+  getCloudinaryOptimizedVideoUrl,
+  getCloudinaryAutoThumbnail
+} from '../services/cloudinaryService';

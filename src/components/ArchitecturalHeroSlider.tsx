@@ -21,6 +21,11 @@ import {
   ExternalLink,
   FileText
 } from 'lucide-react';
+import {
+  openWhatsApp,
+  cleanPhoneNumberForTel,
+  triggerPhoneCall
+} from '../utils/whatsapp';
 
 interface ArchitecturalHeroSliderProps {
   onDiscoverSlide?: (slide: ArchitecturalSlide) => void;
@@ -212,11 +217,8 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
   const handleContactWhatsApp = (slide: ArchitecturalSlide) => {
     // Utiliser exclusivement le WhatsApp propre à l'agence ou agent référent assigné à ce bien
     const agencyContact = getAgencyContactForSlide(slide);
-    const rawWhatsApp = agencyContact.whatsapp.replace(/[^0-9]/g, '');
-    const text = encodeURIComponent(
-      `Bonjour ${agencyContact.name}, je vous contacte directement concernant le bien d'exception mis en avant "${slide.title}" situé à ${slide.badgeLocation}. Pouvez-vous me transmettre les disponibilités et convenir d'une visite ?`
-    );
-    window.open(`https://wa.me/${rawWhatsApp}?text=${text}`, '_blank', 'noopener,noreferrer');
+    const message = `Bonjour ${agencyContact.name}, je vous contacte directement concernant le bien d'exception mis en avant "${slide.title}" situé à ${slide.badgeLocation}. Pouvez-vous me transmettre les disponibilités et convenir d'une visite ?`;
+    openWhatsApp(agencyContact.whatsapp, message);
   };
 
   return (
@@ -318,7 +320,8 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
             </button>
 
             <a
-              href={`tel:${currentAgency.phone.replace(/\s+/g, '')}`}
+              href={`tel:${cleanPhoneNumberForTel(currentAgency.phone)}`}
+              target="_top"
               className="px-4 py-3.5 rounded-2xl bg-white/90 hover:bg-white text-slate-900 font-bold text-xs sm:text-sm tracking-wider uppercase border border-white/50 backdrop-blur-md transition-all flex items-center gap-2 active:scale-95 cursor-pointer shadow-md"
               title={`Appeler directement au ${currentAgency.phone}`}
             >
@@ -389,10 +392,8 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
         const legalStatusGuarantee = slideAgency.legalStatus || selectedSlideDetails.legalStatus || 'Titre Foncier Définitif & Certificat Notarié Conforme';
 
         const handleContactAgencyWhatsApp = () => {
-          const text = encodeURIComponent(
-            `Bonjour ${agencyName}, je vous contacte directement concernant le bien d'exception mis en avant "${selectedSlideDetails.title}" situé à ${selectedSlideDetails.badgeLocation}. Pouvez-vous me transmettre les disponibilités et convenir d'une visite privée ?`
-          );
-          window.open(`https://wa.me/${rawSlideWhatsApp}?text=${text}`, '_blank', 'noopener,noreferrer');
+          const message = `Bonjour ${agencyName}, je vous contacte directement concernant le bien d'exception mis en avant "${selectedSlideDetails.title}" situé à ${selectedSlideDetails.badgeLocation}. Pouvez-vous me transmettre les disponibilités et convenir d'une visite privée ?`;
+          openWhatsApp(rawSlideWhatsApp, message);
         };
 
         const handleAgencyEmail = () => {
@@ -506,8 +507,9 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
                     <span>WhatsApp Direct</span>
                   </button>
                   <a
-                    href={`tel:${cleanSlidePhone}`}
-                    className="px-4 py-3 rounded-xl bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-300 transition-all shadow-xs"
+                    href={`tel:${cleanPhoneNumberForTel(slideDirectPhone)}`}
+                    target="_top"
+                    className="px-4 py-3 rounded-xl bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-300 transition-all shadow-xs cursor-pointer active:scale-95"
                     title={`Appeler au ${slideDirectPhone}`}
                   >
                     <Phone className="w-4 h-4 text-emerald-600" />

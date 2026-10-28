@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { v2 as cloudinary } from 'cloudinary';
+import multer from 'multer';
 import { validateConciergerieRequest } from './src/utils/conciergerieValidation';
 import { findMatchingProperties } from './src/utils/propertyMatching';
 import { initialProperties } from './src/data/mockData';
@@ -28,6 +30,12 @@ const LOCAL_SLIDES_FILE = path.join(__dirname, 'hero_slides.json');
 const LOCAL_PLANS_FILE = path.join(__dirname, 'pricing_plans.json');
 const LOCAL_OPTIONS_FILE = path.join(__dirname, 'visibility_options.json');
 const LOCAL_NOTIFICATIONS_FILE = path.join(__dirname, 'notifications.json');
+const LOCAL_VIDEOS_FILE = path.join(__dirname, 'property_videos.json');
+const LOCAL_CLOUDINARY_FILE = path.join(__dirname, 'cloudinary_config.json');
+const LOCAL_PROPERTIES_FILE = path.join(__dirname, 'properties_store.json');
+const LOCAL_COLLABORATORS_FILE = path.join(__dirname, 'agency_collaborators.json');
+const LOCAL_TRANSACTIONS_FILE = path.join(__dirname, 'agency_transactions.json');
+const LOCAL_TRUST_FILE = path.join(__dirname, 'trust_store.json');
 
 const INITIAL_PLANS = [
   {
@@ -422,6 +430,460 @@ let inMemoryOptions: any[] = loadLocalOptions();
 let inMemoryPaymentMethods: any[] = INITIAL_PAYMENT_METHODS;
 let inMemoryInvoices: any[] = INITIAL_INVOICES;
 
+// Store des propriétés avec statuts stricts et cycle de vie
+let inMemoryProperties: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_PROPERTIES_FILE)) {
+      const raw = fs.readFileSync(LOCAL_PROPERTIES_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return (initialProperties || []).map((p) => {
+    const rawSt = p.status === 'sold' ? 'SOLD' : (p.published === false ? 'DRAFT' : 'PUBLISHED');
+    return {
+      ...p,
+      listingStatus: rawSt,
+      isAvailable: rawSt === 'PUBLISHED',
+      trust_status: p.trust_status || (p.id === 'prop_1' ? 'property_verified' : 'unverified'),
+      trust_level: p.trust_level || (p.id === 'prop_1' ? 'Bien Vérifié & Titre Foncier Contrôlé' : undefined),
+      trust_score: p.trust_score ?? (p.id === 'prop_1' ? 98 : 0),
+      trust_verified_at: p.trust_verified_at || (p.id === 'prop_1' ? '2026-09-12T15:00:00Z' : undefined),
+      trust_expires_at: p.trust_expires_at || (p.id === 'prop_1' ? '2027-09-12T15:00:00Z' : undefined),
+      availability_status: p.availability_status || (rawSt === 'PUBLISHED' ? 'available' : 'withdrawn'),
+      availability_confirmed_at: p.availability_confirmed_at || (p.id === 'prop_1' ? '2026-10-17T09:00:00Z' : undefined),
+      statusHistory: [
+        {
+          id: `hist_init_${p.id}`,
+          fromStatus: 'NONE',
+          toStatus: rawSt,
+          changedByUserId: p.agentId || 'admin',
+          changedByName: 'Système Kinimmo',
+          changedAt: p.createdAt || new Date().toISOString(),
+          note: 'Création et mise en ligne initiale de l\'annonce'
+        }
+      ]
+    };
+  });
+})();
+
+function saveLocalProperties(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_PROPERTIES_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erreur écriture properties_store.json', e);
+  }
+}
+
+// Collaborateurs d'agence
+let inMemoryCollaborators: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_COLLABORATORS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_COLLABORATORS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [
+    {
+      id: 'collab_dieudonne',
+      agencyId: 'agency_congo_luxury',
+      userId: 'usr_dieudonne_01',
+      name: 'Dieudonné Mwamba',
+      email: 'dieudonne@congoluxuryhomes.cd',
+      phone: '+243 81 000 0001',
+      whatsapp: '+243 81 000 0001',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      role: 'agency_owner',
+      permissions: {
+        canEditAllProperties: true,
+        canAssignProperties: true,
+        canAssignLeads: true,
+        canViewBilling: true,
+        canManageTeam: true
+      },
+      status: 'active',
+      invitedAt: '2026-01-01T08:00:00Z',
+      joinedAt: '2026-01-01T08:30:00Z',
+      activeListingsCount: 12,
+      totalLeadsCount: 48
+    },
+    {
+      id: 'collab_patrick',
+      agencyId: 'agency_immo_kinshasa',
+      userId: 'usr_patrick_02',
+      name: 'Patrick Kalombo',
+      email: 'patrick@immokingombe.cd',
+      phone: '+243 82 123 4567',
+      whatsapp: '+243 82 123 4567',
+      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+      role: 'agency_manager',
+      permissions: {
+        canEditAllProperties: true,
+        canAssignProperties: true,
+        canAssignLeads: true,
+        canViewBilling: false,
+        canManageTeam: true
+      },
+      status: 'active',
+      invitedAt: '2026-01-10T09:00:00Z',
+      joinedAt: '2026-01-10T10:00:00Z',
+      activeListingsCount: 8,
+      totalLeadsCount: 32
+    },
+    {
+      id: 'collab_sarah',
+      agencyId: 'agency_fleuve_habitat',
+      userId: 'usr_sarah_03',
+      name: 'Sarah Mbuyi',
+      email: 'sarah@fleuvecongoimmo.cd',
+      phone: '+243 99 876 5432',
+      whatsapp: '+243 99 876 5432',
+      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+      role: 'agency_agent',
+      permissions: {
+        canEditAllProperties: false,
+        canAssignProperties: false,
+        canAssignLeads: false,
+        canViewBilling: false,
+        canManageTeam: false
+      },
+      status: 'active',
+      invitedAt: '2026-02-01T11:00:00Z',
+      joinedAt: '2026-02-02T09:15:00Z',
+      activeListingsCount: 5,
+      totalLeadsCount: 19
+    }
+  ];
+})();
+
+function saveLocalCollaborators(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_COLLABORATORS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erreur écriture agency_collaborators.json', e);
+  }
+}
+
+// Transactions et pipeline d'agence
+let inMemoryTransactions: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_TRANSACTIONS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_TRANSACTIONS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [
+    {
+      id: 'tx_001',
+      agencyId: 'agency_congo_luxury',
+      propertyId: 'prop_1',
+      propertyTitle: 'Villa Diplomatique Haute Sécurité avec Piscine',
+      agentId: 'collab_dieudonne',
+      agentName: 'Dieudonné Mwamba',
+      clientName: 'Ambassade & Mission Diplomatique',
+      clientContact: '+243 81 999 8888',
+      type: 'sale',
+      amount: 1250000,
+      currency: 'USD',
+      commissionRate: 5.0,
+      commissionAmount: 62500,
+      status: 'closed',
+      notes: 'Acte notarié signé avec succès à la Gombe.',
+      closedAt: '2026-09-15T14:00:00Z',
+      createdAt: '2026-08-20T10:00:00Z'
+    },
+    {
+      id: 'tx_002',
+      agencyId: 'agency_immo_kinshasa',
+      propertyId: 'prop_2',
+      propertyTitle: 'Appartement Haut Standing Vue Fleuve',
+      agentId: 'collab_patrick',
+      agentName: 'Patrick Kalombo',
+      clientName: 'Directeur Général Multinationale Télécom',
+      clientContact: '+243 82 555 4444',
+      type: 'rent',
+      amount: 3500,
+      currency: 'USD',
+      commissionRate: 100.0,
+      commissionAmount: 3500,
+      status: 'closed',
+      notes: 'Bail locatif d\'un an renouvelable.',
+      closedAt: '2026-10-01T16:30:00Z',
+      createdAt: '2026-09-25T11:00:00Z'
+    }
+  ];
+})();
+
+function saveLocalTransactions(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_TRANSACTIONS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erreur écriture agency_transactions.json', e);
+  }
+}
+
+// -------------------------------------------------------------
+// KINIMMO TRUST : MAGASIN EN MÉMOIRE & PERSISTANCE
+// -------------------------------------------------------------
+interface LocalTrustStore {
+  verifications: any[];
+  documents: any[];
+  checks: any[];
+  auditLogs: any[];
+  availabilities: any[];
+  notifications: any[];
+}
+
+let inMemoryTrust: LocalTrustStore = (() => {
+  try {
+    if (fs.existsSync(LOCAL_TRUST_FILE)) {
+      const raw = fs.readFileSync(LOCAL_TRUST_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.verifications)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Erreur lecture trust_store.json', e);
+  }
+
+  return {
+    verifications: [
+      {
+        id: 'trust_prop_gombe_villa',
+        targetType: 'property',
+        targetId: 'prop_1',
+        targetName: 'Superbe Villa Duplex avec Piscine - Gombe',
+        applicantUserId: 'usr_dieudonne_01',
+        applicantName: 'Dieudonné Mwamba',
+        applicantEmail: 'dieudonne@congoluxuryhomes.cd',
+        applicantPhone: '+243 81 000 0001',
+        trustStatus: 'property_verified',
+        trustLevel: 'Bien Vérifié & Titre Foncier Contrôlé',
+        trustScore: 98,
+        submittedAt: '2026-09-10T10:00:00Z',
+        reviewedAt: '2026-09-12T14:30:00Z',
+        approvedAt: '2026-09-12T15:00:00Z',
+        expiresAt: '2027-09-12T15:00:00Z',
+        assignedAdminId: 'admin_master',
+        assignedAdminName: 'Direction Kinimmo',
+        adminNotes: 'Titre de propriété conforme au registre foncier de la Gombe (Vol. 42 / Folio 18). Visite physique confirmée.',
+        createdAt: '2026-09-10T10:00:00Z',
+        updatedAt: '2026-09-12T15:00:00Z'
+      },
+      {
+        id: 'trust_agent_patrick',
+        targetType: 'agent',
+        targetId: 'collab_patrick',
+        targetName: 'Patrick Kalombo',
+        applicantUserId: 'usr_patrick_02',
+        applicantName: 'Patrick Kalombo',
+        applicantEmail: 'patrick@congoluxuryhomes.cd',
+        applicantPhone: '+243 82 555 4444',
+        trustStatus: 'pro_verified',
+        trustLevel: 'Professionnel Certifié Kinimmo Trust',
+        trustScore: 92,
+        submittedAt: '2026-09-15T09:00:00Z',
+        reviewedAt: '2026-09-16T11:00:00Z',
+        approvedAt: '2026-09-16T11:30:00Z',
+        expiresAt: '2027-09-16T11:30:00Z',
+        assignedAdminId: 'admin_master',
+        assignedAdminName: 'Direction Kinimmo',
+        adminNotes: 'Agrément professionnel et identité nationale vérifiés.',
+        createdAt: '2026-09-15T09:00:00Z',
+        updatedAt: '2026-09-16T11:30:00Z'
+      },
+      {
+        id: 'trust_prop_penthouse_river',
+        targetType: 'property',
+        targetId: 'prop_2',
+        targetName: 'Penthouse Exécutif Vue Fleuve Congo - Ngaliema',
+        applicantUserId: 'usr_sarah_01',
+        applicantName: 'Sarah Mbuyi',
+        applicantEmail: 'sarah@fleuvecongoimmo.cd',
+        applicantPhone: '+243 99 876 5432',
+        trustStatus: 'pending',
+        trustLevel: 'En attente d’audit cadastral',
+        trustScore: 35,
+        submittedAt: '2026-10-14T08:30:00Z',
+        adminNotes: 'Dossier déposé avec Certificat d’enregistrement. En attente de contre-visite sur site.',
+        createdAt: '2026-10-14T08:30:00Z',
+        updatedAt: '2026-10-14T08:30:00Z'
+      }
+    ],
+    documents: [
+      {
+        id: 'doc_cert_gombe_1',
+        verificationId: 'trust_prop_gombe_villa',
+        docType: 'certificat_enregistrement',
+        title: 'Certificat d’Enregistrement Vol. 42 Folio 18 Gombe',
+        documentNumber: 'CE-KIN-GMB-2024-897',
+        fileUrl: 'https://images.unsplash.com/photo-1618042164219-62c820f10723?w=800',
+        fileSize: '2.4 MB',
+        fileMimeType: 'application/pdf',
+        status: 'approved',
+        verifiedByUserId: 'admin_master',
+        verifiedByName: 'Direction Kinimmo',
+        verifiedAt: '2026-09-12T14:30:00Z',
+        createdAt: '2026-09-10T10:05:00Z'
+      },
+      {
+        id: 'doc_mandat_gombe_1',
+        verificationId: 'trust_prop_gombe_villa',
+        docType: 'mandat_exclusif',
+        title: 'Mandat Exclusif de Commercialisation Notarié',
+        documentNumber: 'MDT-EXCL-2026-004',
+        fileUrl: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=800',
+        fileSize: '1.8 MB',
+        fileMimeType: 'application/pdf',
+        status: 'approved',
+        verifiedByUserId: 'admin_master',
+        verifiedByName: 'Direction Kinimmo',
+        verifiedAt: '2026-09-12T14:45:00Z',
+        createdAt: '2026-09-10T10:08:00Z'
+      },
+      {
+        id: 'doc_id_patrick_1',
+        verificationId: 'trust_agent_patrick',
+        docType: 'passport',
+        title: 'Passeport Ordinaire RDC - Patrick Kalombo',
+        documentNumber: 'OP-CD-9823412',
+        fileUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=800',
+        fileSize: '1.1 MB',
+        fileMimeType: 'image/jpeg',
+        status: 'approved',
+        verifiedByUserId: 'admin_master',
+        verifiedByName: 'Direction Kinimmo',
+        verifiedAt: '2026-09-16T11:15:00Z',
+        createdAt: '2026-09-15T09:05:00Z'
+      },
+      {
+        id: 'doc_cert_penthouse_2',
+        verificationId: 'trust_prop_penthouse_river',
+        docType: 'certificat_enregistrement',
+        title: 'Certificat d’Enregistrement Ngaliema Macampagne',
+        documentNumber: 'CE-KIN-NGL-2023-412',
+        fileUrl: 'https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=800',
+        fileSize: '3.1 MB',
+        fileMimeType: 'application/pdf',
+        status: 'pending',
+        createdAt: '2026-10-14T08:35:00Z'
+      }
+    ],
+    checks: [
+      {
+        id: 'chk_cadastre_1',
+        verificationId: 'trust_prop_gombe_villa',
+        checkType: 'cadastre_conservation_titres',
+        checkLabel: 'Contrôle Cadastre & Conservation des Titres Immobiliers (Gombe)',
+        result: 'passed',
+        evidenceNotes: 'Titre vérifié auprès de la Conservation des Titres Immobiliers de la Lukunga. Aucune hypothèque ni litige en cours.',
+        conductedByUserId: 'admin_master',
+        conductedByName: 'Direction Kinimmo',
+        conductedAt: '2026-09-12T14:00:00Z',
+        createdAt: '2026-09-12T14:00:00Z'
+      },
+      {
+        id: 'chk_inspection_1',
+        verificationId: 'trust_prop_gombe_villa',
+        checkType: 'physical_site_inspection',
+        checkLabel: 'Inspection Physique sur Site à Kinshasa',
+        result: 'passed',
+        evidenceNotes: 'Visite des lieux effectuée. Propriété conforme aux photos, standing vérifié, clés remises pour visites VIP.',
+        conductedByUserId: 'admin_master',
+        conductedByName: 'Direction Kinimmo',
+        conductedAt: '2026-09-12T11:00:00Z',
+        createdAt: '2026-09-12T11:00:00Z'
+      },
+      {
+        id: 'chk_id_patrick',
+        verificationId: 'trust_agent_patrick',
+        checkType: 'identity_validation',
+        checkLabel: 'Validation Biométrique et Identité Officielle',
+        result: 'passed',
+        evidenceNotes: 'Passeport valide et concordance d’identité confirmée en visio.',
+        conductedByUserId: 'admin_master',
+        conductedByName: 'Direction Kinimmo',
+        conductedAt: '2026-09-16T11:00:00Z',
+        createdAt: '2026-09-16T11:00:00Z'
+      }
+    ],
+    auditLogs: [
+      {
+        id: 'audit_01',
+        verificationId: 'trust_prop_gombe_villa',
+        targetType: 'property',
+        targetId: 'prop_1',
+        adminUserId: 'admin_master',
+        adminName: 'Direction Kinimmo',
+        adminEmail: 'direction@kinimmo.cd',
+        action: 'TRUST_GRANTED',
+        previousStatus: 'in_progress',
+        newStatus: 'property_verified',
+        reasonOrNotes: 'Audit cadastral et visite physique validés sans réserve.',
+        ipAddress: '105.101.42.12',
+        createdAt: '2026-09-12T15:00:00Z'
+      },
+      {
+        id: 'audit_02',
+        verificationId: 'trust_agent_patrick',
+        targetType: 'agent',
+        targetId: 'collab_patrick',
+        adminUserId: 'admin_master',
+        adminName: 'Direction Kinimmo',
+        adminEmail: 'direction@kinimmo.cd',
+        action: 'TRUST_GRANTED',
+        previousStatus: 'in_progress',
+        newStatus: 'pro_verified',
+        reasonOrNotes: 'Agrément professionnel vérifié.',
+        ipAddress: '105.101.42.12',
+        createdAt: '2026-09-16T11:30:00Z'
+      }
+    ],
+    availabilities: [
+      {
+        id: 'avail_prop_1',
+        propertyId: 'prop_1',
+        propertyTitle: 'Superbe Villa Duplex avec Piscine - Gombe',
+        isAvailable: true,
+        availabilityStatus: 'available',
+        lastConfirmedAt: '2026-10-17T09:00:00Z',
+        lastConfirmedById: 'collab_patrick',
+        lastConfirmedByName: 'Patrick Kalombo',
+        confirmationMethod: 'agent_statement',
+        nextVerificationDue: '2026-10-31T09:00:00Z',
+        notes: 'Bien toujours disponible pour visites et signatures de bail.',
+        createdAt: '2026-09-12T15:00:00Z',
+        updatedAt: '2026-10-17T09:00:00Z'
+      }
+    ],
+    notifications: [
+      {
+        id: 'notif_trust_welcome',
+        userId: 'usr_dieudonne_01',
+        title: 'Certification Kinimmo Trust Validée !',
+        message: 'Félicitations, votre bien "Superbe Villa Duplex avec Piscine - Gombe" arbore désormais le badge officiel Kinimmo Trust.',
+        type: 'trust_approved',
+        targetType: 'property',
+        targetId: 'prop_1',
+        isRead: false,
+        createdAt: '2026-09-12T15:05:00Z'
+      }
+    ]
+  };
+})();
+
+function saveLocalTrust(store: LocalTrustStore) {
+  try {
+    fs.writeFileSync(LOCAL_TRUST_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erreur écriture trust_store.json', e);
+  }
+}
+
+
 function loadLocalRequests(): ConciergerieRequest[] {
   try {
     if (fs.existsSync(LOCAL_LEADS_FILE)) {
@@ -558,6 +1020,7 @@ interface AuthUser {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   role: 'admin' | 'agent' | 'user';
   agencyName?: string;
 }
@@ -696,16 +1159,6 @@ const handleCreateConciergeRequest = async (req: Request, res: Response) => {
     inMemoryRequests.unshift(newRequest);
     saveLocalRequests(inMemoryRequests);
 
-    // Sauvegarde dans Firestore : collections 'concierge_requests' ET 'conciergerieRequests'
-    try {
-      const { db } = await import('./src/lib/firebase');
-      const { doc, setDoc } = await import('firebase/firestore');
-      await setDoc(doc(db, 'concierge_requests', id), newRequest);
-      await setDoc(doc(db, 'conciergerieRequests', id), newRequest);
-    } catch (firestoreErr) {
-      console.warn('Note: Sauvegarde Firestore différée (stocké localement avec succès):', firestoreErr);
-    }
-
     // ARCHITECTURE NOTIFICATIONS : Déclencher confirmation de demande au client (sans appel API externe)
     try {
       enqueueNotification({
@@ -764,20 +1217,7 @@ app.get('/api/concierge-requests/:id/matches', async (req: Request, res: Respons
 const handleGetConciergeRequests = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
-    let list: ConciergerieRequest[] = inMemoryRequests;
-
-    // Essayer de lire depuis Firestore
-    try {
-      const { db } = await import('./src/lib/firebase');
-      const { collection, getDocs, orderBy, query } = await import('firebase/firestore');
-      const q = query(collection(db, 'concierge_requests'), orderBy('created_at', 'desc'));
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        const firestoreList: ConciergerieRequest[] = [];
-        snapshot.forEach((d) => firestoreList.push(d.data() as ConciergerieRequest));
-        list = firestoreList;
-      }
-    } catch {}
+    let list: ConciergerieRequest[] = [...inMemoryRequests];
 
     // SÉCURITÉ : Vérifier qu'un agent ne peut accéder qu'aux données qui lui sont autorisées
     if (user && user.role === 'agent') {
@@ -896,19 +1336,6 @@ const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
       }
     }
 
-    try {
-      const { db } = await import('./src/lib/firebase');
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const updatePayload = {
-        ...body,
-        status: reqItem.status,
-        updated_at: nowIso,
-        updatedAt: nowIso
-      };
-      await updateDoc(doc(db, 'concierge_requests', id), updatePayload);
-      await updateDoc(doc(db, 'conciergerieRequests', id), updatePayload);
-    } catch {}
-
     return res.json({ success: true, message: 'Demande mise à jour avec succès.', data: reqItem });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message });
@@ -926,27 +1353,9 @@ app.get('/api/property-visits', async (req: Request, res: Response) => {
     const user = getAuthUser(req);
     const { request_id } = req.query;
 
-    // Essayer Firestore
-    let list: PropertyVisitRecord[] = [];
-    try {
-      const { db } = await import('./src/lib/firebase');
-      const { collection, getDocs, orderBy, query, where } = await import('firebase/firestore');
-      const visitsCol = collection(db, 'property_visits');
-      const q = request_id
-        ? query(visitsCol, where('request_id', '==', String(request_id)))
-        : query(visitsCol, orderBy('visit_date', 'desc'));
-
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        snapshot.forEach((d) => list.push(d.data() as PropertyVisitRecord));
-      }
-    } catch {}
-
-    if (list.length === 0) {
-      list = inMemoryVisits;
-      if (request_id) {
-        list = list.filter((v) => v.request_id === String(request_id));
-      }
+    let list: PropertyVisitRecord[] = [...inMemoryVisits];
+    if (request_id) {
+      list = list.filter((v) => v.request_id === String(request_id));
     }
 
     // SÉCURITÉ : Contrôle des rôles - Un agent ne peut accéder qu'aux visites qui lui sont autorisées
@@ -1014,18 +1423,6 @@ app.post('/api/property-visits', async (req: Request, res: Response) => {
       targetRequest.status = 'visit_scheduled';
       targetRequest.updated_at = nowIso;
       saveLocalRequests(inMemoryRequests);
-    }
-
-    // Sauvegarde Firestore
-    try {
-      const { db } = await import('./src/lib/firebase');
-      const { doc, setDoc, updateDoc } = await import('firebase/firestore');
-      await setDoc(doc(db, 'property_visits', id), newVisit);
-      if (targetRequest) {
-        await updateDoc(doc(db, 'concierge_requests', request_id), { status: 'visit_scheduled', updated_at: nowIso });
-      }
-    } catch (e) {
-      console.warn('Note: Sauvegarde visite Firestore différée:', e);
     }
 
     // ARCHITECTURE NOTIFICATIONS : 3. Déclencher confirmation de visite (client & agent) sans API externe
@@ -1096,20 +1493,6 @@ app.patch('/api/property-visits/:id', async (req: Request, res: Response) => {
 
     saveLocalVisits(inMemoryVisits);
 
-    try {
-      const { db } = await import('./src/lib/firebase');
-      const { doc, updateDoc } = await import('firebase/firestore');
-      await updateDoc(doc(db, 'property_visits', id), {
-        ...(status !== undefined ? { status } : {}),
-        ...(notes !== undefined ? { notes } : {}),
-        ...(visit_date !== undefined ? { visit_date } : {}),
-        ...(visit_time !== undefined ? { visit_time } : {}),
-        ...(agent_id !== undefined ? { agent_id } : {}),
-        ...(property_id !== undefined ? { property_id } : {}),
-        updated_at: visit.updated_at
-      });
-    } catch {}
-
     return res.json({ success: true, message: 'Visite mise à jour.', data: visit });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message });
@@ -1135,12 +1518,6 @@ app.delete('/api/property-visits/:id', async (req: Request, res: Response) => {
 
     inMemoryVisits = inMemoryVisits.filter((v) => v.id !== id);
     saveLocalVisits(inMemoryVisits);
-
-    try {
-      const { db } = await import('./src/lib/firebase');
-      const { doc, deleteDoc } = await import('firebase/firestore');
-      await deleteDoc(doc(db, 'property_visits', id));
-    } catch {}
 
     return res.json({ success: true, message: 'Visite supprimée avec succès.' });
   } catch (error: any) {
@@ -1574,6 +1951,21 @@ app.post('/api/billing/invoices', (req: Request, res: Response) => {
 app.post('/api/billing/boost-order', (req: Request, res: Response) => {
   try {
     const { propertyId, optionId, paymentMethodId, paymentGateway = 'manual_mobile_money', userId, propertyTitle } = req.body;
+
+    // Règle stricte Kinimmo : Empêcher les nouveaux boosts incompatibles avec le statut RENTED, SOLD, ARCHIVED
+    if (propertyId) {
+      const targetProperty = inMemoryProperties.find((p: any) => p.id === propertyId);
+      if (targetProperty) {
+        const rawStatus = String(targetProperty.listingStatus || targetProperty.status || '').toUpperCase();
+        if (rawStatus === 'RENTED' || rawStatus === 'SOLD' || rawStatus === 'ARCHIVED' || targetProperty.status === 'sold') {
+          return res.status(400).json({
+            success: false,
+            error: `Impossible de commander un boost pour un bien avec le statut « ${rawStatus} ». Seuls les biens disponibles et publiés peuvent faire l'objet d'un boost de visibilité.`
+          });
+        }
+      }
+    }
+
     const targetOption = inMemoryOptions.find((o) => o.id === optionId) || inMemoryOptions[0];
     const targetPayment = inMemoryPaymentMethods.find((pm) => pm.id === paymentMethodId) || inMemoryPaymentMethods[0];
 
@@ -2020,9 +2412,1794 @@ app.put('/api/fraud/reports/:id', (req: Request, res: Response) => {
   }
 });
 
+// ==========================================
+// 8. HÉBERGEMENT VIDÉO CLOUDINARY & CDN PRO
+// ==========================================
+interface CloudinaryServerConfig {
+  cloudName: string;
+  apiKey: string;
+  apiSecret: string;
+  uploadPreset: string;
+  isConfigured: boolean;
+  autoOptimize: boolean;
+}
+
+function parseCloudinaryUrl(urlStr: string): { cloudName?: string; apiKey?: string; apiSecret?: string } {
+  try {
+    const clean = urlStr.replace(/^CLOUDINARY_URL=/, '').trim();
+    const match = clean.match(/cloudinary:\/\/([^:]+):([^@]+)@([^\/\s]+)/);
+    if (match) {
+      return {
+        apiKey: match[1],
+        apiSecret: match[2],
+        cloudName: match[3]
+      };
+    }
+  } catch {}
+  return {};
+}
+
+function loadCloudinaryConfig(): CloudinaryServerConfig {
+  let envCloudName = process.env.CLOUDINARY_CLOUD_NAME || '';
+  let envApiKey = process.env.CLOUDINARY_API_KEY || '';
+  let envApiSecret = process.env.CLOUDINARY_API_SECRET || '';
+  let envPreset = process.env.CLOUDINARY_UPLOAD_PRESET || '';
+
+  if (process.env.CLOUDINARY_URL) {
+    const parsed = parseCloudinaryUrl(process.env.CLOUDINARY_URL);
+    if (parsed.cloudName) envCloudName = parsed.cloudName;
+    if (parsed.apiKey) envApiKey = parsed.apiKey;
+    if (parsed.apiSecret) envApiSecret = parsed.apiSecret;
+  }
+
+  let fileConfig: Partial<CloudinaryServerConfig> = {};
+  try {
+    if (fs.existsSync(LOCAL_CLOUDINARY_FILE)) {
+      fileConfig = JSON.parse(fs.readFileSync(LOCAL_CLOUDINARY_FILE, 'utf-8'));
+    }
+  } catch {}
+
+  const cloudName = envCloudName || fileConfig.cloudName || 'ljcl1c4t';
+  const apiKey = envApiKey || fileConfig.apiKey || '';
+  const apiSecret = envApiSecret || fileConfig.apiSecret || '';
+  const uploadPreset = envPreset || fileConfig.uploadPreset || 'kinimmo_videos';
+  const isConfigured = Boolean((cloudName && apiSecret) || (cloudName && uploadPreset));
+  const autoOptimize = fileConfig.autoOptimize !== false;
+
+  return { cloudName, apiKey, apiSecret, uploadPreset, isConfigured, autoOptimize };
+}
+
+let serverCloudinaryConfig = loadCloudinaryConfig();
+
+function applyCloudinarySettings(cfg: CloudinaryServerConfig) {
+  if (cfg.cloudName) {
+    cloudinary.config({
+      cloud_name: cfg.cloudName,
+      api_key: cfg.apiKey || undefined,
+      api_secret: cfg.apiSecret || undefined,
+      secure: true
+    });
+  }
+}
+applyCloudinarySettings(serverCloudinaryConfig);
+
+// Configuration Multer pour téléversement vidéo direct (max 100 Mo)
+const videoMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (
+      file.mimetype.startsWith('video/') ||
+      file.originalname.match(/\.(mp4|webm|mov|m4v|ogg|avi|mkv)$/i)
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format vidéo non valide. Veuillez choisir un fichier MP4, WebM ou MOV.'));
+    }
+  }
+});
+
+// Récupérer la configuration Cloudinary publique
+app.get('/api/cloudinary/config', (_req: Request, res: Response) => {
+  serverCloudinaryConfig = loadCloudinaryConfig();
+  applyCloudinarySettings(serverCloudinaryConfig);
+  return res.json({
+    success: true,
+    config: {
+      cloudName: serverCloudinaryConfig.cloudName,
+      apiKey: serverCloudinaryConfig.apiKey,
+      uploadPreset: serverCloudinaryConfig.uploadPreset,
+      hasApiSecret: Boolean(serverCloudinaryConfig.apiSecret),
+      isConfigured: serverCloudinaryConfig.isConfigured,
+      autoOptimize: serverCloudinaryConfig.autoOptimize
+    }
+  });
+});
+
+// Sauvegarder la configuration Cloudinary
+app.post('/api/cloudinary/config', (req: Request, res: Response) => {
+  try {
+    let { cloudName, apiKey, apiSecret, uploadPreset, autoOptimize, cloudinaryUrl } = req.body;
+    
+    // Si l'utilisateur a collé une CLOUDINARY_URL complète
+    if (cloudinaryUrl) {
+      const parsed = parseCloudinaryUrl(String(cloudinaryUrl));
+      if (parsed.cloudName) cloudName = parsed.cloudName;
+      if (parsed.apiKey && !parsed.apiKey.includes('<your_')) apiKey = parsed.apiKey;
+      if (parsed.apiSecret && !parsed.apiSecret.includes('<your_')) apiSecret = parsed.apiSecret;
+    }
+
+    if (!cloudName) {
+      cloudName = serverCloudinaryConfig.cloudName || 'ljcl1c4t';
+    }
+
+    serverCloudinaryConfig = {
+      cloudName: String(cloudName).trim(),
+      apiKey: apiKey ? String(apiKey).trim() : serverCloudinaryConfig.apiKey,
+      apiSecret: apiSecret ? String(apiSecret).trim() : serverCloudinaryConfig.apiSecret,
+      uploadPreset: uploadPreset ? String(uploadPreset).trim() : serverCloudinaryConfig.uploadPreset,
+      isConfigured: Boolean(cloudName && (apiSecret || uploadPreset)),
+      autoOptimize: autoOptimize !== false
+    };
+
+    fs.writeFileSync(LOCAL_CLOUDINARY_FILE, JSON.stringify(serverCloudinaryConfig, null, 2), 'utf-8');
+    applyCloudinarySettings(serverCloudinaryConfig);
+
+    return res.json({
+      success: true,
+      message: 'Configuration Cloudinary enregistrée avec succès.',
+      config: {
+        cloudName: serverCloudinaryConfig.cloudName,
+        apiKey: serverCloudinaryConfig.apiKey,
+        uploadPreset: serverCloudinaryConfig.uploadPreset,
+        hasApiSecret: Boolean(serverCloudinaryConfig.apiSecret),
+        isConfigured: serverCloudinaryConfig.isConfigured,
+        autoOptimize: serverCloudinaryConfig.autoOptimize
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Tester la connexion Cloudinary
+app.post('/api/cloudinary/test', async (_req: Request, res: Response) => {
+  try {
+    serverCloudinaryConfig = loadCloudinaryConfig();
+    applyCloudinarySettings(serverCloudinaryConfig);
+
+    if (!serverCloudinaryConfig.cloudName) {
+      return res.status(400).json({ success: false, message: 'Cloud Name non renseigné.' });
+    }
+
+    if (serverCloudinaryConfig.apiSecret && serverCloudinaryConfig.apiKey) {
+      const pingRes = await cloudinary.api.ping();
+      return res.json({
+        success: true,
+        message: `Connexion Cloudinary réussie pour le cloud « ${serverCloudinaryConfig.cloudName} » ! Statut: ${pingRes.status || 'OK'}`
+      });
+    }
+
+    // Si preset non signé configuré, tester l'accessibilité de l'endpoint
+    return res.json({
+      success: true,
+      message: `Cloud Name « ${serverCloudinaryConfig.cloudName} » et Preset « ${serverCloudinaryConfig.uploadPreset} » configurés.`
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: `Impossible de joindre Cloudinary : ${err?.message || 'Identifiants invalides'}`
+    });
+  }
+});
+
+// Téléverser une vidéo vers Cloudinary
+app.post('/api/cloudinary/upload', videoMulter.single('video'), async (req: Request, res: Response) => {
+  try {
+    serverCloudinaryConfig = loadCloudinaryConfig();
+    applyCloudinarySettings(serverCloudinaryConfig);
+
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ success: false, error: 'Aucun fichier vidéo transmis.' });
+    }
+
+    // Vérifier si Cloudinary dispose d'une configuration avec API Secret
+    if (serverCloudinaryConfig.cloudName && serverCloudinaryConfig.apiSecret && serverCloudinaryConfig.apiKey) {
+      // Téléversement via SDK Cloudinary backend
+      const uploadResult = await new Promise<any>((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            resource_type: 'video',
+            folder: 'kinimmo/property_videos',
+            transformation: [
+              { quality: 'auto:good', fetch_format: 'auto' }
+            ]
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+
+        uploadStream.end(file.buffer);
+      });
+
+      const secureUrl = uploadResult.secure_url;
+      // Miniature générée automatiquement au début de la vidéo (so_0, format jpg)
+      const autoThumbnail = secureUrl
+        ? secureUrl.replace(/\.(mp4|webm|mov|m4v|ogg)(\?.*)?$/i, '.jpg$2').replace('/video/upload/', '/video/upload/so_0,q_auto,f_jpg,w_800,c_fill/')
+        : undefined;
+
+      return res.json({
+        success: true,
+        url: uploadResult.url,
+        secure_url: secureUrl,
+        public_id: uploadResult.public_id,
+        thumbnail_url: autoThumbnail,
+        duration: uploadResult.duration,
+        format: uploadResult.format,
+        bytes: uploadResult.bytes,
+        width: uploadResult.width,
+        height: uploadResult.height
+      });
+    }
+
+    // Si uploadPreset non signé est renseigné
+    if (serverCloudinaryConfig.cloudName && serverCloudinaryConfig.uploadPreset) {
+      const endpoint = `https://api.cloudinary.com/v1_1/${serverCloudinaryConfig.cloudName}/video/upload`;
+      const formData = new FormData();
+      const blob = new Blob([file.buffer], { type: file.mimetype });
+      formData.append('file', blob, file.originalname);
+      formData.append('upload_preset', serverCloudinaryConfig.uploadPreset);
+
+      const fetchRes = await fetch(endpoint, {
+        method: 'POST',
+        body: formData
+      });
+
+      const cloudData = await fetchRes.json();
+      if (!fetchRes.ok) {
+        throw new Error(cloudData.error?.message || 'Erreur lors du téléversement vers Cloudinary');
+      }
+
+      const secureUrl = cloudData.secure_url;
+      const autoThumbnail = secureUrl
+        ? secureUrl.replace(/\.(mp4|webm|mov|m4v|ogg)(\?.*)?$/i, '.jpg$2').replace('/video/upload/', '/video/upload/so_0,q_auto,f_jpg,w_800,c_fill/')
+        : undefined;
+
+      return res.json({
+        success: true,
+        url: cloudData.url,
+        secure_url: secureUrl,
+        public_id: cloudData.public_id,
+        thumbnail_url: autoThumbnail,
+        duration: cloudData.duration,
+        format: cloudData.format,
+        bytes: cloudData.bytes,
+        width: cloudData.width,
+        height: cloudData.height
+      });
+    }
+
+    // Si Cloudinary n'est pas encore configuré avec les clés
+    return res.status(400).json({
+      success: false,
+      error: 'Votre compte Cloudinary n\'est pas encore configuré. Cliquez sur « Configurer Cloudinary » pour renseigner votre Cloud Name et vos clés API (ou votre Upload Preset).'
+    });
+  } catch (err: any) {
+    console.error('Erreur téléversement Cloudinary:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Erreur interne lors du téléversement vers Cloudinary.'
+    });
+  }
+});
+
+// ==========================================
+// 9. API REST GESTION DES VIDÉOS & MODÉRATION
+// ==========================================
+let inMemoryVideos: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_VIDEOS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_VIDEOS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [];
+})();
+
+function saveLocalVideos(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_VIDEOS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch {}
+}
+
+// 9.1 Consulter le fil public des vidéos approuvées
+// RÈGLE CRITIQUE : Les vidéos non approuvées ne doivent JAMAIS être accessibles dans ce fil public.
+app.get('/api/videos', (req: Request, res: Response) => {
+  try {
+    const { commune, type, page = '1', limit = '20' } = req.query;
+
+    // Strict : Seules les vidéos avec statut 'approved'
+    let approvedVideos = inMemoryVideos.filter(v => v.status === 'approved');
+
+    if (commune && commune !== 'all') {
+      const qCom = String(commune).toLowerCase();
+      approvedVideos = approvedVideos.filter(v => (v.propertyCommune || '').toLowerCase().includes(qCom));
+    }
+
+    if (type && type !== 'all') {
+      approvedVideos = approvedVideos.filter(v => v.propertyType === type || v.propertyStatus === type);
+    }
+
+    // Pagination
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNum = Math.max(1, Math.min(50, parseInt(String(limit), 10) || 20));
+    const total = approvedVideos.length;
+    const startIndex = (pageNum - 1) * limitNum;
+    const paginatedVideos = approvedVideos.slice(startIndex, startIndex + limitNum);
+
+    return res.json({
+      success: true,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum) || 1,
+      count: paginatedVideos.length,
+      data: {
+        videos: paginatedVideos
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.2 Consulter les vidéos publiées par l'agent connecté
+app.get('/api/videos/my', (req: Request, res: Response) => {
+  try {
+    const userId = (req.headers['x-user-id'] as string) || 'agent_current';
+    const userVideos = inMemoryVideos.filter(v => v.userId === userId || v.userId === 'agent_1');
+    return res.json({
+      success: true,
+      count: userVideos.length,
+      data: { videos: userVideos }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.3 Consulter les détails d’une vidéo spécifique
+app.get('/api/videos/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const video = inMemoryVideos.find(v => v.id === id);
+    if (!video) {
+      return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
+    }
+    return res.json({ success: true, data: { video } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.4 Publier une vidéo ou soumettre une publication
+app.post('/api/videos', (req: Request, res: Response) => {
+  try {
+    const { propertyId, videoUrl, thumbnailUrl, description, status = 'pending' } = req.body;
+
+    if (!propertyId || !videoUrl) {
+      return res.status(400).json({ success: false, error: 'L\'ID de l\'annonce et l\'URL de la vidéo sont obligatoires.' });
+    }
+
+    // Récupérer les informations de la propriété
+    const linkedProp = initialProperties.find(p => p.id === propertyId);
+
+    const newVideo = {
+      id: `vid_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      propertyId,
+      userId: (req.headers['x-user-id'] as string) || 'agent_current',
+      videoUrl,
+      thumbnailUrl: thumbnailUrl || linkedProp?.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&auto=format&fit=crop&q=80',
+      description: description || '',
+      status: status === 'draft' ? 'draft' : 'pending',
+      viewsCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+
+      // Données de l'annonce immobilière
+      propertyTitle: linkedProp?.title || 'Bien Immobilier Kinshasa',
+      propertyPrice: linkedProp?.price || 0,
+      propertyCurrency: linkedProp?.currency || 'USD',
+      propertyCommune: linkedProp?.commune || 'Kinshasa',
+      propertyQuartier: linkedProp?.quartier || '',
+      propertyType: linkedProp?.type || 'villa',
+      propertyStatus: linkedProp?.status || 'for-sale',
+      propertyBedrooms: linkedProp?.bedrooms,
+      propertyBathrooms: linkedProp?.bathrooms,
+      agentName: linkedProp?.agencyName || 'Agent Immobilier Kinimmo',
+      agencyName: linkedProp?.agencyName,
+      agentPhone: linkedProp?.contactPhone,
+      agentWhatsapp: linkedProp?.contactPhone,
+      agentVerified: true
+    };
+
+    inMemoryVideos.unshift(newVideo);
+    saveLocalVideos(inMemoryVideos);
+
+    return res.status(201).json({
+      success: true,
+      message: newVideo.status === 'draft'
+        ? 'Brouillon de vidéo enregistré avec succès.'
+        : 'Vidéo soumise avec succès pour modération.',
+      data: { video: newVideo }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.5 Modifier ses propres publications
+app.put('/api/videos/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const idx = inMemoryVideos.findIndex(v => v.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
+    }
+
+    inMemoryVideos[idx] = {
+      ...inMemoryVideos[idx],
+      ...req.body,
+      updatedAt: new Date().toISOString()
+    };
+    saveLocalVideos(inMemoryVideos);
+
+    return res.json({ success: true, message: 'Vidéo mise à jour avec succès.', data: { video: inMemoryVideos[idx] } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.6 Supprimer une vidéo
+app.delete('/api/videos/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const initialLen = inMemoryVideos.length;
+    inMemoryVideos = inMemoryVideos.filter(v => v.id !== id);
+
+    if (inMemoryVideos.length === initialLen) {
+      return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
+    }
+
+    saveLocalVideos(inMemoryVideos);
+    return res.json({ success: true, message: 'Vidéo supprimée avec succès.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.7 Incrémenter les vues d’une vidéo
+app.post('/api/videos/:id/view', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const video = inMemoryVideos.find(v => v.id === id);
+    if (video) {
+      video.viewsCount = (video.viewsCount || 0) + 1;
+      saveLocalVideos(inMemoryVideos);
+    }
+    return res.json({ success: true, viewsCount: video?.viewsCount || 1 });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.8 Enregistrer une demande de visite réelle
+app.post('/api/videos/:id/visit-request', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { clientName, clientPhone, clientEmail, preferredDate, preferredTimeSlot, notes } = req.body;
+
+    if (!clientName || !clientPhone) {
+      return res.status(400).json({ success: false, error: 'Le nom et le numéro de téléphone sont requis.' });
+    }
+
+    const video = inMemoryVideos.find(v => v.id === id);
+    const nowIso = new Date().toISOString();
+    const visitRecord: PropertyVisitRecord = {
+      id: `vis_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      request_id: `lead_vid_${Date.now()}`,
+      property_id: video?.propertyId || null,
+      agent_id: video?.userId || null,
+      visit_date: preferredDate || nowIso.split('T')[0],
+      visit_time: preferredTimeSlot || '10:00',
+      status: 'scheduled',
+      notes: notes ? `${notes} (Tél: ${clientPhone}, Email: ${clientEmail || 'N/A'})` : `Visite demandée via vidéo par ${clientName} (${clientPhone})`,
+      created_at: nowIso,
+      updated_at: nowIso,
+      property_title: video?.propertyTitle || 'Visite Vidéo Kinimmo',
+      agent_name: video?.agentName || null,
+      client_name: clientName
+    };
+
+    inMemoryVisits.unshift(visitRecord);
+    saveLocalVisits(inMemoryVisits);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Demande de visite planifiée et transmise avec succès à l\'agent.',
+      visit: visitRecord
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.9 Modérer les publications dans l’espace administrateur
+app.get('/api/videos/admin/all', (req: Request, res: Response) => {
+  try {
+    const { status, search } = req.query;
+    let list = [...inMemoryVideos];
+
+    if (status && status !== 'all') {
+      list = list.filter(v => v.status === status);
+    }
+
+    if (search) {
+      const q = String(search).toLowerCase();
+      list = list.filter(v =>
+        (v.propertyTitle || '').toLowerCase().includes(q) ||
+        (v.agentName || '').toLowerCase().includes(q) ||
+        (v.propertyCommune || '').toLowerCase().includes(q)
+      );
+    }
+
+    return res.json({
+      success: true,
+      count: list.length,
+      data: { videos: list }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.10 Mettre à jour le statut de modération (approuver, refuser, suspendre)
+app.patch('/api/videos/admin/:id/status', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, rejectionReason } = req.body;
+
+    const validStatuses = ['approved', 'rejected', 'pending', 'hidden', 'draft'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Statut de modération invalide.' });
+    }
+
+    const idx = inMemoryVideos.findIndex(v => v.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
+    }
+
+    inMemoryVideos[idx].status = status;
+    if (rejectionReason) {
+      inMemoryVideos[idx].rejectionReason = rejectionReason;
+    }
+    inMemoryVideos[idx].updatedAt = new Date().toISOString();
+
+    saveLocalVideos(inMemoryVideos);
+
+    return res.json({
+      success: true,
+      message: status === 'approved' ? 'Vidéo approuvée et visible dans le fil public.' : 'Statut mis à jour.',
+      data: { video: inMemoryVideos[idx] }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// ==========================================
+// 10. API REST ANNONCES, STATUTS & CYCLES DE VIE
+// ==========================================
+
+// 10.1 Récupérer les propriétés avec filtres
+app.get('/api/properties', (req: Request, res: Response) => {
+  try {
+    const { commune, type, status, listingStatus, search, limit = '100', offset = '0' } = req.query;
+    let list = [...inMemoryProperties];
+
+    if (listingStatus && listingStatus !== 'all') {
+      list = list.filter(p => (p.listingStatus || '').toUpperCase() === String(listingStatus).toUpperCase());
+    } else if (status && status !== 'all') {
+      list = list.filter(p => p.status === status);
+    }
+
+    if (commune && commune !== 'all') {
+      list = list.filter(p => (p.commune || '').toLowerCase() === String(commune).toLowerCase());
+    }
+
+    if (type && type !== 'all') {
+      list = list.filter(p => p.type === type);
+    }
+
+    if (search && String(search).trim()) {
+      const q = String(search).toLowerCase().trim();
+      list = list.filter(p =>
+        (p.title || '').toLowerCase().includes(q) ||
+        (p.description || '').toLowerCase().includes(q) ||
+        (p.commune || '').toLowerCase().includes(q) ||
+        (p.quartier || '').toLowerCase().includes(q) ||
+        (p.address || '').toLowerCase().includes(q)
+      );
+    }
+
+    const total = list.length;
+    const paginated = list.slice(Number(offset), Number(offset) + Number(limit));
+    return res.json({ success: true, count: total, properties: paginated });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 10.2 Détail d'une propriété
+app.get('/api/properties/:id', (req: Request, res: Response) => {
+  const prop = inMemoryProperties.find(p => p.id === req.params.id);
+  if (!prop) {
+    return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+  }
+  return res.json({ success: true, property: prop });
+});
+
+// 10.3 Créer une propriété
+app.post('/api/properties', (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    const body = req.body;
+
+    // Règle métier : La publication d'un bien est strictement réservée aux utilisateurs connectés
+    if (!user && !body.agentId && !body.contactEmail) {
+      return res.status(401).json({
+        success: false,
+        error: 'Règle métier Kinimmo : Vous devez être connecté pour publier une annonce.'
+      });
+    }
+
+    const id = body.id || `prop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const listingStatus = (body.listingStatus || 'PUBLISHED').toUpperCase();
+    const isAvailable = listingStatus === 'PUBLISHED';
+
+    const newProp = {
+      ...body,
+      id,
+      listingStatus,
+      isAvailable,
+      status: listingStatus === 'SOLD' ? 'sold' : (body.status || 'for-sale'),
+      createdAt: body.createdAt || nowIso,
+      updatedAt: nowIso,
+      statusHistory: [
+        {
+          id: `hist_${Date.now()}`,
+          fromStatus: 'NONE',
+          toStatus: listingStatus,
+          changedByUserId: body.agentId || 'current_user',
+          changedByName: body.agentName || 'Agent Kinimmo',
+          changedAt: nowIso,
+          note: 'Création initiale de l\'annonce'
+        }
+      ]
+    };
+
+    inMemoryProperties.unshift(newProp);
+    saveLocalProperties(inMemoryProperties);
+    return res.status(201).json({ success: true, message: 'Annonce créée avec succès.', property: newProp });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 10.4 Mettre à jour une propriété
+app.put('/api/properties/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const idx = inMemoryProperties.findIndex(p => p.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+    }
+
+    const current = inMemoryProperties[idx];
+    const incoming = req.body;
+    const oldStatus = current.listingStatus || (current.status === 'sold' ? 'SOLD' : 'PUBLISHED');
+    const newStatus = incoming.listingStatus ? incoming.listingStatus.toUpperCase() : oldStatus;
+
+    const history = Array.isArray(current.statusHistory) ? [...current.statusHistory] : [];
+    if (newStatus !== oldStatus) {
+      history.push({
+        id: `hist_${Date.now()}`,
+        fromStatus: oldStatus,
+        toStatus: newStatus,
+        changedByUserId: incoming.userId || incoming.agentId || current.agentId || 'current_user',
+        changedByName: incoming.userName || incoming.agentName || 'Utilisateur Kinimmo',
+        changedAt: new Date().toISOString(),
+        note: incoming.statusNote || `Mise à jour du statut vers ${newStatus}`
+      });
+    }
+
+    const updated = {
+      ...current,
+      ...incoming,
+      id,
+      listingStatus: newStatus,
+      isAvailable: newStatus === 'PUBLISHED',
+      status: newStatus === 'SOLD' ? 'sold' : (incoming.status || current.status),
+      statusHistory: history,
+      updatedAt: new Date().toISOString()
+    };
+
+    inMemoryProperties[idx] = updated;
+    saveLocalProperties(inMemoryProperties);
+    return res.json({ success: true, message: 'Annonce mise à jour avec succès.', property: updated });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 10.5 Mettre à jour le statut du cycle de vie (DRAFT, PENDING_REVIEW, PUBLISHED, RENTED, SOLD, ARCHIVED)
+const handlePropertyStatusUpdate = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, note, userId, userName } = req.body;
+    const validStatuses = ['DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'RENTED', 'SOLD', 'ARCHIVED'];
+    const targetStatus = String(status).toUpperCase();
+
+    if (!validStatuses.includes(targetStatus)) {
+      return res.status(400).json({ success: false, error: `Statut invalide. Statuts autorisés : ${validStatuses.join(', ')}` });
+    }
+
+    const idx = inMemoryProperties.findIndex(p => p.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+    }
+
+    const current = inMemoryProperties[idx];
+    const oldStatus = current.listingStatus || (current.status === 'sold' ? 'SOLD' : 'PUBLISHED');
+
+    const history = Array.isArray(current.statusHistory) ? [...current.statusHistory] : [];
+    history.push({
+      id: `hist_${Date.now()}`,
+      fromStatus: oldStatus,
+      toStatus: targetStatus,
+      changedByUserId: userId || current.agentId || 'current_user',
+      changedByName: userName || current.agentName || 'Agent Kinimmo',
+      changedAt: new Date().toISOString(),
+      note: note || `Statut passé à ${targetStatus}`
+    });
+
+    const isAvailable = targetStatus === 'PUBLISHED';
+    const legacyStatus = targetStatus === 'SOLD' ? 'sold' : (targetStatus === 'RENTED' ? 'for-rent' : current.status);
+
+    const updated = {
+      ...current,
+      listingStatus: targetStatus,
+      isAvailable,
+      status: legacyStatus,
+      published: targetStatus === 'PUBLISHED',
+      statusHistory: history,
+      updatedAt: new Date().toISOString()
+    };
+
+    inMemoryProperties[idx] = updated;
+    saveLocalProperties(inMemoryProperties);
+
+    return res.json({
+      success: true,
+      message: `Statut du bien mis à jour avec succès : ${targetStatus}`,
+      property: updated
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+
+app.put('/api/properties/:id/status', handlePropertyStatusUpdate);
+app.patch('/api/properties/:id/status', handlePropertyStatusUpdate);
+
+// 10.6 Attribuer un bien à un collaborateur
+app.patch('/api/properties/:id/assign', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { assignedAgentId, assignedAgentName } = req.body;
+    const idx = inMemoryProperties.findIndex(p => p.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+    }
+
+    inMemoryProperties[idx].assignedAgentId = assignedAgentId;
+    inMemoryProperties[idx].assignedAgentName = assignedAgentName;
+    inMemoryProperties[idx].updatedAt = new Date().toISOString();
+
+    saveLocalProperties(inMemoryProperties);
+    return res.json({ success: true, message: `Bien attribué à ${assignedAgentName || assignedAgentId}.`, property: inMemoryProperties[idx] });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 10.7 Historique des statuts d'une propriété
+app.get('/api/properties/:id/status-history', (req: Request, res: Response) => {
+  const prop = inMemoryProperties.find(p => p.id === req.params.id);
+  if (!prop) {
+    return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+  }
+  return res.json({ success: true, history: prop.statusHistory || [] });
+});
+
+// ==========================================
+// 11. API REST GESTION DE L'AGENCE & COLLABORATEURS
+// ==========================================
+
+// 11.1 Liste des collaborateurs
+app.get('/api/agency/collaborators', (req: Request, res: Response) => {
+  try {
+    const { agencyId } = req.query;
+    let list = inMemoryCollaborators;
+    if (agencyId) {
+      list = list.filter(c => c.agencyId === agencyId);
+    }
+    return res.json({ success: true, count: list.length, collaborators: list });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 11.2 Inviter un collaborateur
+app.post('/api/agency/collaborators/invite', (req: Request, res: Response) => {
+  try {
+    const { agencyId, name, email, phone, whatsapp, role = 'agency_agent', permissions } = req.body;
+    if (!name || !email) {
+      return res.status(400).json({ success: false, error: 'Le nom et l\'adresse e-mail sont obligatoires.' });
+    }
+
+    const newCollab = {
+      id: `collab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      agencyId: agencyId || 'agency_default',
+      userId: `usr_invited_${Date.now()}`,
+      name,
+      email,
+      phone: phone || '',
+      whatsapp: whatsapp || phone || '',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      role,
+      permissions: permissions || {
+        canEditAllProperties: false,
+        canAssignProperties: false,
+        canAssignLeads: false,
+        canViewBilling: false,
+        canManageTeam: false
+      },
+      status: 'invited',
+      invitedAt: new Date().toISOString(),
+      activeListingsCount: 0,
+      totalLeadsCount: 0
+    };
+
+    inMemoryCollaborators.unshift(newCollab);
+    saveLocalCollaborators(inMemoryCollaborators);
+
+    return res.status(201).json({ success: true, message: `Invitation envoyée à ${email}.`, collaborator: newCollab });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 11.3 Mettre à jour un collaborateur
+app.patch('/api/agency/collaborators/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const idx = inMemoryCollaborators.findIndex(c => c.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Collaborateur introuvable.' });
+    }
+
+    inMemoryCollaborators[idx] = {
+      ...inMemoryCollaborators[idx],
+      ...req.body,
+      id
+    };
+    saveLocalCollaborators(inMemoryCollaborators);
+    return res.json({ success: true, message: 'Collaborateur mis à jour.', collaborator: inMemoryCollaborators[idx] });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 11.4 Supprimer un collaborateur
+app.delete('/api/agency/collaborators/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    inMemoryCollaborators = inMemoryCollaborators.filter(c => c.id !== id);
+    saveLocalCollaborators(inMemoryCollaborators);
+    return res.json({ success: true, message: 'Collaborateur retiré de l\'agence.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 11.5 Transactions et pipeline d'agence
+app.get('/api/agency/transactions', (req: Request, res: Response) => {
+  try {
+    const { agencyId } = req.query;
+    let list = inMemoryTransactions;
+    if (agencyId) {
+      list = list.filter(t => t.agencyId === agencyId);
+    }
+    return res.json({ success: true, count: list.length, transactions: list });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 11.6 Enregistrer une transaction d'agence
+app.post('/api/agency/transactions', (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    const newTx = {
+      id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      agencyId: body.agencyId || 'agency_default',
+      propertyId: body.propertyId || '',
+      propertyTitle: body.propertyTitle || 'Propriété Kinshasa',
+      agentId: body.agentId || 'agent_current',
+      agentName: body.agentName || 'Agent Immobilier',
+      clientName: body.clientName || 'Client Particulier',
+      clientContact: body.clientContact || '',
+      type: body.type || 'sale',
+      amount: Number(body.amount) || 0,
+      currency: body.currency || 'USD',
+      commissionRate: Number(body.commissionRate) || 5,
+      commissionAmount: Number(body.commissionAmount) || (Number(body.amount || 0) * 0.05),
+      status: body.status || 'closed',
+      notes: body.notes || '',
+      closedAt: body.closedAt || new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    };
+
+    inMemoryTransactions.unshift(newTx);
+    saveLocalTransactions(inMemoryTransactions);
+
+    return res.status(201).json({ success: true, message: 'Transaction enregistrée avec succès.', transaction: newTx });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// -------------------------------------------------------------
+// ROUTES KINIMMO TRUST : VÉRIFICATION, AUDIT & BADGES DE CONFIANCE
+// -------------------------------------------------------------
+
+// 1. Badge de confiance public
+// RÈGLE MÉTIER STRICTE : Ne renvoie un badge de vérification approuvé QUE si le statut est effectif
+app.get('/api/trust/badge/:targetType/:targetId', (req: Request, res: Response) => {
+  try {
+    const { targetType, targetId } = req.params;
+    let target: any = null;
+
+    if (targetType === 'property') {
+      const verif = inMemoryTrust.verifications.find(
+        (v) => v.targetType === 'property' && v.targetId === targetId
+      );
+      const prop = inMemoryProperties.find((p: any) => p.id === targetId);
+      if (verif) {
+        target = {
+          id: targetId,
+          name: prop?.title || verif.targetName,
+          trust_status: verif.trustStatus,
+          trust_level: verif.trustLevel,
+          trust_score: verif.trustScore,
+          trust_verified_at: verif.approvedAt,
+          trust_expires_at: verif.expiresAt,
+          availability_status: prop?.availability_status || 'available',
+          availability_confirmed_at: prop?.availability_confirmed_at || null
+        };
+      } else {
+        target = prop;
+      }
+    } else if (targetType === 'agent') {
+      const verif = inMemoryTrust.verifications.find(
+        (v) => v.targetType === 'agent' && (v.targetId === targetId || v.applicantUserId === targetId)
+      );
+      if (verif) {
+        target = {
+          id: targetId,
+          name: verif.targetName,
+          trust_status: verif.trustStatus,
+          trust_level: verif.trustLevel,
+          trust_score: verif.trustScore,
+          trust_verified_at: verif.approvedAt,
+          trust_expires_at: verif.expiresAt
+        };
+      } else {
+        target = { id: targetId, trust_status: 'unverified' };
+      }
+    } else if (targetType === 'agency') {
+      const verif = inMemoryTrust.verifications.find(
+        (v) => v.targetType === 'agency' && (v.targetId === targetId || v.applicantUserId === targetId)
+      );
+      if (verif) {
+        target = {
+          id: targetId,
+          name: verif.targetName,
+          trust_status: verif.trustStatus,
+          trust_level: verif.trustLevel,
+          trust_score: verif.trustScore,
+          trust_verified_at: verif.approvedAt,
+          trust_expires_at: verif.expiresAt
+        };
+      } else {
+        target = { id: targetId, trust_status: 'unverified' };
+      }
+    }
+
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Entité cible introuvable.' });
+    }
+
+    const currentStatus = target.trust_status || target.trustStatus || 'unverified';
+    const isApproved = ['identity_verified', 'pro_verified', 'property_verified'].includes(currentStatus);
+
+    return res.json({
+      success: true,
+      data: {
+        targetType,
+        targetId,
+        isVerified: isApproved,
+        trustStatus: currentStatus,
+        trustLevel: isApproved ? (target.trust_level || target.trustLevel) : null,
+        trustScore: isApproved ? (target.trust_score ?? target.trustScore ?? 0) : 0,
+        verifiedAt: isApproved ? (target.trust_verified_at || target.trustVerifiedAt || target.approvedAt) : null,
+        expiresAt: isApproved ? (target.trust_expires_at || target.trustExpiresAt || target.expiresAt) : null,
+        availabilityConfirmedAt: target.availability_confirmed_at || null,
+        availabilityStatus: target.availability_status || 'available'
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 2. Liste des vérifications Kinimmo Trust (avec filtres)
+app.get('/api/trust/verifications', (req: Request, res: Response) => {
+  try {
+    const { target_type, status, applicant_id } = req.query;
+    let list = [...inMemoryTrust.verifications];
+
+    if (target_type) {
+      list = list.filter((v) => v.targetType === target_type);
+    }
+    if (status) {
+      list = list.filter((v) => v.trustStatus === status);
+    }
+    if (applicant_id) {
+      list = list.filter((v) => v.applicantUserId === applicant_id);
+    }
+
+    const enriched = list.map((v) => {
+      const docs = inMemoryTrust.documents.filter((d) => d.verificationId === v.id);
+      const chks = inMemoryTrust.checks.filter((c) => c.verificationId === v.id);
+      return {
+        ...v,
+        documentsCount: docs.length,
+        checksCount: chks.length
+      };
+    });
+
+    return res.json({ success: true, count: enriched.length, data: enriched });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 3. Détail complet d'un dossier
+app.get('/api/trust/verifications/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const verification = inMemoryTrust.verifications.find((v) => v.id === id);
+    if (!verification) {
+      return res.status(404).json({ success: false, message: 'Dossier Kinimmo Trust introuvable.' });
+    }
+
+    const documents = inMemoryTrust.documents.filter((d) => d.verificationId === id);
+    const checks = inMemoryTrust.checks.filter((c) => c.verificationId === id);
+    const auditLogs = inMemoryTrust.auditLogs.filter(
+      (a) => a.verificationId === id || (a.targetType === verification.targetType && a.targetId === verification.targetId)
+    );
+    const availability = inMemoryTrust.availabilities.find((av) => av.propertyId === verification.targetId) || null;
+
+    return res.json({
+      success: true,
+      data: {
+        ...verification,
+        documents,
+        checks,
+        auditLogs,
+        availability
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 4. Déposer une demande de vérification
+const handleApplyTrust = (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req) || { id: 'usr_guest', name: 'Utilisateur Kinimmo', email: 'guest@kinimmo.cd', role: 'user' };
+    const { target_type, target_id, target_name, documents = [], applicant_phone } = req.body;
+
+    if (!target_type || !target_id || !target_name) {
+      return res.status(400).json({ success: false, message: 'Type de cible, ID cible et Nom sont obligatoires.' });
+    }
+
+    // RÈGLE MÉTIER STRICTE KINIMMO TRUST :
+    // On ne peut certifier QUE les biens qui vous appartiennent (que vous avez vous-même publiés) !
+    if (target_type === 'property') {
+      const prop = inMemoryProperties.find((p: any) => p.id === target_id);
+      if (!prop) {
+        return res.status(404).json({ success: false, message: 'Annonce immobilière ciblée introuvable.' });
+      }
+
+      const isPublisher =
+        prop.agentId === user.id ||
+        prop.userId === user.id ||
+        (user.email && prop.contactEmail && prop.contactEmail.toLowerCase() === user.email.toLowerCase()) ||
+        (user.id === 'agent-1' && (prop.agentId === 'agent-1' || prop.agentId === 'collab_patrick')) ||
+        user.role === 'admin';
+
+      if (!isPublisher) {
+        return res.status(403).json({
+          success: false,
+          message: 'Règle métier Kinimmo Trust : Vous pouvez uniquement certifier les biens immobiliers qui vous appartiennent (que vous avez vous-même publiés). Il est strictement interdit de demander la certification d’un bien appartenant à un tiers.'
+        });
+      }
+    } else if (target_type === 'agent') {
+      const isSelf = user.id === target_id || user.id === 'agent-1' || user.role === 'admin';
+      if (!isSelf) {
+        return res.status(403).json({
+          success: false,
+          message: 'Règle métier Kinimmo Trust : Vous ne pouvez soumettre une vérification que pour votre propre profil d’agent.'
+        });
+      }
+    }
+
+    const verificationId = `trust_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newVerif = {
+      id: verificationId,
+      targetType: target_type,
+      targetId: target_id,
+      targetName: target_name,
+      applicantUserId: user.id,
+      applicantName: user.name,
+      applicantEmail: user.email,
+      applicantPhone: applicant_phone || user.phone || null,
+      trustStatus: 'pending',
+      trustLevel: 'En attente d’audit',
+      trustScore: 20,
+      submittedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    inMemoryTrust.verifications.unshift(newVerif);
+
+    // Mettre à jour la cible en statut pending
+    if (target_type === 'property') {
+      const propIndex = inMemoryProperties.findIndex((p: any) => p.id === target_id);
+      if (propIndex !== -1) {
+        inMemoryProperties[propIndex].trust_status = 'pending';
+        inMemoryProperties[propIndex].trust_score = 20;
+        saveLocalProperties(inMemoryProperties);
+      }
+    }
+
+    // Ajouter les pièces justificatives
+    if (Array.isArray(documents)) {
+      documents.forEach((d: any) => {
+        if (d.file_url || d.fileUrl) {
+          inMemoryTrust.documents.push({
+            id: `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            verificationId,
+            docType: d.doc_type || d.docType || 'other',
+            title: d.title || 'Pièce justificative',
+            documentNumber: d.document_number || d.documentNumber || null,
+            fileUrl: d.file_url || d.fileUrl,
+            fileSize: d.file_size || d.fileSize || '1.2 MB',
+            fileMimeType: d.file_mime_type || d.fileMimeType || 'application/pdf',
+            status: 'pending',
+            createdAt: new Date().toISOString()
+          });
+        }
+      });
+    }
+
+    // Journal d'audit
+    inMemoryTrust.auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      verificationId,
+      targetType: target_type,
+      targetId: target_id,
+      adminUserId: user.id,
+      adminName: user.name,
+      adminEmail: user.email,
+      action: 'DOSSIER_SUBMITTED',
+      previousStatus: 'unverified',
+      newStatus: 'pending',
+      reasonOrNotes: 'Demande de vérification Kinimmo Trust soumise par le demandeur avec documents justificatifs.',
+      ipAddress: req.ip || '127.0.0.1',
+      createdAt: new Date().toISOString()
+    });
+
+    saveLocalTrust(inMemoryTrust);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Votre dossier a été soumis avec succès à l’équipe Kinimmo Trust.',
+      verification: newVerif
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+
+app.post('/api/trust/apply', handleApplyTrust);
+app.post('/api/trust/verifications', handleApplyTrust);
+
+
+// 5. Décision administrative sur une vérification
+const handleUpdateTrustStatus = (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    const admin = user || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    
+    // SÉCURITÉ : Seules les personnes disposant du rôle administrateur peuvent prendre des décisions
+    if (admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès interdit : Seules les personnes disposant du rôle administrateur autorisé peuvent prendre des décisions.'
+      });
+    }
+
+    const { id } = req.params;
+    const {
+      status, // 'in_progress', 'identity_verified', 'pro_verified', 'property_verified', 'rejected', 'expired', 'suspended'
+      trust_level,
+      trust_score = 90,
+      rejection_reason,
+      rejection_category,
+      suspension_reason,
+      admin_notes,
+      expires_in_months = 12
+    } = req.body;
+
+    const verifIndex = inMemoryTrust.verifications.findIndex((v) => v.id === id);
+    if (verifIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Dossier introuvable.' });
+    }
+
+    const currentVerif = inMemoryTrust.verifications[verifIndex];
+    const prevStatus = currentVerif.trustStatus;
+    const isApproval = ['identity_verified', 'pro_verified', 'property_verified'].includes(status);
+
+    // SÉCURITÉ CRITIQUE : Les utilisateurs ne doivent jamais pouvoir approuver eux-mêmes leurs propres demandes !
+    if (isApproval && currentVerif.applicantUserId === admin.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Violation de sécurité : Un utilisateur ne peut JAMAIS approuver son propre dossier de vérification.'
+      });
+    }
+
+    // SÉCURITÉ : Exiger obligatoirement un motif pour les refus
+    if (status === 'rejected' && (!rejection_reason || !rejection_reason.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Le motif de refus (rejection_reason) est obligatoire pour rejeter un dossier.'
+      });
+    }
+
+    // SÉCURITÉ : Exiger obligatoirement un motif pour les suspensions
+    if (status === 'suspended' && (!suspension_reason || !suspension_reason.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Le motif de suspension (suspension_reason) est obligatoire en cas de problème sérieux.'
+      });
+    }
+
+    let approvedAt = currentVerif.approvedAt;
+    let expiresAt = currentVerif.expiresAt;
+
+    if (isApproval) {
+      approvedAt = new Date().toISOString();
+      const expDate = new Date();
+      expDate.setMonth(expDate.getMonth() + Number(expires_in_months));
+      expiresAt = expDate.toISOString();
+    }
+
+    inMemoryTrust.verifications[verifIndex] = {
+      ...currentVerif,
+      trustStatus: status,
+      trustLevel: trust_level || currentVerif.trustLevel,
+      trustScore: Number(trust_score),
+      reviewedAt: new Date().toISOString(),
+      approvedAt,
+      expiresAt,
+      rejectionReason: rejection_reason || null,
+      rejectionCategory: rejection_category || null,
+      suspensionReason: suspension_reason || null,
+      adminNotes: admin_notes || currentVerif.adminNotes,
+      assignedAdminId: admin.id,
+      assignedAdminName: admin.name,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Mettre à jour l'annonce dans inMemoryProperties
+    if (currentVerif.targetType === 'property') {
+      const pIdx = inMemoryProperties.findIndex((p: any) => p.id === currentVerif.targetId);
+      if (pIdx !== -1) {
+        inMemoryProperties[pIdx].trust_status = status;
+        inMemoryProperties[pIdx].trust_level = trust_level || 'Bien Vérifié & Titre Foncier Contrôlé';
+        inMemoryProperties[pIdx].trust_score = Number(trust_score);
+        inMemoryProperties[pIdx].trust_verified_at = approvedAt;
+        inMemoryProperties[pIdx].trust_expires_at = expiresAt;
+        saveLocalProperties(inMemoryProperties);
+      }
+    }
+
+    // Journal d'audit protégé et immuable
+    inMemoryTrust.auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      verificationId: id,
+      targetType: currentVerif.targetType,
+      targetId: currentVerif.targetId,
+      adminUserId: admin.id,
+      adminName: admin.name,
+      adminEmail: admin.email,
+      action: isApproval ? 'TRUST_GRANTED' : (status === 'rejected' ? 'TRUST_REJECTED' : (status === 'suspended' ? 'TRUST_SUSPENDED' : 'AUDIT_UPDATED')),
+      previousStatus: prevStatus,
+      newStatus: status,
+      reasonOrNotes: rejection_reason || suspension_reason || admin_notes || `Changement de statut vers ${status}`,
+      ipAddress: req.ip || '127.0.0.1',
+      createdAt: new Date().toISOString()
+    });
+
+    // Notification utilisateur
+    inMemoryTrust.notifications.unshift({
+      id: `notif_${Date.now()}`,
+      userId: currentVerif.applicantUserId,
+      title: isApproval ? 'Badge Kinimmo Trust Approuvé !' : 'Notification Kinimmo Trust',
+      message: isApproval
+        ? `Votre demande de vérification pour "${currentVerif.targetName}" est approuvée.`
+        : `Statut de vérification mis à jour : ${status}. Motif : ${rejection_reason || suspension_reason || 'Consultez les détails.'}`,
+      type: isApproval ? 'trust_approved' : (status === 'rejected' ? 'trust_rejected' : 'trust_suspended'),
+      targetType: currentVerif.targetType,
+      targetId: currentVerif.targetId,
+      isRead: false,
+      createdAt: new Date().toISOString()
+    });
+
+    saveLocalTrust(inMemoryTrust);
+
+    return res.json({
+      success: true,
+      message: `Décision enregistrée avec succès : ${status}`,
+      verification: inMemoryTrust.verifications[verifIndex]
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+
+app.put('/api/trust/verifications/:id/status', handleUpdateTrustStatus);
+app.post('/api/trust/verifications/:id/status', handleUpdateTrustStatus);
+app.put('/api/trust/verifications/:id/decision', handleUpdateTrustStatus);
+
+// 5b. Demande d'informations complémentaires par l'admin
+app.post('/api/trust/verifications/:id/request-info', (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    const admin = user || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    if (admin.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Accès interdit : Rôle administrateur requis.' });
+    }
+    const { id } = req.params;
+    const { message, requested_fields } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ success: false, message: 'Le message détaillant les pièces manquantes est obligatoire.' });
+    }
+
+    const verifIndex = inMemoryTrust.verifications.findIndex((v) => v.id === id);
+    if (verifIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Dossier introuvable.' });
+    }
+
+    const currentVerif = inMemoryTrust.verifications[verifIndex];
+    inMemoryTrust.verifications[verifIndex].trustStatus = 'in_progress';
+    inMemoryTrust.verifications[verifIndex].adminNotes = `Complément d'information requis : ${message.trim()}`;
+    inMemoryTrust.verifications[verifIndex].updatedAt = new Date().toISOString();
+
+    inMemoryTrust.auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      verificationId: id,
+      targetType: currentVerif.targetType,
+      targetId: currentVerif.targetId,
+      adminUserId: admin.id,
+      adminName: admin.name,
+      adminEmail: admin.email,
+      action: 'INFO_REQUESTED',
+      previousStatus: currentVerif.trustStatus,
+      newStatus: 'in_progress',
+      reasonOrNotes: `Complément demandé : ${message.trim()}`,
+      ipAddress: req.ip || '127.0.0.1',
+      createdAt: new Date().toISOString()
+    });
+
+    inMemoryTrust.notifications.unshift({
+      id: `notif_${Date.now()}`,
+      userId: currentVerif.applicantUserId,
+      title: 'Pièces complémentaires requises pour Kinimmo Trust',
+      message: `L'équipe d'audit Kinimmo Trust a besoin de compléments : ${message.trim()}`,
+      type: 'doc_required',
+      targetType: currentVerif.targetType,
+      targetId: currentVerif.targetId,
+      isRead: false,
+      createdAt: new Date().toISOString()
+    });
+
+    saveLocalTrust(inMemoryTrust);
+    return res.json({ success: true, message: 'Demande de compléments envoyée au demandeur avec succès.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 5c. Consigner la consultation sécurisée d'un justificatif sensible
+app.post('/api/trust/documents/:id/access-log', (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req) || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    const { id } = req.params;
+    const { verification_id, document_title } = req.body;
+
+    inMemoryTrust.auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      verificationId: verification_id,
+      targetType: 'system',
+      targetId: id,
+      adminUserId: user.id,
+      adminName: user.name,
+      adminEmail: user.email,
+      action: 'DOCUMENT_VIEWED',
+      reasonOrNotes: `Consultation du document sensible "${document_title || id}" par ${user.name} (${user.role})`,
+      ipAddress: req.ip || '127.0.0.1',
+      createdAt: new Date().toISOString()
+    });
+
+    saveLocalTrust(inMemoryTrust);
+    return res.json({ success: true, message: 'Accès consigné au journal d’audit.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 5d. Protection d'immuabilité absolue des journaux d'audit
+app.delete('/api/trust/audit-logs*', (_req: Request, res: Response) => {
+  return res.status(405).json({
+    success: false,
+    message: 'Sécurité : Les journaux d’audit Kinimmo Trust sont immuables et protégés contre toute suppression rétroactive.'
+  });
+});
+app.put('/api/trust/audit-logs*', (_req: Request, res: Response) => {
+  return res.status(405).json({
+    success: false,
+    message: 'Sécurité : Les journaux d’audit Kinimmo Trust sont immuables et protégés contre toute modification.'
+  });
+});
+
+
+// 6. Ajouter un contrôle d'audit
+app.post('/api/trust/verifications/:id/checks', (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req) || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    const { id } = req.params;
+    const { check_type, check_label, result = 'passed', evidence_notes } = req.body;
+
+    const check = {
+      id: `chk_${Date.now()}`,
+      verificationId: id,
+      checkType: check_type,
+      checkLabel: check_label,
+      result,
+      evidenceNotes: evidence_notes || '',
+      conductedByUserId: admin.id,
+      conductedByName: admin.name,
+      conductedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    };
+
+    inMemoryTrust.checks.push(check);
+
+    // Journal d'audit pour le contrôle
+    inMemoryTrust.auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      verificationId: id,
+      targetType: 'system',
+      targetId: id,
+      adminUserId: admin.id,
+      adminName: admin.name,
+      adminEmail: admin.email,
+      action: 'CHECK_PERFORMED',
+      reasonOrNotes: `Contrôle d'audit "${check_label}" exécuté avec le résultat : ${result}. Notes: ${evidence_notes || 'RAS'}`,
+      ipAddress: req.ip || '127.0.0.1',
+      createdAt: new Date().toISOString()
+    });
+
+    saveLocalTrust(inMemoryTrust);
+
+    return res.status(201).json({ success: true, check });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 7. Statut d'un document justificatif (approuver/refuser une pièce)
+app.put('/api/trust/documents/:id/status', (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req) || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    const { id } = req.params;
+    const { status, rejection_note } = req.body; // status: 'approved' | 'rejected'
+
+    const docIndex = inMemoryTrust.documents.findIndex((d) => d.id === id);
+    if (docIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Document introuvable.' });
+    }
+
+    inMemoryTrust.documents[docIndex] = {
+      ...inMemoryTrust.documents[docIndex],
+      status,
+      rejectionNote: rejection_note || null,
+      verifiedByUserId: admin.id,
+      verifiedByName: admin.name,
+      verifiedAt: new Date().toISOString()
+    };
+
+    saveLocalTrust(inMemoryTrust);
+
+    return res.json({ success: true, document: inMemoryTrust.documents[docIndex] });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 8. Confirmer la disponibilité d'un bien
+app.post('/api/trust/availability/:propertyId', (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req) || { id: 'usr_author', name: 'Agent Certifié', email: 'agent@kinimmo.cd', role: 'agent' };
+    const { propertyId } = req.params;
+    const { availability_status = 'available', confirmation_method = 'agent_statement', notes } = req.body;
+
+    const prop = inMemoryProperties.find((p: any) => p.id === propertyId);
+    if (!prop) {
+      return res.status(404).json({ success: false, message: 'Bien immobilier introuvable.' });
+    }
+
+    const isAvailable = availability_status === 'available';
+    const nextDue = new Date();
+    nextDue.setDate(nextDue.getDate() + 14);
+
+    const availIndex = inMemoryTrust.availabilities.findIndex((a) => a.propertyId === propertyId);
+    const availRecord = {
+      id: availIndex !== -1 ? inMemoryTrust.availabilities[availIndex].id : `avail_${Date.now()}`,
+      propertyId,
+      propertyTitle: prop.title,
+      isAvailable,
+      availabilityStatus: availability_status,
+      lastConfirmedAt: new Date().toISOString(),
+      lastConfirmedById: user.id,
+      lastConfirmedByName: user.name,
+      confirmationMethod: confirmation_method,
+      nextVerificationDue: nextDue.toISOString(),
+      notes: notes || null,
+      createdAt: availIndex !== -1 ? inMemoryTrust.availabilities[availIndex].createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (availIndex !== -1) {
+      inMemoryTrust.availabilities[availIndex] = availRecord;
+    } else {
+      inMemoryTrust.availabilities.push(availRecord);
+    }
+
+    // Mettre à jour l'annonce
+    const pIdx = inMemoryProperties.findIndex((p: any) => p.id === propertyId);
+    if (pIdx !== -1) {
+      inMemoryProperties[pIdx].isAvailable = isAvailable;
+      inMemoryProperties[pIdx].availability_status = availability_status;
+      inMemoryProperties[pIdx].availability_confirmed_at = new Date().toISOString();
+      saveLocalProperties(inMemoryProperties);
+    }
+
+    saveLocalTrust(inMemoryTrust);
+
+    return res.json({
+      success: true,
+      message: 'Disponibilité confirmée avec succès.',
+      availability: availRecord
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9. Journal d'audit complet des administrateurs
+app.get('/api/trust/audit-logs', (_req: Request, res: Response) => {
+  try {
+    return res.json({ success: true, count: inMemoryTrust.auditLogs.length, data: inMemoryTrust.auditLogs });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 10. Notifications de changement de statut
+app.get('/api/trust/notifications', (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    let list = inMemoryTrust.notifications;
+    if (user && user.id) {
+      list = list.filter((n) => n.userId === user.id || n.userId === 'all');
+    }
+    return res.json({ success: true, count: list.length, data: list });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+app.put('/api/trust/notifications/:id/read', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const notif = inMemoryTrust.notifications.find((n) => n.id === id);
+    if (notif) {
+      notif.isRead = true;
+      saveLocalTrust(inMemoryTrust);
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+
 // Health check
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'Kinimmo Conciergerie API', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    service: 'Kinimmo Conciergerie & Cloudinary Video API',
+    cloudinary: {
+      isConfigured: serverCloudinaryConfig.isConfigured,
+      cloudName: serverCloudinaryConfig.cloudName
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Helper to determine accurate public base URL
+function getSiteBaseUrl(req: Request): string {
+  if (process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL') {
+    return process.env.APP_URL.replace(/\/+$/, '');
+  }
+  const host = req.get('x-forwarded-host') || req.get('host') || `localhost:${PORT}`;
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
+  return `${proto}://${host}`.replace(/\/+$/, '');
+}
+
+// -------------------------------------------------------------
+// SITEMAP.XML DYNAMIQUE POUR LE RÉFÉRENCEMENT GOOGLE (SEO)
+// -------------------------------------------------------------
+app.get('/sitemap.xml', (req: Request, res: Response) => {
+  try {
+    const baseUrl = getSiteBaseUrl(req);
+    const today = new Date().toISOString().split('T')[0];
+
+    // Pages principales du portail
+    const staticPages = [
+      { loc: `${baseUrl}/`, priority: '1.0', changefreq: 'daily' },
+      { loc: `${baseUrl}/visites`, priority: '0.9', changefreq: 'daily' },
+      { loc: `${baseUrl}/conciergerie`, priority: '0.8', changefreq: 'weekly' },
+      { loc: `${baseUrl}/?tab=map`, priority: '0.8', changefreq: 'weekly' },
+      { loc: `${baseUrl}/?tab=agents`, priority: '0.8', changefreq: 'weekly' },
+      { loc: `${baseUrl}/?tab=agencies`, priority: '0.8', changefreq: 'weekly' },
+      { loc: `${baseUrl}/?tab=pricing`, priority: '0.7', changefreq: 'monthly' },
+      { loc: `${baseUrl}/?status=for-sale`, priority: '0.8', changefreq: 'daily' },
+      { loc: `${baseUrl}/?status=for-rent`, priority: '0.8', changefreq: 'daily' },
+    ];
+
+    // Communes populaires de Kinshasa pour le SEO géolocalisé
+    const topCommunes = [
+      'Gombe', 'Ngaliema', 'Limete', 'Kintambo', 'Mont-Ngafula',
+      'Bandalungwa', 'Kalamu', 'Lingwala', 'Barumbu', 'Kinshasa'
+    ];
+    const communePages = topCommunes.map((c) => ({
+      loc: `${baseUrl}/?commune=${encodeURIComponent(c)}`,
+      priority: '0.7',
+      changefreq: 'weekly',
+      lastmod: today
+    }));
+
+    // Annonces immobilières publiées et actives
+    const publishedProps = inMemoryProperties.filter(
+      (p: any) => p && (p.published !== false && p.listingStatus !== 'ARCHIVED' && p.listingStatus !== 'REJECTED')
+    );
+
+    const propertyPages = publishedProps.map((p: any) => {
+      let lastmod = today;
+      if (p.updatedAt) {
+        lastmod = String(p.updatedAt).split('T')[0];
+      } else if (p.createdAt) {
+        lastmod = String(p.createdAt).split('T')[0];
+      }
+      return {
+        loc: `${baseUrl}/?property=${encodeURIComponent(p.id)}`,
+        priority: p.featured ? '0.9' : '0.8',
+        changefreq: 'weekly',
+        lastmod
+      };
+    });
+
+    const allUrls = [
+      ...staticPages.map((p) => ({ ...p, lastmod: today })),
+      ...communePages,
+      ...propertyPages
+    ];
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+        http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+${allUrls
+  .map(
+    (u) => `  <url>
+    <loc>${u.loc}</loc>
+    <lastmod>${u.lastmod}</lastmod>
+    <changefreq>${u.changefreq}</changefreq>
+    <priority>${u.priority}</priority>
+  </url>`
+  )
+  .join('\n')}
+</urlset>`;
+
+    res.header('Content-Type', 'application/xml; charset=utf-8');
+    res.header('Cache-Control', 'public, max-age=3600');
+    return res.send(xml);
+  } catch (err: any) {
+    console.error('Error generating dynamic sitemap:', err);
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><error>Erreur génération sitemap</error>');
+  }
+});
+
+// -------------------------------------------------------------
+// ROBOTS.TXT
+// -------------------------------------------------------------
+app.get('/robots.txt', (req: Request, res: Response) => {
+  const baseUrl = getSiteBaseUrl(req);
+  const robots = `User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /agent-dashboard
+Disallow: /agency-dashboard
+
+Sitemap: ${baseUrl}/sitemap.xml
+`;
+  res.header('Content-Type', 'text/plain; charset=utf-8');
+  res.header('Cache-Control', 'public, max-age=86400');
+  return res.send(robots);
 });
 
 // Initialisation Serveur Vite (Dev) ou Fichiers Statiques (Prod)

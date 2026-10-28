@@ -11,6 +11,8 @@ router.get('/:id', propertiesController.getPropertyById);
 // Routes protégées (Création réservée aux agents, agences ou administrateurs)
 router.post('/', authenticateToken, requireProfessional, propertiesController.createProperty);
 router.put('/:id', authenticateToken, propertiesController.updateProperty);
+router.put('/:id/status', authenticateToken, propertiesController.updatePropertyListingStatus);
+router.patch('/:id/status', authenticateToken, propertiesController.updatePropertyListingStatus);
 router.delete('/:id', authenticateToken, propertiesController.deleteProperty);
 
 module.exports = router;

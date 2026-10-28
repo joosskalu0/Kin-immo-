@@ -1,4 +1,4 @@
-import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings, VisibilityOption } from '../types';
+import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings, VisibilityOption, PropertyVideo, PropertyVideoStatus, PropertyUserReport } from '../types';
 
 /**
  * Service Client API MySQL REST pour Kinimmo
@@ -528,7 +528,68 @@ export const mysqlApi = {
     });
   },
 
+  async updatePropertyListingStatus(id: string, status: string, note?: string) {
+    return apiRequest(`/properties/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status, note })
+    });
+  },
+
+  async assignProperty(id: string, assignedAgentId: string, assignedAgentName: string) {
+    return apiRequest(`/properties/${id}/assign`, {
+      method: 'PATCH',
+      body: JSON.stringify({ assignedAgentId, assignedAgentName })
+    });
+  },
+
+  async getPropertyStatusHistory(id: string) {
+    return apiRequest(`/properties/${id}/status-history`);
+  },
+
   // 4. Agents & Agences
+  async getAgencyCollaborators(agencyId?: string) {
+    const q = agencyId ? `?agencyId=${encodeURIComponent(agencyId)}` : '';
+    return apiRequest(`/agency/collaborators${q}`);
+  },
+
+  async inviteAgencyCollaborator(data: any) {
+    return apiRequest('/agency/collaborators/invite', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async updateAgencyCollaborator(id: string, data: any) {
+    return apiRequest(`/agency/collaborators/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async deleteAgencyCollaborator(id: string) {
+    return apiRequest(`/agency/collaborators/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async getAgencyTransactions(agencyId?: string) {
+    const q = agencyId ? `?agencyId=${encodeURIComponent(agencyId)}` : '';
+    return apiRequest(`/agency/transactions${q}`);
+  },
+
+  async createAgencyTransaction(data: any) {
+    return apiRequest('/agency/transactions', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async updateAgencyProfile(agencyId: string, data: any) {
+    return apiRequest(`/agencies/${agencyId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
   async getAgents(search?: string) {
     const q = search ? `?search=${encodeURIComponent(search)}` : '';
     return apiRequest(`/agents${q}`);
@@ -1411,6 +1472,148 @@ export const mysqlApi = {
     } catch (e: any) {
       return { success: true, message: 'Coordonnées sauvegardées localement.' };
     }
+  },
+
+  // ==========================================================
+  // KINIMMO VISITES (Vidéos Verticales Immersives & Modération)
+  // ==========================================================
+
+  /**
+   * Récupère la liste des vidéos approuvées pour le flux Visites
+   */
+  async getApprovedVideos(filters?: { commune?: string; type?: string }): Promise<{ success: boolean; data?: { videos: PropertyVideo[] }; error?: string }> {
+    const params = new URLSearchParams();
+    if (filters?.commune && filters.commune !== 'all') params.append('commune', filters.commune);
+    if (filters?.type && filters.type !== 'all') params.append('type', filters.type);
+
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return apiRequest(`/videos${queryStr}`);
+  },
+
+  /**
+   * Récupère les vidéos publiées par l'agent / l'agence connecté
+   */
+  async getMyVideos(): Promise<{ success: boolean; data?: { videos: PropertyVideo[] }; error?: string }> {
+    return apiRequest('/videos/my');
+  },
+
+  /**
+   * Publie une nouvelle vidéo pour une annonce
+   */
+  async createVideo(payload: {
+    propertyId: string;
+    videoUrl: string;
+    thumbnailUrl?: string;
+    description?: string;
+    status?: PropertyVideoStatus;
+  }): Promise<{ success: boolean; message?: string; data?: { video: PropertyVideo }; error?: string }> {
+    return apiRequest('/videos', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  /**
+   * Met à jour une vidéo existante
+   */
+  async updateVideo(id: string, payload: Partial<PropertyVideo>): Promise<{ success: boolean; message?: string; error?: string }> {
+    return apiRequest(`/videos/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  /**
+   * Supprime une vidéo
+   */
+  async deleteVideo(id: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    return apiRequest(`/videos/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Incrémente le compteur de vues d'une vidéo
+   */
+  async incrementVideoView(id: string): Promise<{ success: boolean }> {
+    return apiRequest(`/videos/${id}/view`, {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Enregistre une demande de visite réelle pour une vidéo
+   */
+  async submitVideoVisitRequest(videoId: string, payload: {
+    clientName: string;
+    clientPhone: string;
+    clientEmail?: string;
+    preferredDate?: string;
+    preferredTimeSlot?: string;
+    notes?: string;
+  }): Promise<{ success: boolean; message?: string; visit?: any; error?: string }> {
+    return apiRequest(`/videos/${videoId}/visit-request`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  /**
+   * Administration : Récupère toutes les vidéos pour la modération
+   */
+  async adminGetVideos(status?: string, search?: string): Promise<{ success: boolean; data?: { videos: (PropertyVideo & { userName?: string; userEmail?: string; reportsCount?: number })[] }; error?: string }> {
+    const params = new URLSearchParams();
+    if (status && status !== 'all') params.append('status', status);
+    if (search) params.append('search', search);
+
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return apiRequest(`/videos/admin/all${queryStr}`);
+  },
+
+  /**
+   * Administration : Approuve, refuse, suspend ou masque une vidéo
+   */
+  async adminModerateVideo(id: string, status: PropertyVideoStatus, rejectionReason?: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    return apiRequest(`/videos/admin/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, rejectionReason })
+    });
+  },
+
+  /**
+   * Signale une annonce ou une vidéo suspecte
+   */
+  async submitPropertyReport(payload: {
+    propertyId: string;
+    reporterName?: string;
+    reporterContact?: string;
+    reason: string;
+    comment?: string;
+  }): Promise<{ success: boolean; message?: string; error?: string }> {
+    return apiRequest('/videos/reports', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  /**
+   * Administration : Récupère les signalements
+   */
+  async adminGetReports(status?: string): Promise<{ success: boolean; data?: { reports: PropertyUserReport[] }; error?: string }> {
+    const params = new URLSearchParams();
+    if (status && status !== 'all') params.append('status', status);
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return apiRequest(`/videos/admin/reports${queryStr}`);
+  },
+
+  /**
+   * Administration : Traite ou classe un signalement
+   */
+  async adminResolveReport(id: string, status: 'resolved' | 'dismissed'): Promise<{ success: boolean; message?: string; error?: string }> {
+    return apiRequest(`/videos/admin/reports/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
   }
 };
 

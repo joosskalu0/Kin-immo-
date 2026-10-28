@@ -809,5 +809,227 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   INDEX `idx_notif_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ----------------------------------------------------------
+-- 16. Table des Vidéos Courtes & Immersives (property_videos)
+-- Module Kinimmo Visites
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `property_videos` (
+  `id` VARCHAR(64) NOT NULL,
+  `property_id` VARCHAR(64) NOT NULL,
+  `user_id` VARCHAR(64) NOT NULL,
+  `video_url` TEXT NOT NULL,
+  `thumbnail_url` TEXT DEFAULT NULL,
+  `description` TEXT DEFAULT NULL,
+  `status` ENUM('draft', 'pending', 'approved', 'rejected', 'hidden') NOT NULL DEFAULT 'pending',
+  `views_count` INT NOT NULL DEFAULT 0,
+  `rejection_reason` TEXT DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_prop_videos_property` (`property_id`),
+  INDEX `idx_prop_videos_user` (`user_id`),
+  INDEX `idx_prop_videos_status` (`status`),
+  INDEX `idx_prop_videos_created` (`created_at`),
+  CONSTRAINT `fk_prop_videos_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_prop_videos_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------------------------------------
+-- 17. Table des Signalements d'Annonces & Vidéos (property_reports)
+-- Modération et détection anti-fraude
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `property_reports` (
+  `id` VARCHAR(64) NOT NULL,
+  `property_id` VARCHAR(64) NOT NULL,
+  `reporter_name` VARCHAR(255) DEFAULT NULL,
+  `reporter_contact` VARCHAR(100) DEFAULT NULL,
+  `reason` VARCHAR(100) NOT NULL,
+  `comment` TEXT DEFAULT NULL,
+  `status` ENUM('pending', 'resolved', 'dismissed') NOT NULL DEFAULT 'pending',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_prop_reports_property` (`property_id`),
+  INDEX `idx_prop_reports_status` (`status`),
+  INDEX `idx_prop_reports_created` (`created_at`),
+  CONSTRAINT `fk_prop_reports_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------------------------------------
+-- 18. Table des Dossiers de Vérification Kinimmo Trust (trust_verifications)
+-- Concerne les Agents, Agences et Biens Immobiliers
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `trust_verifications` (
+  `id` VARCHAR(64) NOT NULL,
+  `target_type` ENUM('agent', 'agency', 'property') NOT NULL,
+  `target_id` VARCHAR(64) NOT NULL,
+  `target_name` VARCHAR(255) NOT NULL,
+  `applicant_user_id` VARCHAR(64) NOT NULL,
+  `applicant_name` VARCHAR(255) NOT NULL,
+  `applicant_email` VARCHAR(255) NOT NULL,
+  `applicant_phone` VARCHAR(50) DEFAULT NULL,
+  `trust_status` ENUM(
+    'unverified',
+    'pending',
+    'in_progress',
+    'identity_verified',
+    'pro_verified',
+    'property_verified',
+    'rejected',
+    'expired',
+    'suspended'
+  ) NOT NULL DEFAULT 'unverified',
+  `trust_level` VARCHAR(100) DEFAULT NULL,
+  `trust_score` INT NOT NULL DEFAULT 0,
+  `submitted_at` TIMESTAMP NULL DEFAULT NULL,
+  `assigned_admin_id` VARCHAR(64) DEFAULT NULL,
+  `assigned_admin_name` VARCHAR(255) DEFAULT NULL,
+  `reviewed_at` TIMESTAMP NULL DEFAULT NULL,
+  `approved_at` TIMESTAMP NULL DEFAULT NULL,
+  `expires_at` TIMESTAMP NULL DEFAULT NULL,
+  `rejection_reason` TEXT DEFAULT NULL,
+  `rejection_category` VARCHAR(100) DEFAULT NULL,
+  `suspension_reason` TEXT DEFAULT NULL,
+  `admin_notes` TEXT DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_trust_target` (`target_type`, `target_id`),
+  INDEX `idx_trust_status` (`trust_status`),
+  INDEX `idx_trust_applicant` (`applicant_user_id`),
+  INDEX `idx_trust_expires` (`expires_at`),
+  CONSTRAINT `fk_trust_applicant_user` FOREIGN KEY (`applicant_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------------------------------------
+-- 19. Table des Pièces Justificatives Sécurisées (trust_documents)
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `trust_documents` (
+  `id` VARCHAR(64) NOT NULL,
+  `verification_id` VARCHAR(64) NOT NULL,
+  `doc_type` ENUM(
+    'cni',
+    'passport',
+    'voter_card',
+    'rccm',
+    'id_nat',
+    'nif',
+    'certificat_enregistrement',
+    'livret_logeur',
+    'acte_vente',
+    'mandat_exclusif',
+    'mandat_simple',
+    'attestation_localisation',
+    'other'
+  ) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `document_number` VARCHAR(100) DEFAULT NULL,
+  `file_url` TEXT NOT NULL,
+  `file_size` VARCHAR(50) DEFAULT NULL,
+  `file_mime_type` VARCHAR(100) DEFAULT NULL,
+  `status` ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+  `rejection_note` TEXT DEFAULT NULL,
+  `verified_by_user_id` VARCHAR(64) DEFAULT NULL,
+  `verified_by_name` VARCHAR(255) DEFAULT NULL,
+  `verified_at` TIMESTAMP NULL DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_trust_doc_verif` (`verification_id`),
+  INDEX `idx_trust_doc_status` (`status`),
+  CONSTRAINT `fk_trust_doc_verif` FOREIGN KEY (`verification_id`) REFERENCES `trust_verifications` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------------------------------------
+-- 20. Table des Contrôles d'Audit Effectués (trust_checks)
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `trust_checks` (
+  `id` VARCHAR(64) NOT NULL,
+  `verification_id` VARCHAR(64) NOT NULL,
+  `check_type` ENUM(
+    'identity_validation',
+    'rccm_guichet_unique',
+    'cadastre_conservation_titres',
+    'physical_site_inspection',
+    'phone_video_interview'
+  ) NOT NULL,
+  `check_label` VARCHAR(255) NOT NULL,
+  `result` ENUM('passed', 'failed', 'pending', 'waived') NOT NULL DEFAULT 'pending',
+  `evidence_notes` TEXT DEFAULT NULL,
+  `conducted_by_user_id` VARCHAR(64) NOT NULL,
+  `conducted_by_name` VARCHAR(255) NOT NULL,
+  `conducted_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_trust_checks_verif` (`verification_id`),
+  INDEX `idx_trust_checks_result` (`result`),
+  CONSTRAINT `fk_trust_checks_verif` FOREIGN KEY (`verification_id`) REFERENCES `trust_verifications` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------------------------------------
+-- 21. Table du Journal d'Audit Immuable des Administrateurs (trust_audit_logs)
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `trust_audit_logs` (
+  `id` VARCHAR(64) NOT NULL,
+  `verification_id` VARCHAR(64) DEFAULT NULL,
+  `target_type` ENUM('agent', 'agency', 'property', 'system') NOT NULL,
+  `target_id` VARCHAR(64) NOT NULL,
+  `admin_user_id` VARCHAR(64) NOT NULL,
+  `admin_name` VARCHAR(255) NOT NULL,
+  `admin_email` VARCHAR(255) NOT NULL,
+  `action` VARCHAR(100) NOT NULL,
+  `previous_status` VARCHAR(50) DEFAULT NULL,
+  `new_status` VARCHAR(50) DEFAULT NULL,
+  `reason_or_notes` TEXT DEFAULT NULL,
+  `ip_address` VARCHAR(50) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_trust_audit_target` (`target_type`, `target_id`),
+  INDEX `idx_trust_audit_admin` (`admin_user_id`),
+  INDEX `idx_trust_audit_date` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------------------------------------
+-- 22. Table de Suivi de Disponibilité des Biens (trust_property_availability)
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `trust_property_availability` (
+  `id` VARCHAR(64) NOT NULL,
+  `property_id` VARCHAR(64) NOT NULL UNIQUE,
+  `property_title` VARCHAR(255) NOT NULL,
+  `is_available` BOOLEAN NOT NULL DEFAULT TRUE,
+  `availability_status` ENUM('available', 'under_option', 'reserved', 'rented', 'sold', 'withdrawn') NOT NULL DEFAULT 'available',
+  `last_confirmed_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_confirmed_by_id` VARCHAR(64) NOT NULL,
+  `last_confirmed_by_name` VARCHAR(255) NOT NULL,
+  `confirmation_method` ENUM('agent_statement', 'physical_visit', 'admin_audit', 'client_feedback') NOT NULL DEFAULT 'agent_statement',
+  `next_verification_due` TIMESTAMP NULL DEFAULT NULL,
+  `notes` TEXT DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_trust_avail_status` (`availability_status`),
+  INDEX `idx_trust_avail_confirmed` (`last_confirmed_at`),
+  CONSTRAINT `fk_trust_prop_avail` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------------------------------------
+-- 23. Table des Notifications de Changement de Statut (trust_notifications)
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `trust_notifications` (
+  `id` VARCHAR(64) NOT NULL,
+  `user_id` VARCHAR(64) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `message` TEXT NOT NULL,
+  `type` ENUM('trust_approved', 'trust_rejected', 'trust_suspended', 'trust_expiring', 'availability_update', 'doc_required') NOT NULL,
+  `target_type` ENUM('agent', 'agency', 'property') DEFAULT NULL,
+  `target_id` VARCHAR(64) DEFAULT NULL,
+  `is_read` BOOLEAN NOT NULL DEFAULT FALSE,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_trust_notif_user` (`user_id`, `is_read`),
+  CONSTRAINT `fk_trust_notif_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Réactivation des vérifications de clés étrangères
 SET FOREIGN_KEY_CHECKS = 1;
+

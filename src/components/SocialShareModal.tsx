@@ -17,6 +17,7 @@ import {
 import { convertAndFormatPrice } from '../utils/currency';
 import { trackSocialShare } from '../utils/analytics';
 import { buildPropertyShareUrl, formatPropertyPitch } from '../utils/shareUtils';
+import { openWhatsApp } from '../utils/whatsapp';
 
 interface SocialShareModalProps {
   property: Property | null;
@@ -173,23 +174,30 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({ property, on
             {/* Primary Social Networks Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {/* WhatsApp */}
-              <a
-                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                  `🏡 *${property.title}* (${formattedPrice})\n📍 ${property.commune || property.city}\n👉 Découvrir la visite & photos : ${currentUrl}`
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackSocialShare('whatsapp', property.title)}
-                className="p-3 rounded-2xl bg-[#25D366]/15 hover:bg-[#25D366]/25 border border-[#25D366]/40 text-[#25D366] flex flex-col items-center gap-1.5 transition-all hover:scale-[1.03] group text-center"
-              >
-                <div className="w-9 h-9 rounded-xl bg-[#25D366] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/20">
-                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                    <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.699c.983.538 1.905.82 2.8.82 3.182 0 5.768-2.587 5.768-5.767.001-3.18-2.584-5.765-5.772-5.765zm0-2.172c4.382 0 7.937 3.555 7.938 7.937 0 4.382-3.555 7.938-7.938 7.938-1.341 0-2.6-.339-3.712-.932l-4.319 1.133 1.154-4.212c-.663-1.168-1.061-2.52-1.061-3.927 0-4.382 3.556-7.937 7.938-7.937zm3.847 11.233c-.161.453-.807.828-1.127.879-.32.05-.72.073-2.135-.515-1.782-.74-2.92-2.56-3.009-2.679-.089-.119-.719-.958-.719-1.825 0-.867.453-1.294.614-1.471.161-.177.352-.222.469-.222.117 0 .234 0 .337.005.108.006.252-.041.394.3.147.354.5 1.218.544 1.307.044.089.073.193.015.308-.059.115-.088.188-.176.29-.088.103-.186.23-.265.309-.089.088-.182.185-.078.363.104.177.461.761 1.018 1.258.718.639 1.323.837 1.51.929.186.093.296.079.407-.049.112-.128.479-.559.607-.751.128-.192.256-.16.427-.096.171.064 1.085.511 1.271.603.186.092.311.138.356.216.046.077.046.452-.115.905z" />
-                  </svg>
-                </div>
-                <span className="text-xs font-bold text-white">WhatsApp</span>
-                <span className="text-[10px] text-[#25D366] font-medium">Recommandé</span>
-              </a>
+              {(() => {
+                const waShareText = `🏡 *${property.title}* (${formattedPrice})\n📍 ${property.commune || property.city}\n👉 Découvrir la visite & photos : ${currentUrl}`;
+                return (
+                  <a
+                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(waShareText)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      trackSocialShare('whatsapp', property.title);
+                      openWhatsApp(null, waShareText);
+                    }}
+                    className="p-3 rounded-2xl bg-[#25D366]/15 hover:bg-[#25D366]/25 border border-[#25D366]/40 text-[#25D366] flex flex-col items-center gap-1.5 transition-all hover:scale-[1.03] group text-center cursor-pointer"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-[#25D366] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/20">
+                      <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                        <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.699c.983.538 1.905.82 2.8.82 3.182 0 5.768-2.587 5.768-5.767.001-3.18-2.584-5.765-5.772-5.765zm0-2.172c4.382 0 7.937 3.555 7.938 7.937 0 4.382-3.555 7.938-7.938 7.938-1.341 0-2.6-.339-3.712-.932l-4.319 1.133 1.154-4.212c-.663-1.168-1.061-2.52-1.061-3.927 0-4.382 3.556-7.937 7.938-7.937zm3.847 11.233c-.161.453-.807.828-1.127.879-.32.05-.72.073-2.135-.515-1.782-.74-2.92-2.56-3.009-2.679-.089-.119-.719-.958-.719-1.825 0-.867.453-1.294.614-1.471.161-.177.352-.222.469-.222.117 0 .234 0 .337.005.108.006.252-.041.394.3.147.354.5 1.218.544 1.307.044.089.073.193.015.308-.059.115-.088.188-.176.29-.088.103-.186.23-.265.309-.089.088-.182.185-.078.363.104.177.461.761 1.018 1.258.718.639 1.323.837 1.51.929.186.093.296.079.407-.049.112-.128.479-.559.607-.751.128-.192.256-.16.427-.096.171.064 1.085.511 1.271.603.186.092.311.138.356.216.046.077.046.452-.115.905z" />
+                      </svg>
+                    </div>
+                    <span className="text-xs font-bold text-white">WhatsApp</span>
+                    <span className="text-[10px] text-[#25D366] font-medium">Recommandé</span>
+                  </a>
+                );
+              })()}
 
               {/* Facebook */}
               <a

@@ -13,6 +13,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { openWhatsApp } from '../utils/whatsapp';
 
 interface FloatingConciergeWidgetProps {
   onNavigateToConciergerie?: () => void;
@@ -45,14 +46,12 @@ export const FloatingConciergeWidget: React.FC<FloatingConciergeWidgetProps> = (
   const partnerMsg = vip?.partnerMessage || "Bonjour KINIMMO Partenariats, je souhaite vous présenter un projet immobilier / programme neuf / partenariat d'affaires.";
 
   const handleAgencyWhatsApp = () => {
-    const text = encodeURIComponent(agentMsg);
-    window.open(`https://wa.me/${rawWhatsApp}?text=${text}`, '_blank', 'noopener,noreferrer');
+    openWhatsApp(rawWhatsApp, agentMsg);
     setIsOpen(false);
   };
 
   const handlePartnerWhatsApp = () => {
-    const text = encodeURIComponent(partnerMsg);
-    window.open(`https://wa.me/${rawWhatsApp}?text=${text}`, '_blank', 'noopener,noreferrer');
+    openWhatsApp(rawWhatsApp, partnerMsg);
     setIsOpen(false);
   };
 

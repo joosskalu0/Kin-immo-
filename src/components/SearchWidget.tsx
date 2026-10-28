@@ -75,7 +75,7 @@ export const SearchWidget: React.FC = () => {
           <button
             key={tab.id}
             onClick={() => setFilters((prev) => ({ ...prev, status: tab.id as any }))}
-            className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition-all ${
               (filters.status || 'all') === tab.id
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
@@ -103,7 +103,7 @@ export const SearchWidget: React.FC = () => {
                 quartier: 'all', // Reset quartier when commune changes
               }));
             }}
-            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-xs text-slate-900 font-semibold focus:outline-none focus:border-emerald-600 transition-colors"
+            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-xs sm:text-sm text-slate-900 font-bold focus:outline-none focus:border-emerald-600 transition-colors"
           >
             <option value="all">Toutes les Communes (24)</option>
             <optgroup label="Lukunga (Centre & Résidentiel)">
@@ -139,7 +139,7 @@ export const SearchWidget: React.FC = () => {
             value={filters.searchQuery || ''}
             onChange={(e) => setFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
             placeholder="Quartier, Avenue (ex: 30 Juin, Macampagne)..."
-            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 transition-colors"
+            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 transition-colors font-medium"
           />
         </div>
 
@@ -148,7 +148,7 @@ export const SearchWidget: React.FC = () => {
           <select
             value={filters.type || 'all'}
             onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value as any }))}
-            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl px-3 py-3 text-xs text-slate-800 font-semibold focus:outline-none focus:border-emerald-600 transition-colors"
+            className="w-full h-12 bg-slate-50 border border-slate-300 rounded-2xl px-3 py-3 text-xs sm:text-sm text-slate-900 font-bold focus:outline-none focus:border-emerald-600 transition-colors"
           >
             <option value="all">Type: Tous</option>
             <option value="apartment">Appartement</option>
@@ -173,8 +173,8 @@ export const SearchWidget: React.FC = () => {
 
       {/* Quick Commune Chips */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
-        <span className="text-[11px] text-slate-500 font-semibold shrink-0 flex items-center gap-1">
-          <MapPin className="w-3 h-3 text-emerald-600" /> Communes :
+        <span className="text-xs text-slate-600 font-bold shrink-0 flex items-center gap-1">
+          <MapPin className="w-3.5 h-3.5 text-emerald-600" /> Communes :
         </span>
         {popularQuickCommunes.map((qc) => {
           const isSelected = (filters.commune || 'all') === qc.id;
@@ -188,7 +188,7 @@ export const SearchWidget: React.FC = () => {
                   quartier: 'all',
                 }))
               }
-              className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+              className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 isSelected
                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'

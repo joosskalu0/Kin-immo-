@@ -31,6 +31,24 @@ export interface CustomFieldDefinition {
   defaultValue?: any;
 }
 
+export type ListingLifecycleStatus = 
+  | 'DRAFT' 
+  | 'PENDING_REVIEW' 
+  | 'PUBLISHED' 
+  | 'RENTED' 
+  | 'SOLD' 
+  | 'ARCHIVED';
+
+export interface PropertyStatusHistoryEntry {
+  id: string;
+  fromStatus: string;
+  toStatus: ListingLifecycleStatus;
+  changedByUserId: string;
+  changedByName: string;
+  changedAt: string;
+  note?: string;
+}
+
 export interface Property {
   id: string;
   title: string;
@@ -41,6 +59,8 @@ export interface Property {
   pricePeriod?: string;
   type: PropertyType;
   status: PropertyStatus;
+  listingStatus?: ListingLifecycleStatus;
+  isAvailable?: boolean;
   labels: PropertyLabel[];
   category: string;
   
@@ -87,8 +107,11 @@ export interface Property {
 
   // Metadata & Agent
   agentId: string;
+  userId?: string;
   agencyId?: string;
   agencyName?: string;
+  assignedAgentId?: string;
+  assignedAgentName?: string;
   contactEmail?: string;
   contactPhone?: string;
   createdAt: string;
@@ -107,6 +130,9 @@ export interface Property {
   refreshBumpAt?: string;
   published: boolean;
 
+  // Historique des changements de statut
+  statusHistory?: PropertyStatusHistoryEntry[];
+
   // Modération & Détection Anti-Fraude
   fraudStatus?: FraudVerdict; // 'normal' | 'review_required' | 'suspect'
   fraudScore?: number; // 0 - 100
@@ -114,6 +140,15 @@ export interface Property {
   fraudLastCheckedAt?: string;
   moderationNotes?: string;
   userReportsCount?: number;
+
+  // Kinimmo Trust : Système de Vérification et de Confiance Immobilière
+  trust_status?: 'unverified' | 'pending' | 'in_progress' | 'identity_verified' | 'pro_verified' | 'property_verified' | 'rejected' | 'expired' | 'suspended';
+  trust_level?: string;
+  trust_score?: number;
+  trust_verified_at?: string;
+  trust_expires_at?: string;
+  availability_status?: 'available' | 'under_option' | 'reserved' | 'rented' | 'sold' | 'withdrawn';
+  availability_confirmed_at?: string;
 }
 
 export interface VerificationDocument {
@@ -219,6 +254,10 @@ export interface LeadRequest {
   tourTime?: string;
   status: 'new' | 'contacted' | 'viewing' | 'closed';
   createdAt: string;
+  agencyId?: string;
+  assignedAgentId?: string;
+  assignedAgentName?: string;
+  notes?: string;
 }
 
 export type UserRole = 'admin' | 'agent' | 'user' | 'owner' | 'agency';
@@ -254,10 +293,64 @@ export interface User {
   kinshasaBadgeVerified?: boolean;
   identityDocType?: 'passport' | 'voter_card' | 'carte_electeur' | 'cni' | 'national_id' | 'rccm' | 'rccm_license' | 'professional_card';
   identityDocNumber?: string;
+  trust_status?: 'unverified' | 'pending' | 'in_progress' | 'identity_verified' | 'pro_verified' | 'property_verified' | 'rejected' | 'expired' | 'suspended';
+  trust_level?: string;
+  trust_score?: number;
+  trust_verified_at?: string;
+  trust_expires_at?: string;
   createdAt?: string;
   lastLoginLocation?: string;
   password?: string;
   accessPin?: string;
+  agencyRole?: AgencyRole;
+}
+
+export type AgencyRole = 'agency_owner' | 'agency_manager' | 'agency_agent';
+
+export interface AgencyCollaboratorPermissions {
+  canEditAllProperties: boolean;
+  canAssignProperties: boolean;
+  canAssignLeads: boolean;
+  canViewBilling: boolean;
+  canManageTeam: boolean;
+}
+
+export interface AgencyCollaborator {
+  id: string;
+  agencyId: string;
+  userId: string;
+  name: string;
+  email: string;
+  phone?: string;
+  whatsapp?: string;
+  avatar?: string;
+  role: AgencyRole;
+  permissions: AgencyCollaboratorPermissions;
+  status: 'active' | 'invited' | 'suspended';
+  invitedAt: string;
+  joinedAt?: string;
+  activeListingsCount?: number;
+  totalLeadsCount?: number;
+}
+
+export interface AgencyTransaction {
+  id: string;
+  agencyId: string;
+  propertyId: string;
+  propertyTitle: string;
+  agentId: string;
+  agentName: string;
+  clientName: string;
+  clientContact?: string;
+  type: 'sale' | 'rent';
+  amount: number;
+  currency: string;
+  commissionRate?: number;
+  commissionAmount?: number;
+  status: 'negotiating' | 'under_contract' | 'closed' | 'cancelled';
+  createdAt: string;
+  closedAt?: string;
+  notes?: string;
 }
 
 export interface PropertyFilters {
@@ -689,4 +782,45 @@ export interface PropertyUserReport {
   status: 'pending' | 'resolved' | 'dismissed';
 }
 
+/**
+ * -------------------------------------------------------------
+ * TYPES KINIMMO VISITES (Vidéos Verticales Immersives)
+ * -------------------------------------------------------------
+ */
+export type PropertyVideoStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'hidden';
 
+export interface PropertyVideo {
+  id: string;
+  propertyId: string;
+  userId: string;
+  videoUrl: string;
+  thumbnailUrl?: string;
+  description?: string;
+  status: PropertyVideoStatus;
+  viewsCount: number;
+  rejectionReason?: string;
+  createdAt: string;
+  updatedAt: string;
+
+  // Données jointes issues de l'annonce réelle
+  propertyTitle?: string;
+  propertyPrice?: number;
+  propertyCurrency?: string;
+  propertyCommune?: string;
+  propertyQuartier?: string;
+  propertyType?: PropertyType;
+  propertyStatus?: PropertyStatus;
+  propertyBedrooms?: number;
+  propertyBathrooms?: number;
+  propertyAddress?: string;
+  propertyFeatured?: boolean;
+  agentName?: string;
+  agencyName?: string;
+  agentPhone?: string;
+  agentWhatsapp?: string;
+  agentAvatar?: string;
+  agentVerified?: boolean;
+}
+
+// Export des types Kinimmo Trust
+export * from './trust';

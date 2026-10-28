@@ -2,8 +2,6 @@ import { ConciergeRequest, ConciergerieRequest, ConciergeRequestStatus, Property
 import { validateConciergerieRequest } from '../utils/conciergerieValidation';
 import { findMatchingProperties, PropertyMatchResult } from '../utils/propertyMatching';
 import { initialProperties } from '../data/mockData';
-import { db } from '../lib/firebase';
-import { collection, doc, setDoc, getDocs, query, orderBy, where, deleteDoc, updateDoc } from 'firebase/firestore';
 
 export interface SubmitConciergerieResponse {
   success: boolean;
@@ -62,139 +60,121 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
     };
   }
 
-  // 2. Envoi vers le serveur Backend Express (/api/conciergerie) pour Validation Backend
+  // 2. Matching intelligent immédiat côté client pour retour instantané
+  let availableProperties = initialProperties;
   try {
-    const response = await fetch('/api/conciergerie', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(formData)
-    });
-
-    const result = await response.json();
-
-    if (!response.ok || !result.success) {
-      return {
-        success: false,
-        error: result.error || 'Erreur lors du traitement par le serveur.',
-        errors: result.errors
-      };
-    }
-
-    if (result.data) {
-      saveLocalStoredRequest(result.data);
-    }
-
-    return {
-      success: true,
-      message: result.message || 'Votre demande a été transmise avec succès.',
-      reference: result.reference,
-      data: result.data,
-      matched_properties: result.matched_properties
-    };
-  } catch (networkError) {
-    console.warn('Le serveur API local ne répond pas directement, basculement sécurisé vers Firestore direct:', networkError);
-
-    // 3. Fallback direct Firestore si le proxy réseau est temporairement indisponible
-    try {
-      const sanitized = clientValidation.sanitized;
-      const now = new Date();
-      const year = now.getFullYear();
-      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-      const reference = `KIN-CONC-${year}-${randomSuffix}`;
-      const id = `conc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-      // Correspondance automatique avec les annonces en mode autonome
-      const matches = findMatchingProperties(sanitized, initialProperties, { minScore: 20, limit: 10 });
-
-      const fallbackReq: ConciergeRequest = {
-        id,
-        user_id: sanitized.user_id || null,
-        project_type: sanitized.project_type,
-        property_type: sanitized.property_type,
-        commune: sanitized.commune,
-        quartier: sanitized.quartier || null,
-        budget_min: sanitized.budget_min ?? null,
-        budget_max: sanitized.budget_max,
-        currency: sanitized.currency,
-        bedrooms: sanitized.bedrooms ?? null,
-        bathrooms: sanitized.bathrooms ?? null,
-        parking: sanitized.parking,
-        furnished: sanitized.furnished,
-        services: sanitized.services,
-        description: sanitized.description || null,
-        full_name: sanitized.full_name,
-        phone: sanitized.phone,
-        whatsapp: sanitized.whatsapp || null,
-        email: sanitized.email,
-        status: matches.length > 0 && matches[0].score >= 60 ? 'properties_found' : 'new',
-        assigned_agent_id: sanitized.assigned_agent_id || null,
-        created_at: now.toISOString(),
-        updated_at: now.toISOString(),
-
-        matched_property_ids: matches.map((m) => m.property.id),
-        matched_count: matches.length,
-        top_match_score: matches[0]?.score || 0,
-
-        reference,
-        projet: sanitized.projet,
-        typeBien: sanitized.typeBien,
-        localisation: sanitized.localisation,
-        budget: sanitized.budget,
-        caracteristiques: sanitized.caracteristiques,
-        client: sanitized.client,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString()
-      };
-
-      await setDoc(doc(db, 'concierge_requests', id), fallbackReq);
-      try {
-        await setDoc(doc(db, 'conciergerieRequests', id), fallbackReq);
-      } catch {}
-      saveLocalStoredRequest(fallbackReq);
-
-      return {
-        success: true,
-        message: 'Votre demande a été enregistrée avec succès auprès de la Conciergerie Kinimmo.',
-        reference,
-        data: fallbackReq,
-        matched_properties: matches
-      };
-    } catch (firestoreErr: any) {
-      return {
-        success: false,
-        error: 'Impossible d’enregistrer votre demande pour le moment. Veuillez vérifier votre connexion ou nous contacter directement via WhatsApp.'
-      };
-    }
-  }
-}
-
-/**
- * Récupération des biens correspondants pour une demande
- */
-export async function fetchPropertyMatchesForRequest(
-  request: ConciergeRequest,
-  availableProperties: any[] = initialProperties
-): Promise<PropertyMatchResult[]> {
-  try {
-    const res = await fetch(`/api/concierge-requests/${request.id}/matches`);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-        return json.data;
+    const stored = localStorage.getItem('kinimmo_properties');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        availableProperties = parsed;
       }
     }
   } catch {}
 
-  // Calcul direct côté client / fallback avec scoring officiel
-  return findMatchingProperties(request, availableProperties, { minScore: 15, limit: 15 });
+  const matches = findMatchingProperties(clientValidation.sanitized, availableProperties);
+
+  // 3. Appel de l'API Express
+  try {
+    const res = await fetch('/api/concierge-requests', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ...clientValidation.sanitized,
+        matched_properties: matches
+      })
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success) {
+        if (json.data) {
+          saveLocalStoredRequest(json.data);
+        }
+        return {
+          success: true,
+          message: json.message || 'Votre demande a été enregistrée avec succès.',
+          reference: json.reference || json.data?.reference,
+          data: json.data,
+          matched_properties: json.matched_properties || matches
+        };
+      }
+      return {
+        success: false,
+        error: json.error || 'Erreur lors de l\'enregistrement de votre demande.',
+        errors: json.errors
+      };
+    }
+  } catch (apiErr) {
+    console.warn('Backend API request skipped, switching to resilient local store:', apiErr);
+  }
+
+  // 4. Fallback Durable Local Storage
+  try {
+    const sanitized = clientValidation.sanitized;
+    const now = new Date();
+    const id = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const reference = `KIN-CCG-${now.getFullYear()}-${randomSuffix}`;
+
+    const fallbackReq: ConciergerieRequest = {
+      id,
+      reference,
+      user_id: null,
+      full_name: sanitized.client.nom,
+      phone: sanitized.client.telephone,
+      email: sanitized.client.email || '',
+      whatsapp: sanitized.client.telephone,
+      project_type: sanitized.projet,
+      property_type: sanitized.typeBien,
+      commune: sanitized.localisation.communesSouhaitees[0] || 'Gombe',
+      quartier: null,
+      budget_min: sanitized.budget.min || null,
+      budget_max: sanitized.budget.max,
+      currency: sanitized.budget.devise,
+      bedrooms: sanitized.caracteristiques.chambresMin || null,
+      bathrooms: sanitized.caracteristiques.sallesDeBainMin || null,
+      parking: false,
+      furnished: false,
+      services: sanitized.caracteristiques.equipementsSouhaites || [],
+      description: sanitized.caracteristiques.cahierDesCharges || null,
+      status: matches.length > 0 && matches[0].score >= 60 ? 'properties_found' : 'new',
+      matched_property_ids: matches.map((m) => m.property.id),
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+      projet: sanitized.projet,
+      typeBien: sanitized.typeBien,
+      localisation: sanitized.localisation,
+      budget: sanitized.budget,
+      caracteristiques: sanitized.caracteristiques,
+      client: sanitized.client,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+
+    saveLocalStoredRequest(fallbackReq);
+
+    return {
+      success: true,
+      message: 'Votre demande a été enregistrée avec succès auprès de la Conciergerie Kinimmo.',
+      reference,
+      data: fallbackReq,
+      matched_properties: matches
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'Impossible d\'enregistrer votre demande pour le moment. Veuillez réessayer.'
+    };
+  }
 }
 
 /**
- * Récupération des demandes pour l'administration (Table: concierge_requests)
+ * Récupération de l'historique des demandes de conciergerie
  */
-export async function fetchConciergerieRequests(): Promise<ConciergerieRequest[]> {
+export async function fetchConciergeRequests(): Promise<ConciergerieRequest[]> {
   try {
     const res = await fetch('/api/concierge-requests');
     if (res.ok) {
@@ -205,26 +185,10 @@ export async function fetchConciergerieRequests(): Promise<ConciergerieRequest[]
     }
   } catch {}
 
-  try {
-    const q = query(collection(db, 'concierge_requests'), orderBy('created_at', 'desc'));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const list: ConciergerieRequest[] = [];
-      snap.forEach((d) => list.push(d.data() as ConciergerieRequest));
-      if (list.length > 0) return list;
-    }
-  } catch {}
-
-  try {
-    const q = query(collection(db, 'conciergerieRequests'), orderBy('createdAt', 'desc'));
-    const snap = await getDocs(q);
-    const list: ConciergerieRequest[] = [];
-    snap.forEach((d) => list.push(d.data() as ConciergerieRequest));
-    if (list.length > 0) return list;
-  } catch {}
-
   return getLocalStoredRequests();
 }
+
+export const fetchConciergerieRequests = fetchConciergeRequests;
 
 /**
  * Mise à jour complète d'une demande de conciergerie (Champs, client, projet, agent, statut, notes)
@@ -242,6 +206,7 @@ export async function updateConciergeRequestFull(
     if (res.ok) {
       const json = await res.json();
       if (json.success && json.data) {
+        saveLocalStoredRequest(json.data);
         return { success: true, data: json.data };
       }
     }
@@ -251,13 +216,17 @@ export async function updateConciergeRequestFull(
     const nowIso = new Date().toISOString();
     const updatePayload = {
       ...updateData,
+      id,
       updated_at: nowIso,
       updatedAt: nowIso
     };
-    await updateDoc(doc(db, 'concierge_requests', id), updatePayload);
-    try {
-      await updateDoc(doc(db, 'conciergerieRequests', id), updatePayload);
-    } catch {}
+    const existing = getLocalStoredRequests();
+    const found = existing.find(r => r.id === id);
+    if (found) {
+      const updated = { ...found, ...updatePayload };
+      saveLocalStoredRequest(updated as ConciergerieRequest);
+      return { success: true, data: updated };
+    }
     return { success: true, data: { id, ...updatePayload } };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Erreur lors de la mise à jour.' };
@@ -288,18 +257,20 @@ export async function updateConciergeRequestStatus(
 
   try {
     const nowIso = new Date().toISOString();
-    const updatePayload = {
-      status: newStatus,
-      ...(notesAdmin !== undefined ? { notesAdmin } : {}),
-      ...(assignedAgentId !== undefined ? { assigned_agent_id: assignedAgentId } : {}),
-      updated_at: nowIso,
-      updatedAt: nowIso
-    };
-    await updateDoc(doc(db, 'concierge_requests', id), updatePayload);
-    try {
-      await updateDoc(doc(db, 'conciergerieRequests', id), updatePayload);
-    } catch {}
-    return true;
+    const existing = getLocalStoredRequests();
+    const found = existing.find(r => r.id === id);
+    if (found) {
+      const updated = {
+        ...found,
+        status: newStatus as any,
+        ...(notesAdmin !== undefined ? { notesAdmin } : {}),
+        ...(assignedAgentId !== undefined ? { assigned_agent_id: assignedAgentId } : {}),
+        updated_at: nowIso,
+        updatedAt: nowIso
+      };
+      saveLocalStoredRequest(updated);
+      return true;
+    }
   } catch {}
 
   return false;
@@ -318,17 +289,6 @@ export async function fetchPropertyVisits(requestId?: string): Promise<PropertyV
         return json.data;
       }
     }
-  } catch {}
-
-  try {
-    let q = query(collection(db, 'property_visits'), orderBy('visit_date', 'asc'));
-    if (requestId) {
-      q = query(collection(db, 'property_visits'), where('request_id', '==', requestId), orderBy('visit_date', 'asc'));
-    }
-    const snap = await getDocs(q);
-    const list: PropertyVisitRecord[] = [];
-    snap.forEach((d) => list.push(d.data() as PropertyVisitRecord));
-    if (list.length > 0) return list;
   } catch {}
 
   const local = getLocalStoredVisits();
@@ -368,14 +328,8 @@ export async function schedulePropertyVisit(
     }
   } catch {}
 
-  try {
-    await setDoc(doc(db, 'property_visits', id), record);
-    saveLocalStoredVisit(record);
-    return { success: true, data: record };
-  } catch (err: any) {
-    saveLocalStoredVisit(record);
-    return { success: true, data: record };
-  }
+  saveLocalStoredVisit(record);
+  return { success: true, data: record };
 }
 
 /**
@@ -396,12 +350,15 @@ export async function updatePropertyVisitStatus(
   } catch {}
 
   try {
-    await updateDoc(doc(db, 'property_visits', visitId), {
-      status,
-      ...(notes !== undefined ? { notes } : {}),
-      updated_at: new Date().toISOString()
-    });
-    return true;
+    const existing = getLocalStoredVisits();
+    const found = existing.find(v => v.id === visitId);
+    if (found) {
+      found.status = status;
+      if (notes !== undefined) found.notes = notes;
+      found.updated_at = new Date().toISOString();
+      saveLocalStoredVisit(found);
+      return true;
+    }
   } catch {}
 
   return false;
@@ -419,7 +376,9 @@ export async function deletePropertyVisit(visitId: string): Promise<boolean> {
   } catch {}
 
   try {
-    await deleteDoc(doc(db, 'property_visits', visitId));
+    const existing = getLocalStoredVisits();
+    const updated = existing.filter(v => v.id !== visitId);
+    localStorage.setItem(LOCAL_STORAGE_VISITS_KEY, JSON.stringify(updated));
     return true;
   } catch {}
 

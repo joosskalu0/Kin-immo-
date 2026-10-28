@@ -25,6 +25,8 @@ const showcaseRoutes = require('./routes/showcase');
 const settingsRoutes = require('./routes/settings');
 const conciergeRoutes = require('./routes/concierge');
 const notificationsRoutes = require('./routes/notifications');
+const videosRoutes = require('./routes/videos');
+const trustRoutes = require('./routes/trust');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -101,6 +103,8 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/concierge', conciergeRoutes);
 app.use('/api/concierge-requests', conciergeRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/videos', videosRoutes);
+app.use('/api/trust', trustRoutes);
 
 // Gestion des routes inexistantes (404)
 app.use((req, res) => {

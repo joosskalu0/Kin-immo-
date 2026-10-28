@@ -719,3 +719,147 @@ export function generateDailyStats(properties: Property[], leads: LeadRequest[],
 
   return result;
 }
+
+/**
+ * -------------------------------------------------------------
+ * ÉVÉNEMENTS ANALYTIQUES KINIMMO VISITES (GTM & DATALAYER)
+ * -------------------------------------------------------------
+ */
+
+/**
+ * 1. Lancement d'une vidéo
+ */
+export function trackVideoStart(property: Property, videoUrl?: string) {
+  dispatchOmniEvent(
+    'video_start',
+    'video_engagement',
+    {
+      content_type: 'video_reel',
+      property_id: property.id,
+      property_title: property.title,
+      property_type: property.type,
+      property_status: property.status,
+      commune: property.commune || 'Kinshasa',
+      price: property.price,
+      currency: property.currency || 'USD',
+      video_url: videoUrl || property.videoUrl,
+      timestamp: new Date().toISOString()
+    },
+    'ViewContent',
+    'ViewContent'
+  );
+}
+
+/**
+ * 2. Visionnage significatif (>= 50% de la durée ou >= 10 secondes)
+ */
+export function trackVideoSignificantWatch(
+  property: Property,
+  secondsWatched: number,
+  percentWatched: number
+) {
+  dispatchOmniEvent(
+    'video_significant_watch',
+    'video_engagement',
+    {
+      content_type: 'video_reel',
+      property_id: property.id,
+      property_title: property.title,
+      commune: property.commune || 'Kinshasa',
+      seconds_watched: Math.round(secondsWatched),
+      percent_watched: Math.round(percentWatched),
+      milestone: percentWatched >= 75 ? '75%' : percentWatched >= 50 ? '50%' : '10s',
+      value: 5.0,
+      currency: 'USD'
+    },
+    'ViewContent'
+  );
+}
+
+/**
+ * 3. Clic sur l'annonce depuis une vidéo ("Voir l'annonce")
+ */
+export function trackVideoListingClick(property: Property) {
+  dispatchOmniEvent(
+    'click_listing_from_video',
+    'lead_funnel',
+    {
+      content_type: 'property',
+      property_id: property.id,
+      property_title: property.title,
+      property_type: property.type,
+      commune: property.commune || 'Kinshasa',
+      price: property.price,
+      source: 'kinimmo_visites'
+    },
+    'ViewContent'
+  );
+}
+
+/**
+ * 4. Clic sur WhatsApp depuis une vidéo
+ */
+export function trackVideoWhatsAppClick(property: Property) {
+  dispatchOmniEvent(
+    'click_whatsapp_from_video',
+    'lead_action',
+    {
+      contact_method: 'whatsapp',
+      property_id: property.id,
+      property_title: property.title,
+      agent_id: property.agentId,
+      commune: property.commune || 'Kinshasa',
+      price: property.price,
+      source: 'kinimmo_visites',
+      value: 30.0,
+      currency: 'USD'
+    },
+    'Contact',
+    'Contact',
+    true // High priority Google Ads / Meta conversion
+  );
+}
+
+/**
+ * 5. Demande de visite depuis une vidéo
+ */
+export function trackVideoVisitRequest(property: Property, visitDetails?: { date?: string; time?: string }) {
+  dispatchOmniEvent(
+    'request_visit_from_video',
+    'conversion',
+    {
+      property_id: property.id,
+      property_title: property.title,
+      agent_id: property.agentId,
+      commune: property.commune || 'Kinshasa',
+      visit_date: visitDetails?.date || 'pending',
+      visit_time: visitDetails?.time || '10:00',
+      source: 'kinimmo_visites',
+      value: 50.0,
+      currency: 'USD'
+    },
+    'Schedule',
+    'SubmitForm',
+    true // High priority Google Ads conversion
+  );
+}
+
+/**
+ * 6. Ajout aux favoris depuis une vidéo
+ */
+export function trackVideoWishlistToggle(property: Property, isAdded: boolean) {
+  dispatchOmniEvent(
+    isAdded ? 'add_to_wishlist_from_video' : 'remove_from_wishlist_from_video',
+    'user_intent',
+    {
+      content_type: 'property',
+      property_id: property.id,
+      property_title: property.title,
+      commune: property.commune || 'Kinshasa',
+      price: property.price,
+      action: isAdded ? 'add' : 'remove',
+      source: 'kinimmo_visites'
+    },
+    isAdded ? 'AddToWishlist' : undefined
+  );
+}

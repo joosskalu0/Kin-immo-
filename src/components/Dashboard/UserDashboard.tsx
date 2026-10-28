@@ -11,6 +11,12 @@ import { PropertyAnalyticsView } from './PropertyAnalyticsView';
 import { PaymentReminderBanner } from './PaymentReminderBanner';
 import { TagManagerSettingsModal } from './TagManagerSettingsModal';
 import { AdminPlansPricingManager } from './AdminPlansPricingManager';
+import { AgentVideoPublishManager } from './AgentVideoPublishManager';
+import { AgentDashboardView } from './AgentDashboardView';
+import { AgencyDashboardView } from './AgencyDashboardView';
+import { TrustAdminDashboard } from '../Trust/TrustAdminDashboard';
+import { TrustVerificationModal } from '../Trust/TrustVerificationModal';
+import { TrustBadge } from '../Trust/TrustBadge';
 import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
 import {
   saveUserToFirestore,
@@ -20,6 +26,7 @@ import {
 import {
   Home,
   Building2,
+  Briefcase,
   Users,
   UserPlus,
   Search,
@@ -36,6 +43,7 @@ import {
   Send,
   Download,
   Upload,
+  Award,
   Shield,
   ShieldCheck,
   ShieldAlert,
@@ -55,6 +63,7 @@ import {
   UploadCloud,
   RefreshCw,
   AlertTriangle,
+  Film,
 } from 'lucide-react';
 
 interface UserDashboardProps {
@@ -176,9 +185,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
     requestConfirm,
     agents,
     allUsers,
+    propertyVideos,
     subscriptionPlans,
     pricingDisplayCurrency,
     cdfExchangeRate,
+    agencyCollaborators,
   } = useApp();
 
   // Explicit real-time Firestore claim verification
@@ -219,20 +230,33 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
   const isAdmin = !isCheckingAdmin && isFirestoreAdminVerified;
 
   const [activeTab, setActiveTab] = useState<
+    | 'agent_desk'
+    | 'agency_desk'
     | 'analytics'
     | 'verification'
+    | 'trust_admin'
     | 'admin_users'
     | 'billing'
     | 'invitations'
     | 'admin_settings'
     | 'listings'
+    | 'videos'
     | 'my_invoices'
     | 'leads'
     | 'saved'
     | 'plans'
     | 'csv'
     | 'gtm_manager'
-  >(user?.role === 'admin' ? 'admin_users' : 'analytics');
+  >(user?.role === 'admin' ? 'trust_admin' : (user?.role === 'agency' ? 'agency_desk' : 'agent_desk'));
+
+  // Strict role isolation: agent never enters agency_desk, agency never enters agent_desk
+  useEffect(() => {
+    if (user?.role === 'agent' && activeTab === 'agency_desk') {
+      setActiveTab('agent_desk');
+    } else if (user?.role === 'agency' && activeTab === 'agent_desk') {
+      setActiveTab('agency_desk');
+    }
+  }, [user?.role, activeTab]);
 
   const [csvTextInput, setCsvTextInput] = useState('');
   const [selectedPlanSuccess, setSelectedPlanSuccess] = useState<string | null>(null);
@@ -486,6 +510,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       ))
   );
 
+  const userVideosCount = (propertyVideos || []).filter(
+    (v) =>
+      user?.role === 'admin' ||
+      v.userId === user?.id ||
+      v.userId === 'agent_current' ||
+      myProperties.some((p) => p.id === v.propertyId)
+  ).length;
+
   const handleCsvUpload = (e: React.FormEvent) => {
     e.preventDefault();
     if (csvTextInput.trim()) {
@@ -644,6 +676,35 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
                 <span>Passer Administrateur (PIN)</span>
               </button>
 
+              {/* Strict Role Segregation: Agent sees ONLY Agent space, Agency sees ONLY Agency space */}
+              {user?.role !== 'agency' && (
+                <button
+                  onClick={() => setActiveTab('agent_desk')}
+                  className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm cursor-pointer ${
+                    activeTab === 'agent_desk'
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-emerald-500/20'
+                      : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+                  }`}
+                >
+                  <Briefcase className="w-4 h-4" />
+                  <span>Espace Agent</span>
+                </button>
+              )}
+
+              {user?.role !== 'agent' && (
+                <button
+                  onClick={() => setActiveTab('agency_desk')}
+                  className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm cursor-pointer ${
+                    activeTab === 'agency_desk'
+                      ? 'bg-indigo-500 text-slate-950 border-indigo-400 font-extrabold shadow-indigo-500/20'
+                      : 'bg-slate-800 hover:bg-slate-700 text-indigo-400 border-slate-700'
+                  }`}
+                >
+                  <Building2 className="w-4 h-4" />
+                  <span>Espace Agence</span>
+                </button>
+              )}
+
               <button
                 onClick={() => setActiveTab('plans')}
                 className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
@@ -704,6 +765,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       {/* Navigation Tabs */}
       <div className="flex border-b border-slate-800 gap-2 overflow-x-auto text-xs font-semibold">
         {[
+          ...(user?.role === 'agency'
+            ? []
+            : [{ id: 'agent_desk', label: '👔 Espace Agent PRO', icon: Briefcase }]),
+          ...(user?.role === 'agent'
+            ? []
+            : [{ id: 'agency_desk', label: `🏢 Espace Agence (${agencyCollaborators.length} Agents)`, icon: Building2 }]),
+          ...(isAdmin
+            ? [{ id: 'trust_admin', label: '🛡️ Kinimmo Trust (Audit & Décisions)', icon: Award }]
+            : []),
           ...(isAdmin
             ? [{ id: 'verification', label: `🛡️ Audit Badges Agents (${pendingVerificationsCount > 0 ? `${pendingVerificationsCount} en attente` : 'Conforme'})`, icon: ShieldCheck }]
             : []),
@@ -726,6 +796,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
             icon: BarChart3
           },
           { id: 'listings', label: `Mes Annonces (${myProperties.length})`, icon: Building2 },
+          { id: 'videos', label: `🎬 Kinimmo Visites PRO (${userVideosCount ? `${userVideosCount}` : 'Vidéos'})`, icon: Film },
           { id: 'my_invoices', label: `Mes Factures & Réglements (${myInvoices.length})`, icon: Receipt },
           { id: 'leads', label: `CRM Leads & Demandes (${leads.length})`, icon: Users },
           { id: 'saved', label: `Alertes & Recherches (${savedSearches.length})`, icon: Bell },
@@ -749,6 +820,41 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           );
         })}
       </div>
+
+      {/* TAB: Agent Complete Dashboard (11 modules) */}
+      {activeTab === 'agent_desk' && user?.role !== 'agency' && (
+        <AgentDashboardView
+          onOpenSubmitProperty={() => {
+            setEditingProperty(null);
+            setIsSubmitPropertyOpen(true);
+          }}
+          onOpenSecurityModal={() => setIsSecurityModalOpen(true)}
+        />
+      )}
+
+      {/* TAB: Agency Complete Dashboard (8 modules) */}
+      {activeTab === 'agency_desk' && user?.role !== 'agent' && (
+        <AgencyDashboardView
+          onOpenSubmitProperty={() => {
+            setEditingProperty(null);
+            setIsSubmitPropertyOpen(true);
+          }}
+          onOpenSecurityModal={() => setIsSecurityModalOpen(true)}
+        />
+      )}
+
+      {/* TAB: Kinimmo Trust Master Admin Dashboard */}
+      {activeTab === 'trust_admin' && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Kinimmo Trust"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <TrustAdminDashboard />
+        </ProtectedAdminFeature>
+      )}
 
       {/* TAB: Agent Identity Verification Desk */}
       {activeTab === 'verification' && (
@@ -907,6 +1013,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
             ))}
           </div>
         </div>
+      )}
+
+      {/* TAB: Kinimmo Visites PRO (Vidéos Verticales) */}
+      {activeTab === 'videos' && (
+        <AgentVideoPublishManager
+          myProperties={myProperties}
+          onOpenPropertyModal={(id) => setActivePropertyModalId(id)}
+        />
       )}
 
       {/* TAB: My Invoices */}
@@ -1195,7 +1309,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
         <ProtectedAdminFeature
           isChecking={isCheckingAdmin}
           isVerified={isFirestoreAdminVerified}
-          featureName="Google Tag Manager & Balises Publicitaires"
+          featureName="Google Tag Manager & Balises Analytics"
           onGoToAnalytics={() => setActiveTab('listings')}
           onRetry={runAdminVerification}
         >
@@ -1206,7 +1320,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
                   <Layers className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-white">Google Tag Manager & Balises Publicitaires</h3>
+                  <h3 className="text-lg font-black text-white">Google Tag Manager & Balises Analytics</h3>
                   <p className="text-xs text-slate-400">
                     Gérez vos identifiants GTM, Google Analytics 4, Meta Pixel (FB/Insta), TikTok Pixel et conversions Google Ads.
                   </p>

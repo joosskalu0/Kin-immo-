@@ -44,7 +44,8 @@ import {
   Clock,
   Calendar,
   ShieldAlert,
-  AlertOctagon
+  AlertOctagon,
+  Film
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { mysqlApi, clearStoredToken, DEFAULT_CONTACT_SETTINGS } from '../../services/mysqlApi';
@@ -53,6 +54,8 @@ import { AdminMonetizationManager } from './AdminMonetizationManager';
 import { AdminHeroShowcaseManager } from './AdminHeroShowcaseManager';
 import { AdminConciergerieManager } from './AdminConciergerieManager';
 import { AdminFraudModerationManager } from './AdminFraudModerationManager';
+import { AdminVideosModerationManager } from './AdminVideosModerationManager';
+import { TrustAdminDashboard } from '../Trust/TrustAdminDashboard';
 import { auditPropertyList } from '../../utils/suspiciousListingDetector';
 import { fetchConciergerieRequests, fetchPropertyVisits } from '../../services/conciergerieApi';
 
@@ -72,6 +75,7 @@ type TabType =
   | 'overview'
   | 'properties'
   | 'hero_showcase'
+  | 'videos'
   | 'agents'
   | 'agencies'
   | 'users'
@@ -79,7 +83,8 @@ type TabType =
   | 'custom_fields'
   | 'monetization'
   | 'conciergerie'
-  | 'fraud_detection';
+  | 'fraud_detection'
+  | 'kinimmo_trust';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
@@ -101,6 +106,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     updateContactSettings,
     reports,
     resolvePropertyReport,
+    propertyVideos,
+    setActivePropertyModalId,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
@@ -728,6 +735,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('videos')}
+          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
+            activeTab === 'videos'
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <Film className="w-4 h-4 text-emerald-400" />
+          <span>Vidéos & Visites ({propertyVideos.length})</span>
+          {propertyVideos.filter((v) => v.status === 'pending').length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 animate-pulse">
+              {propertyVideos.filter((v) => v.status === 'pending').length}
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab('conciergerie')}
           className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
             activeTab === 'conciergerie'
@@ -796,7 +820,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <DollarSign className="w-4 h-4 text-emerald-400" />
-          <span>Monétisation & Régie</span>
+          <span>Factures & Abonnements</span>
         </button>
 
         <button
@@ -814,6 +838,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {fraudAuditSummary.suspectCount + fraudAuditSummary.reviewRequiredCount}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('kinimmo_trust')}
+          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
+            activeTab === 'kinimmo_trust'
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <span>Kinimmo Trust</span>
+          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            Dossiers
+          </span>
         </button>
 
         <button
@@ -1182,6 +1221,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
 
                   <button
+                    onClick={() => setActiveTab('kinimmo_trust')}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-950/50 hover:bg-emerald-950/80 border border-emerald-500/50 text-xs font-bold text-emerald-300 flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      Kinimmo Trust : Examiner les Dossiers Cadastraux
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-emerald-400" />
+                  </button>
+
+                  <button
                     onClick={() => setActiveTab('properties')}
                     className="w-full py-3 px-4 rounded-xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700/60 text-xs font-bold text-slate-200 flex items-center justify-between transition-colors"
                   >
@@ -1415,6 +1465,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'hero_showcase' && (
           <div className="animate-in fade-in duration-300">
             <AdminHeroShowcaseManager onReturnHome={onReturnHome} />
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB : MODÉRATION VIDÉOS & KINIMMO VISITES           */}
+        {/* ==================================================== */}
+        {activeTab === 'videos' && (
+          <div className="animate-in fade-in duration-300">
+            <AdminVideosModerationManager
+              properties={propertiesList}
+              reports={reports}
+              onOpenPropertyModal={(id) => setActivePropertyModalId(id)}
+            />
           </div>
         )}
 
@@ -2817,7 +2880,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ==================================================== */}
-        {/* TAB 8: MONÉTISATION, FACTURES & RÉGIE PUBLICITAIRE    */}
+        {/* TAB 8: FACTURES, ABONNEMENTS & PAIEMENTS MOBILE MONEY */}
         {/* ==================================================== */}
         {activeTab === 'monetization' && (
           <AdminMonetizationManager onRefreshStats={loadAllAdminData} />
@@ -2842,6 +2905,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             reports={reports}
             onResolveReport={resolvePropertyReport}
           />
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB 12: KINIMMO TRUST (AUDIT ET VÉRIFICATION TITRES)  */}
+        {/* ==================================================== */}
+        {activeTab === 'kinimmo_trust' && (
+          <div className="animate-in fade-in duration-300">
+            <TrustAdminDashboard adminUser={adminUser} />
+          </div>
         )}
       </main>
 

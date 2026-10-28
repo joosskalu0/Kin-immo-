@@ -45,7 +45,8 @@ Pour une sécurité maximale :
 3. Cliquez sur l'onglet **Importer** en haut.
 4. Cliquez sur **Choisir un fichier** et sélectionnez `server/schema.sql`.
 5. Cliquez sur **Exécuter** en bas de page.
-   - Les tables (`users`, `properties`, `agents`, `agencies`, `invoices`, `pricing_plans`, `hero_showcase_slides`, `site_settings` pour les contacts et la conciergerie VIP, etc.) sont créées.
+   - Toutes les tables sont créées : `users`, `properties`, `agents`, `agencies`, `invoices`, `pricing_plans`, `hero_showcase_slides`, `site_settings`, `property_videos`, `concierge_requests`, ainsi que le module **Kinimmo Trust** (`trust_verifications`, `trust_documents`, `trust_checks`, `trust_audit_logs`, `trust_property_availability`, `trust_notifications`).
+   - *(Si votre base existait déjà avant Kinimmo Trust, vous pouvez simplement importer le fichier de migration incrémentale : `server/migrations/20261018_kinimmo_trust.sql`)*.
    - **Important** : Aucune donnée de démonstration ni compte administrateur par défaut n'est injecté.
 
 ---
@@ -92,6 +93,13 @@ pm2 start server.js --name "kinimmo-api"
 pm2 save
 pm2 startup
 ```
+
+### Option C : Vérification de la suite de tests (Hexagonale & DDD)
+Avant de lancer le service ou après une mise à jour sur Hostinger :
+```bash
+npm test
+```
+Tous les tests d'entités, de hachage de mot de passe, de signature JWT et de cas d'utilisation s'exécutent avec le moteur natif de Node.js.
 
 ---
 

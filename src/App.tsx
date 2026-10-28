@@ -18,18 +18,19 @@ import { AuthModal } from './components/AuthModal';
 import { AgentInviteModal } from './components/Dashboard/AgentInviteModal';
 import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 import { SocialShareModal } from './components/SocialShareModal';
-import { QuickInteractiveFilters } from './components/QuickInteractiveFilters';
 import { CompareDock } from './components/CompareDock';
 import { AdminPortal } from './components/Admin/AdminPortal';
 import { MonetizationPricingView } from './components/Monetization/MonetizationPricingView';
-import { AdvertisementBanner } from './components/Monetization/AdvertisementBanner';
 import { ArchitecturalHeroSlider } from './components/ArchitecturalHeroSlider';
 import { FloatingConciergeWidget } from './components/FloatingConciergeWidget';
 import { ConciergeriePage } from './components/Conciergerie/ConciergeriePage';
-import { ConciergeriePreviewSection } from './components/Conciergerie/ConciergeriePreviewSection';
+import { VisitsReelsView } from './components/Visits/VisitsReelsView';
+import { AgentDashboardView } from './components/Dashboard/AgentDashboardView';
+import { AgencyDashboardView } from './components/Dashboard/AgencyDashboardView';
 import {
   Home,
   Building2,
+  Briefcase,
   MapPin,
   Grid,
   List,
@@ -44,10 +45,24 @@ import {
   Car,
   ShieldCheck,
   Compass,
+  PlayCircle,
+  Film,
+  User as UserIcon,
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
-  const { properties, filters, setFilters, setIsFieldsBuilderOpen, setActivePropertyModalId } = useApp();
+  const {
+    user,
+    properties,
+    filters,
+    setFilters,
+    setIsFieldsBuilderOpen,
+    activePropertyModalId,
+    setActivePropertyModalId,
+    setIsSubmitPropertyOpen,
+    setIsSecurityModalOpen,
+    setIsAuthModalOpen
+  } = useApp();
 
   const [currentTab, setCurrentTab] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -59,16 +74,24 @@ const AppContent: React.FC = () => {
         if (pathname === '/conciergerie' || pathname.startsWith('/conciergerie')) {
           return 'conciergerie';
         }
+        if (pathname === '/visites' || pathname.startsWith('/visites')) {
+          return 'visites';
+        }
+        if (pathname === '/agent-dashboard' || pathname.startsWith('/agent-dashboard')) {
+          return 'agent-dashboard';
+        }
+        if (pathname === '/agency-dashboard' || pathname.startsWith('/agency-dashboard')) {
+          return 'agency-dashboard';
+        }
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        if (tab && ['home', 'map', 'agents', 'agencies', 'shortcodes', 'dashboard', 'wishlist', 'admin', 'pricing', 'conciergerie'].includes(tab)) {
+        if (tab && ['home', 'visites', 'map', 'agents', 'agencies', 'shortcodes', 'dashboard', 'agent-dashboard', 'agency-dashboard', 'wishlist', 'admin', 'pricing', 'conciergerie'].includes(tab)) {
           return tab;
         }
       } catch {}
     }
     return 'home';
-  }); // 'home' | 'map' | 'agents' | 'agencies' | 'shortcodes' | 'dashboard' | 'wishlist' | 'admin' | 'pricing' | 'conciergerie'
-  const [viewLayout, setViewLayout] = useState<'grid' | 'split'>('grid');
+  }); // 'home' | 'visites' | 'map' | 'agents' | 'agencies' | 'shortcodes' | 'dashboard' | 'agent-dashboard' | 'agency-dashboard' | 'wishlist' | 'admin' | 'pricing' | 'conciergerie'
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
   const [gmpQuotaExceeded, setGmpQuotaExceeded] = useState(false);
 
@@ -86,7 +109,7 @@ const AppContent: React.FC = () => {
       const url = new URL(window.location.href);
       url.searchParams.delete('tab');
       url.searchParams.delete('property');
-      const targetPath = (url.pathname === '/admin' || url.pathname === '/conciergerie') ? '/' : url.pathname;
+      const targetPath = (url.pathname === '/admin' || url.pathname === '/conciergerie' || url.pathname === '/visites') ? '/' : url.pathname;
       window.history.pushState({}, '', targetPath + (url.search ? url.search : ''));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {}
@@ -106,9 +129,21 @@ const AppContent: React.FC = () => {
           setCurrentTab('conciergerie');
           return;
         }
+        if (pathname === '/visites' || pathname.startsWith('/visites')) {
+          setCurrentTab('visites');
+          return;
+        }
+        if (pathname === '/agent-dashboard' || pathname.startsWith('/agent-dashboard')) {
+          setCurrentTab('agent-dashboard');
+          return;
+        }
+        if (pathname === '/agency-dashboard' || pathname.startsWith('/agency-dashboard')) {
+          setCurrentTab('agency-dashboard');
+          return;
+        }
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        if (tab && ['home', 'map', 'agents', 'agencies', 'shortcodes', 'dashboard', 'wishlist', 'admin', 'pricing', 'conciergerie'].includes(tab)) {
+        if (tab && ['home', 'visites', 'map', 'agents', 'agencies', 'shortcodes', 'dashboard', 'agent-dashboard', 'agency-dashboard', 'wishlist', 'admin', 'pricing', 'conciergerie'].includes(tab)) {
           setCurrentTab(tab);
           return;
         }
@@ -120,14 +155,28 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('popstate', handleTabPopState);
   }, []);
 
+  // Strict role segregation: Agent never enters agency space, Agency never enters agent space
+  useEffect(() => {
+    if (user) {
+      if (user.role === 'agent' && currentTab === 'agency-dashboard') {
+        setCurrentTab('agent-dashboard');
+      } else if (user.role === 'agency' && currentTab === 'agent-dashboard') {
+        setCurrentTab('agency-dashboard');
+      }
+    }
+  }, [user, currentTab]);
+
   useEffect(() => {
     const tabTitles: Record<string, string> = {
       home: 'Accueil - Annonces Immobilières Kinshasa',
+      visites: 'Kinimmo Visites - Vidéos Immersives des Biens Immobiliers Kinshasa',
       map: 'Carte Interactive des Biens - Kinshasa',
       agents: 'Annuaire des Agents & Agences Immobilières',
       agencies: 'Agences Immobilières Agréées - Kinshasa',
       shortcodes: 'Galerie des Shortcodes & Widgets',
       dashboard: 'Tableau de Bord & Gestion Immobilière',
+      'agent-dashboard': 'Tableau de Bord Agent Immobilier - Kinimmo',
+      'agency-dashboard': 'Tableau de Bord Agence Immobilière - Kinimmo',
       wishlist: 'Mes Favoris Sauvegardés',
       pricing: 'Tarifs & Abonnements - Kinimmo',
       conciergerie: 'Conciergerie Immobilière - Votre recherche, notre accompagnement | Kinimmo',
@@ -135,7 +184,7 @@ const AppContent: React.FC = () => {
     };
     trackPageView(tabTitles[currentTab] || `Kinshasa Immo - ${currentTab}`, `/${currentTab}`);
     
-    // Mettre à jour l'historique d'URL pour /conciergerie et /admin
+    // Mettre à jour l'historique d'URL pour /conciergerie, /visites et /admin
     if (typeof window !== 'undefined') {
       try {
         if (currentTab === 'admin') {
@@ -144,12 +193,98 @@ const AppContent: React.FC = () => {
           }
         } else if (currentTab === 'conciergerie' && window.location.pathname !== '/conciergerie') {
           window.history.pushState({}, '', '/conciergerie');
-        } else if (currentTab !== 'admin' && currentTab !== 'conciergerie' && (window.location.pathname.startsWith('/admin') || window.location.pathname === '/conciergerie')) {
+        } else if (currentTab === 'visites' && window.location.pathname !== '/visites') {
+          window.history.pushState({}, '', '/visites');
+        } else if (currentTab !== 'admin' && currentTab !== 'conciergerie' && currentTab !== 'visites' && (window.location.pathname.startsWith('/admin') || window.location.pathname === '/conciergerie' || window.location.pathname === '/visites')) {
           window.history.pushState({}, '', '/');
         }
       } catch {}
     }
   }, [currentTab]);
+
+  // GESTION DYNAMIQUE DE LA CANONICALISATION ET DES META-TAGS SEO (Google Indexation)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const origin = window.location.origin;
+    let canonicalUrl = `${origin}/`;
+    let pageTitle = 'Kinshasa Immobilier - Plateforme Immobilière & Gestion RDC';
+    let metaDescription = 'Portail immobilier de référence en RDC : Vente, location, gestion locative, terrains titrés et annuaire des agents certifiés à Kinshasa.';
+
+    if (activePropertyModalId) {
+      const activeProp = properties.find((p) => p.id === activePropertyModalId);
+      if (activeProp) {
+        canonicalUrl = `${origin}/?property=${encodeURIComponent(activeProp.id)}`;
+        pageTitle = `${activeProp.title} à ${activeProp.commune || 'Kinshasa'} - Kinshasa Immobilier`;
+        if (activeProp.description) {
+          metaDescription = `${activeProp.type === 'land' ? 'Terrain' : 'Bien'} à ${activeProp.commune || 'Kinshasa'}. ${activeProp.description.slice(0, 140)}...`;
+        }
+      }
+    } else if (currentTab === 'visites') {
+      canonicalUrl = `${origin}/visites`;
+      pageTitle = 'Kinimmo Visites - Vidéos Immersives des Biens Immobiliers Kinshasa';
+      metaDescription = 'Découvrez les appartements et villas à Kinshasa en vidéos 30s immersives haute fidélité.';
+    } else if (currentTab === 'conciergerie') {
+      canonicalUrl = `${origin}/conciergerie`;
+      pageTitle = 'Conciergerie Immobilière Kinshasa - Recherche sur-mesure & Visites | Kinimmo';
+      metaDescription = 'Service de conciergerie VIP pour trouver et visiter votre bien immobilier à Kinshasa (Gombe, Ngaliema, Limete).';
+    } else if (currentTab === 'map') {
+      canonicalUrl = `${origin}/?tab=map`;
+      pageTitle = 'Carte Interactive des Biens Immobiliers à Kinshasa | Kinimmo';
+      metaDescription = 'Carte interactive géolocalisée des biens à vendre et à louer à Kinshasa par commune et quartier.';
+    } else if (currentTab === 'agents') {
+      canonicalUrl = `${origin}/?tab=agents`;
+      pageTitle = 'Annuaire des Agents Immobiliers Vérifiés à Kinshasa | Kinimmo';
+      metaDescription = 'Trouvez un agent immobilier indépendant certifié et audité à Kinshasa avec badge Kinimmo Trust.';
+    } else if (currentTab === 'agencies') {
+      canonicalUrl = `${origin}/?tab=agencies`;
+      pageTitle = 'Agences Immobilières Agréées à Kinshasa | Kinimmo';
+      metaDescription = 'Répertoire des agences immobilières agréées avec licence officielle et collaborateurs certifiés.';
+    } else if (currentTab === 'pricing') {
+      canonicalUrl = `${origin}/?tab=pricing`;
+      pageTitle = 'Tarifs & Abonnements Particuliers et Professionnels | Kinimmo';
+      metaDescription = 'Formules gratuites et forfaits professionnels pour publier et booster vos biens à Kinshasa.';
+    } else if (currentTab === 'home') {
+      canonicalUrl = `${origin}/`;
+    } else {
+      canonicalUrl = `${origin}/?tab=${encodeURIComponent(currentTab)}`;
+    }
+
+    // Mise à jour de document.title
+    document.title = pageTitle;
+
+    // Mise à jour ou création de <link rel="canonical">
+    let canonicalLink = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonicalLink) {
+      canonicalLink = document.createElement('link');
+      canonicalLink.setAttribute('rel', 'canonical');
+      document.head.appendChild(canonicalLink);
+    }
+    canonicalLink.setAttribute('href', canonicalUrl);
+
+    // Mise à jour de <meta property="og:url">
+    let ogUrl = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
+    if (!ogUrl) {
+      ogUrl = document.createElement('meta');
+      ogUrl.setAttribute('property', 'og:url');
+      document.head.appendChild(ogUrl);
+    }
+    ogUrl.setAttribute('content', canonicalUrl);
+
+    // Mise à jour de <meta property="og:title"> et twitter:title
+    const ogTitle = document.querySelector<HTMLMetaElement>('meta[property="og:title"]');
+    if (ogTitle) ogTitle.setAttribute('content', pageTitle);
+    const twTitle = document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]');
+    if (twTitle) twTitle.setAttribute('content', pageTitle);
+
+    // Mise à jour de <meta name="description"> et og:description
+    const descMeta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (descMeta) descMeta.setAttribute('content', metaDescription);
+    const ogDescMeta = document.querySelector<HTMLMetaElement>('meta[property="og:description"]');
+    if (ogDescMeta) ogDescMeta.setAttribute('content', metaDescription);
+    const twDescMeta = document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]');
+    if (twDescMeta) twDescMeta.setAttribute('content', metaDescription);
+  }, [currentTab, activePropertyModalId, properties]);
 
   // Filter Properties Logic
   const filteredProperties = properties.filter((p) => {
@@ -266,9 +401,9 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white overflow-x-hidden w-full max-w-full">
       {gmpQuotaExceeded && (
-        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center fixed top-16 left-0 right-0 z-50 shadow-sm">
           <span>
             Google Maps Platform quota reached. If you are the app owner, visit{' '}
             <a
@@ -288,7 +423,7 @@ const AppContent: React.FC = () => {
         setCurrentTab={setCurrentTab}
       />
 
-      <main className={`flex-1 w-full ${currentTab === 'conciergerie' ? '' : 'max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8'} pb-20 lg:pb-8 space-y-6 sm:space-y-8`}>
+      <main className={`flex-1 w-full pt-16 ${currentTab === 'conciergerie' || currentTab === 'visites' ? '' : 'max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8'} pb-24 lg:pb-12 space-y-6 sm:space-y-8`}>
         {/* TAB 1: HOME / PROPERTY LISTINGS */}
         {currentTab === 'home' && (
           <div className="space-y-6 sm:space-y-8">
@@ -300,114 +435,59 @@ const AppContent: React.FC = () => {
               onNavigateToAgencies={() => setCurrentTab('agents')}
             />
 
-            {/* Aperçu Officiel du Service Conciergerie Immobilière Kinimmo (Accompagnement) */}
-            <ConciergeriePreviewSection
-              onNavigateToConciergerie={(params) => {
-                if (params) {
-                  try {
-                    const url = new URL(window.location.href);
-                    url.pathname = '/conciergerie';
-                    if (params.projet) url.searchParams.set('projet', params.projet);
-                    if (params.typeBien) url.searchParams.set('type', params.typeBien);
-                    if (params.commune) url.searchParams.set('commune', params.commune);
-                    window.history.pushState({}, '', url.pathname + url.search);
-                  } catch {}
-                }
-                setCurrentTab('conciergerie');
+            {/* Bannière Découverte Format TikTok : Visites Vidéo 30s Kinshasa */}
+            <div
+              onClick={() => {
+                setCurrentTab('visites');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-            />
+              className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 border border-emerald-500/40 p-4 sm:p-6 shadow-xl cursor-pointer group hover:border-emerald-400 transition-all active:scale-[0.99]"
+            >
+              <div className="absolute top-0 right-0 w-80 h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-500/20 via-transparent to-transparent pointer-events-none" />
+              <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950">
+                      Nouveau Format Vidéo
+                    </span>
+                    <span className="text-xs text-emerald-400 font-extrabold flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5" /> Comme sur TikTok
+                    </span>
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-white group-hover:text-emerald-300 transition-colors">
+                    Visites Vidéo 30s de Biens Immobiliers
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-300 max-w-xl font-medium leading-relaxed">
+                    Faites défiler les vidéos réelles de biens titrés à Kinshasa (Gombe, Ngaliema, Limete) avec prix en USD et Francs Congolais, commune et bouton WhatsApp direct vers l'agent.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-emerald-500/20 group-hover:scale-105 transition-all cursor-pointer">
+                    <PlayCircle className="w-4.5 h-4.5 fill-slate-950 text-emerald-500" />
+                    <span>Lancer les Visites Vidéo</span>
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {/* Search Widget - Direct et Simple */}
             <SearchWidget />
 
-            {/* Quick 1-Click Interactive Badges & Filters */}
-            <QuickInteractiveFilters />
-
-            {/* Espace Publicitaire & Sponsors Kinshasa */}
-            <AdvertisementBanner placement="home_hero" className="shadow-xs" />
-
-            {/* Explore Popular Kinshasa Communes Section */}
-            <div className="space-y-4 pt-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                    Communes & Quartiers Prisés à Kinshasa
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Découvrez les meilleures offres dans les zones les plus recherchées
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {[
-                  {
-                    name: 'Gombe',
-                    count: 18,
-                    desc: 'Centre d\'Affaires & Ambassades',
-                    image: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=600&auto=format&fit=crop&q=80',
-                  },
-                  {
-                    name: 'Ngaliema',
-                    count: 14,
-                    desc: 'Macampagne & Binza Pigeon',
-                    image: 'https://images.unsplash.com/photo-1613977257363-707ba9348227?w=600&auto=format&fit=crop&q=80',
-                  },
-                  {
-                    name: 'Limete',
-                    count: 9,
-                    desc: 'Quartier Résidentiel & Industriel',
-                    image: 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600&auto=format&fit=crop&q=80',
-                  },
-                  {
-                    name: 'Kintambo',
-                    count: 11,
-                    desc: 'Magasin & Bords du Fleuve',
-                    image: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&auto=format&fit=crop&q=80',
-                  },
-                ].map((loc) => (
-                  <div
-                    key={loc.name}
-                    onClick={() => setFilters((prev) => ({ ...prev, searchQuery: loc.name }))}
-                    className="group relative h-40 rounded-2xl overflow-hidden cursor-pointer border border-slate-200 hover:border-emerald-500 transition-all shadow-sm hover:shadow-md"
-                  >
-                    <img
-                      src={loc.image}
-                      alt={loc.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/30 to-transparent" />
-                    <div className="absolute bottom-3 left-3 right-3">
-                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition-colors">
-                        {loc.name}
-                      </h3>
-                      <p className="text-[10px] text-slate-200 font-medium">
-                        {loc.desc}
-                      </p>
-                      <span className="text-[10px] text-emerald-300 font-bold block mt-0.5">
-                        {loc.count} propriétés
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             {/* Results Toolbar */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-xs">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-sm">
               <div className="font-semibold text-slate-700">
-                <span className="text-emerald-600 font-bold text-sm">{sortedProperties.length}</span> propriétés disponibles
+                <span className="text-emerald-600 font-black text-base">{sortedProperties.length}</span> propriétés disponibles
               </div>
 
               <div className="flex items-center gap-3 ms-auto">
                 {/* Sort dropdown */}
                 <div className="flex items-center gap-2">
-                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+                  <ArrowUpDown className="w-4 h-4 text-slate-500" />
                   <select
                     value={filters.sortBy || 'newest'}
                     onChange={(e) => setFilters((prev) => ({ ...prev, sortBy: e.target.value as any }))}
-                    className="bg-slate-50 border border-slate-300 text-slate-800 rounded-xl px-3 py-1.5 focus:outline-none focus:border-emerald-600 text-xs font-medium"
+                    className="bg-slate-50 border border-slate-300 text-slate-800 rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-600 text-xs sm:text-sm font-semibold"
                   >
                     <option value="newest">Plus récentes</option>
                     <option value="price-asc">Prix (Croissant)</option>
@@ -417,155 +497,37 @@ const AppContent: React.FC = () => {
                   </select>
                 </div>
 
-                {/* View Layout Switcher */}
-                <div className="flex bg-slate-100 rounded-xl p-1 border border-slate-200">
-                  <button
-                    onClick={() => setViewLayout('grid')}
-                    className={`p-1.5 rounded-lg transition-colors ${
-                      viewLayout === 'grid' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                    title="Vue Grille"
-                  >
-                    <Grid className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setViewLayout('split')}
-                    className={`p-1.5 rounded-lg transition-colors ${
-                      viewLayout === 'split' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                    title="Vue Mixte (Carte + Liste)"
-                  >
-                    <MapIcon className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* View Layout Render */}
-            {viewLayout === 'grid' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {sortedProperties.map((property, idx) => (
-                  <React.Fragment key={property.id}>
-                    <PropertyCard property={property} onShare={(id) => setSharePropertyId(id)} />
-                    {/* Espace Publicitaire In-Feed Kinshasa */}
-                    {idx === 2 && (
-                      <div className="col-span-1 md:col-span-2 lg:col-span-3 my-2">
-                        <AdvertisementBanner placement="search_top" className="shadow-xs" />
-                      </div>
-                    )}
-                  </React.Fragment>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                <div className="lg:col-span-5 h-[650px] sticky top-24">
-                  <PropertyMap properties={sortedProperties} height="h-full" />
-                </div>
-                <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {sortedProperties.map((property, idx) => (
-                    <React.Fragment key={property.id}>
-                      <PropertyCard property={property} onShare={(id) => setSharePropertyId(id)} />
-                      {idx === 1 && (
-                        <div className="col-span-1 sm:col-span-2 my-2">
-                          <AdvertisementBanner placement="search_top" className="shadow-xs" />
-                        </div>
-                      )}
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Meet Our Top-rated Kinshasa Agents Section */}
-            <div className="pt-10 space-y-6 border-t border-slate-200">
-              <div className="text-center max-w-xl mx-auto space-y-2">
-                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                  Nos Experts Immobiliers à Kinshasa
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Travaillez avec des courtiers certifiés (+243) connaissant le marché foncier de Kinshasa
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {[
-                  {
-                    name: 'Jean-Luc Mpoy',
-                    role: 'Spécialiste Luxe Gombe & Macampagne',
-                    agency: 'Kinshasa Prestige Real Estate',
-                    rating: 5.0,
-                    reviews: 42,
-                    avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=400&auto=format&fit=crop&q=80',
-                  },
-                  {
-                    name: 'Grace Kabamba',
-                    role: 'Consultante Baux Diplomatiques',
-                    agency: 'Kinshasa Prestige Real Estate',
-                    rating: 4.9,
-                    reviews: 29,
-                    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&auto=format&fit=crop&q=80',
-                  },
-                  {
-                    name: 'Patrick Tshimanga',
-                    role: 'Expert Titres Fonciers & Terrains',
-                    agency: 'Congo Real Assets',
-                    rating: 4.8,
-                    reviews: 21,
-                    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
-                  },
-                  {
-                    name: 'Chantal Luvumbu',
-                    role: 'Conseillère Résidentiel Limete & Ngaliema',
-                    agency: 'Fleuve Congo Housing',
-                    rating: 5.0,
-                    reviews: 18,
-                    avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=400&auto=format&fit=crop&q=80',
-                  },
-                ].map((agentItem, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-white border border-slate-200 rounded-3xl p-6 text-center space-y-3 hover:border-emerald-500 transition-all shadow-sm hover:shadow-md group"
-                  >
-                    <div className="relative w-20 h-20 mx-auto rounded-full overflow-hidden ring-2 ring-emerald-500/30 group-hover:ring-emerald-500 group-hover:scale-105 transition-all">
-                      <img
-                        src={agentItem.avatar}
-                        alt={agentItem.name}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">
-                        {agentItem.name}
-                      </h3>
-                      <p className="text-[11px] text-slate-500">{agentItem.role}</p>
-                      <p className="text-[10px] text-emerald-600 font-semibold">{agentItem.agency}</p>
-                    </div>
-
-                    <div className="flex items-center justify-center gap-1 text-xs text-amber-500 font-bold">
-                      <span>★ {agentItem.rating}</span>
-                      <span className="text-[10px] text-slate-400 font-normal">({agentItem.reviews} avis)</span>
-                    </div>
-
-                    <button
-                      onClick={() => setCurrentTab('agents')}
-                      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 hover:underline pt-1 block mx-auto"
-                    >
-                      Contacter l'agent →
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="text-center pt-2">
+                {/* Bouton Conciergerie Immobilière */}
                 <button
-                  onClick={() => setCurrentTab('agents')}
-                  className="px-6 py-2.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs border border-slate-300 hover:border-slate-400 shadow-sm transition-all inline-flex items-center gap-2"
+                  onClick={() => {
+                    setCurrentTab('conciergerie');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
+                  title="Accompagnement Conciergerie Immobilière Kinimmo"
                 >
-                  Trouver votre agent à Kinshasa →
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-100" />
+                  <span>Conciergerie</span>
                 </button>
               </div>
             </div>
+
+            {/* Grille des Propriétés Disponibles */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sortedProperties.map((property) => (
+                <PropertyCard key={property.id} property={property} onShare={(id) => setSharePropertyId(id)} />
+              ))}
+            </div>
           </div>
+        )}
+
+        {/* TAB 1B: VISITES VERTICALES REELS TIKTOK */}
+        {currentTab === 'visites' && (
+          <VisitsReelsView
+            onReturnHome={handleGoHome}
+            onOpenPropertyModal={(id) => setActivePropertyModalId(id)}
+            onOpenShareModal={(id) => setSharePropertyId(id)}
+          />
         )}
 
         {/* TAB 2: INTERACTIVE MAP AJAX */}
@@ -607,8 +569,257 @@ const AppContent: React.FC = () => {
         {/* TAB 4: WIDGETS & SHORTCODES */}
         {currentTab === 'shortcodes' && <ShortcodesGallery onReturnHome={handleGoHome} />}
 
-        {/* TAB 5: DASHBOARD */}
-        {currentTab === 'dashboard' && <UserDashboard onReturnHome={handleGoHome} />}
+        {/* TAB 5: GENERAL DASHBOARD */}
+        {currentTab === 'dashboard' && (
+          !user ? (
+            <div className="p-8 sm:p-12 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-6 max-w-xl mx-auto my-12 shadow-2xl">
+              <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg">
+                <UserIcon className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black uppercase">
+                  Accès Réservé
+                </span>
+                <h3 className="text-2xl font-black text-white">Connexion Requise</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Le tableau de bord est accessible uniquement après authentification. Veuillez vous connecter pour accéder à vos annonces et outils.
+                </p>
+              </div>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={handleGoHome}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 cursor-pointer"
+                >
+                  Retour Accueil
+                </button>
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs shadow-lg cursor-pointer"
+                >
+                  Se Connecter
+                </button>
+              </div>
+            </div>
+          ) : (
+            <UserDashboard onReturnHome={handleGoHome} />
+          )
+        )}
+
+        {/* TAB 5B: STANDALONE AGENT DASHBOARD */}
+        {currentTab === 'agent-dashboard' && (
+          !user ? (
+            <div className="p-8 sm:p-12 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-6 max-w-xl mx-auto my-12 shadow-2xl">
+              <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg">
+                <Briefcase className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black uppercase">
+                  Accès Professionnel
+                </span>
+                <h3 className="text-2xl font-black text-white">Connexion Agent Requise</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Veuillez vous connecter à votre compte professionnel pour accéder à vos annonces, vidéos et prospects.
+                </p>
+              </div>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={handleGoHome}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 cursor-pointer"
+                >
+                  Retour Accueil
+                </button>
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs shadow-lg cursor-pointer"
+                >
+                  Se Connecter
+                </button>
+              </div>
+            </div>
+          ) : user.role === 'agency' ? (
+            <div className="p-8 sm:p-12 bg-slate-900 border border-amber-500/30 rounded-3xl text-center space-y-6 max-w-xl mx-auto my-12 shadow-2xl">
+              <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-lg">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black uppercase">
+                  Accès Réservé aux Agents
+                </span>
+                <h3 className="text-2xl font-black text-white">Espace Non Autorisé</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Votre compte est un compte <strong>Agence Immobilière</strong>. Vous ne pouvez pas accéder à l'Espace Agent individuel.
+                </p>
+              </div>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setCurrentTab('agency-dashboard')}
+                  className="px-6 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-black text-xs shadow-lg transition-all cursor-pointer"
+                >
+                  Aller à mon Espace Agence
+                </button>
+                <button
+                  onClick={handleGoHome}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 cursor-pointer"
+                >
+                  Retour Accueil
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-emerald-500/30 p-5 rounded-3xl shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shadow-md">
+                    <Briefcase className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-black text-white">Tableau de Bord Agent Immobilier</h2>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase">
+                        Espace Indépendant
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Vos mandats personnels, vidéos haute fidélité, prospects directs et calendrier de visites
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  {user.role === 'admin' && (
+                    <button
+                      onClick={() => setCurrentTab('agency-dashboard')}
+                      className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Building2 className="w-4 h-4 text-indigo-400" />
+                      <span>Espace Agence (Admin)</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={handleGoHome}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Retourner à l'accueil"
+                  >
+                    <Home className="w-4 h-4 text-emerald-400" />
+                    <span>Accueil</span>
+                  </button>
+                </div>
+              </div>
+
+              <AgentDashboardView
+                onOpenSubmitProperty={() => setIsSubmitPropertyOpen(true)}
+                onOpenSecurityModal={() => setIsSecurityModalOpen(true)}
+              />
+            </div>
+          )
+        )}
+
+        {/* TAB 5C: STANDALONE AGENCY DASHBOARD */}
+        {currentTab === 'agency-dashboard' && (
+          !user ? (
+            <div className="p-8 sm:p-12 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-6 max-w-xl mx-auto my-12 shadow-2xl">
+              <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mx-auto shadow-lg">
+                <Building2 className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-400 text-xs font-black uppercase">
+                  Accès Direction
+                </span>
+                <h3 className="text-2xl font-black text-white">Connexion Agence Requise</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Veuillez vous connecter avec votre compte agence agréée pour gérer vos collaborateurs et mandats.
+                </p>
+              </div>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={handleGoHome}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 cursor-pointer"
+                >
+                  Retour Accueil
+                </button>
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="px-6 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-slate-950 font-black text-xs shadow-lg cursor-pointer"
+                >
+                  Se Connecter
+                </button>
+              </div>
+            </div>
+          ) : user.role === 'agent' ? (
+            <div className="p-8 sm:p-12 bg-slate-900 border border-amber-500/30 rounded-3xl text-center space-y-6 max-w-xl mx-auto my-12 shadow-2xl">
+              <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-lg">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black uppercase">
+                  Accès Réservé aux Agences
+                </span>
+                <h3 className="text-2xl font-black text-white">Espace Non Autorisé</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Votre compte est un compte <strong>Agent Indépendant</strong>. Vous ne pouvez pas accéder à l'Espace Agence de direction.
+                </p>
+              </div>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setCurrentTab('agent-dashboard')}
+                  className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs shadow-lg transition-all cursor-pointer"
+                >
+                  Aller à mon Espace Agent
+                </button>
+                <button
+                  onClick={handleGoHome}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 cursor-pointer"
+                >
+                  Retour Accueil
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-indigo-500/30 p-5 rounded-3xl shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shadow-md">
+                    <Building2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-black text-white">Tableau de Bord Agence Immobilière</h2>
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 text-[10px] font-black uppercase">
+                        Direction & Équipe
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Gestion des collaborateurs, attribution des biens & leads, pipeline des transactions et label Kinimmo Trust
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  {user.role === 'admin' && (
+                    <button
+                      onClick={() => setCurrentTab('agent-dashboard')}
+                      className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Briefcase className="w-4 h-4 text-emerald-400" />
+                      <span>Espace Agent (Admin)</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={handleGoHome}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Retourner à l'accueil"
+                  >
+                    <Home className="w-4 h-4 text-emerald-400" />
+                    <span>Accueil</span>
+                  </button>
+                </div>
+              </div>
+
+              <AgencyDashboardView
+                onOpenSubmitProperty={() => setIsSubmitPropertyOpen(true)}
+                onOpenSecurityModal={() => setIsSecurityModalOpen(true)}
+              />
+            </div>
+          )
+        )}
 
         {/* TAB 6: WISHLIST */}
         {currentTab === 'wishlist' && (
@@ -634,7 +845,7 @@ const AppContent: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 7: TARIFS, MONÉTISATION & PUBLICITÉ */}
+        {/* TAB 7: TARIFS & ABONNEMENTS */}
         {currentTab === 'pricing' && <MonetizationPricingView />}
 
         {/* TAB 8: CONCIERGERIE IMMOBILIÈRE */}

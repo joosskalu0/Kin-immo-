@@ -1,19 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import {
-  APIProvider,
-  Map,
-  AdvancedMarker,
-  InfoWindow,
-  useMap,
-  useMapsLibrary
-} from '@vis.gl/react-google-maps';
+import L from 'leaflet';
 import { Property } from '../types';
 import { useApp } from '../context/AppContext';
 import { convertAndFormatPrice } from '../utils/currency';
 import {
   MapPin,
   Navigation,
-  Layers,
   GraduationCap,
   Hospital,
   ShoppingCart,
@@ -25,26 +17,15 @@ import {
   Clock,
   Compass,
   X,
-  ChevronRight,
-  Info,
   Maximize2,
   Minimize2,
   DollarSign,
   Filter,
-  CheckCircle2,
   Building2,
-  AlertTriangle,
   Plane,
-  Eye,
-  SlidersHorizontal,
-  ChevronDown,
   Car,
-  ExternalLink,
   Globe,
   Navigation2,
-  Share2,
-  Sparkles,
-  Map as MapIcon,
   Crosshair
 } from 'lucide-react';
 import {
@@ -68,99 +49,57 @@ import {
   estimateKinshasaDriveTime
 } from '../data/kinshasaUrbanData';
 
-// API Key provisionnée pour Google Maps Platform
-const GOOGLE_MAPS_API_KEY =
-  (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) ||
-  'AIzaSyBHeL7DoP5xhAovn_sjF77MxcNLYLBd0Ck';
-
 interface PropertyMapProps {
   properties: Property[];
   height?: string;
   initialCommune?: string;
 }
 
-// -------------------------------------------------------------
-// Composant interne pour tracer les Polyline Google Maps
-// -------------------------------------------------------------
-interface GooglePolylineProps {
-  path: google.maps.LatLngLiteral[];
-  strokeColor?: string;
-  strokeOpacity?: number;
-  strokeWeight?: number;
-  zIndex?: number;
-  onClick?: () => void;
+type MapLayerStyle = 'osm' | 'voyager' | 'satellite' | 'topo';
+
+interface TileProviderConfig {
+  name: string;
+  url: string;
+  attribution: string;
+  maxZoom: number;
 }
 
-const GoogleMapPolyline: React.FC<GooglePolylineProps> = ({
-  path,
-  strokeColor = '#3b82f6',
-  strokeOpacity = 0.85,
-  strokeWeight = 4,
-  zIndex = 10,
-  onClick,
-}) => {
-  const map = useMap();
-  const polylineRef = useRef<google.maps.Polyline | null>(null);
-
-  useEffect(() => {
-    if (!map || !path || path.length < 2) return;
-
-    const polyline = new google.maps.Polyline({
-      path,
-      strokeColor,
-      strokeOpacity,
-      strokeWeight,
-      zIndex,
-      map,
-    });
-    polylineRef.current = polyline;
-
-    if (onClick) {
-      polyline.addListener('click', onClick);
-    }
-
-    return () => {
-      polyline.setMap(null);
-      polylineRef.current = null;
-    };
-  }, [map, path, strokeColor, strokeOpacity, strokeWeight, zIndex, onClick]);
-
-  return null;
+const TILE_PROVIDERS: Record<MapLayerStyle, TileProviderConfig> = {
+  osm: {
+    name: 'OpenStreetMap',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributeurs',
+    maxZoom: 19,
+  },
+  voyager: {
+    name: 'Plan Clair',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 19,
+  },
+  satellite: {
+    name: 'Satellite HD',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: '&copy; Esri &mdash; Maxar, Earthstar Geographics',
+    maxZoom: 18,
+  },
+  topo: {
+    name: 'Relief',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenTopoMap &copy; OpenStreetMap',
+    maxZoom: 17,
+  },
 };
 
-// -------------------------------------------------------------
-// Contrôleur de centrage de carte interactif
-// -------------------------------------------------------------
-const MapCameraSync: React.FC<{
-  target: { lat: number; lng: number } | null;
-  zoom?: number;
-}> = ({ target, zoom }) => {
-  const map = useMap();
-
-  useEffect(() => {
-    if (map && target) {
-      map.panTo(target);
-      if (zoom) {
-        map.setZoom(zoom);
-      }
-    }
-  }, [map, target, zoom]);
-
-  return null;
-};
-
-// -------------------------------------------------------------
-// Composant Principal PropertyMap (Alimenté par Google Maps)
-// -------------------------------------------------------------
 export const PropertyMap: React.FC<PropertyMapProps> = ({
   properties,
   height = 'h-[600px]',
-  initialCommune
+  initialCommune,
 }) => {
   const { currency, setActivePropertyModalId, setFilters } = useApp();
 
-  // Mode de carte Google Maps (roadmap = Plan, satellite = Satellite HD, hybrid = Hybride, terrain = Relief)
-  const [mapTypeId, setMapTypeId] = useState<google.maps.MapTypeId | 'roadmap' | 'satellite' | 'hybrid' | 'terrain'>('roadmap');
+  // Style de fond de carte OpenStreetMap (100% gratuit, sans clé API)
+  const [mapStyle, setMapStyle] = useState<MapLayerStyle>('voyager');
 
   // Calques actifs (Toggles)
   const [showProperties, setShowProperties] = useState(true);
@@ -187,7 +126,7 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Sélections pour InfoWindow
+  // Sélections pour affichage des détails interactifs
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [selectedPOI, setSelectedPOI] = useState<{
     name: string;
@@ -205,13 +144,12 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
     lng: number;
   } | null>(null);
 
-  // Calculateur de vrai itinéraire routier GPS
+  // Calculateur d'itinéraire routier
   const [selectedHubId, setSelectedHubId] = useState<string>('hub_airport');
-  const [targetCamera, setTargetCamera] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
 
   // Données du tracé d'itinéraire
   const [realRouteData, setRealRouteData] = useState<{
-    path: google.maps.LatLngLiteral[];
+    path: [number, number][];
     distanceKm: number;
     durationMin: number;
     summary: string;
@@ -220,6 +158,19 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
     steps: string[];
   } | null>(null);
   const [isRoutingLoading, setIsRoutingLoading] = useState(false);
+
+  // Références Leaflet
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+
+  // Groupes de calques Leaflet pour mises à jour ultra-rapides
+  const propertiesLayerRef = useRef<L.LayerGroup | null>(null);
+  const communesLayerRef = useRef<L.LayerGroup | null>(null);
+  const poisLayerRef = useRef<L.LayerGroup | null>(null);
+  const roadsLayerRef = useRef<L.LayerGroup | null>(null);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
+  const zonesLayerRef = useRef<L.LayerGroup | null>(null);
 
   const selectedHub = useMemo(() => {
     return (
@@ -251,8 +202,472 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
     };
   }, [selectedProperty, selectedCommune]);
 
-  // Fonction pour calculer l'itinéraire routier réel sur Google Maps
-  const handleCalculateRoute = async (
+  // 1. Initialisation de la carte Leaflet / OpenStreetMap
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+    if (mapInstanceRef.current) return;
+
+    // Nettoyage préventif si le conteneur DOM avait déjà un identifiant Leaflet
+    if ((container as any)._leaflet_id) {
+      delete (container as any)._leaflet_id;
+    }
+
+    // Création de l'instance Leaflet
+    const map = L.map(container, {
+      center: [-4.325, 15.31],
+      zoom: 12,
+      zoomControl: false,
+      attributionControl: true,
+    });
+
+    // Contrôle du zoom positionné en haut à droite
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // Initialisation du fond de carte OpenStreetMap
+    const provider = TILE_PROVIDERS[mapStyle];
+    const tileLayer = L.tileLayer(provider.url, {
+      attribution: provider.attribution,
+      maxZoom: provider.maxZoom,
+      subdomains: 'abc',
+    }).addTo(map);
+    tileLayerRef.current = tileLayer;
+
+    // Initialisation des calques d'éléments
+    const zonesGroup = L.layerGroup().addTo(map);
+    const roadsGroup = L.layerGroup().addTo(map);
+    const routeGroup = L.layerGroup().addTo(map);
+    const commGroup = L.layerGroup().addTo(map);
+    const poisGroup = L.layerGroup().addTo(map);
+    const propGroup = L.layerGroup().addTo(map);
+
+    zonesLayerRef.current = zonesGroup;
+    roadsLayerRef.current = roadsGroup;
+    routeLayerRef.current = routeGroup;
+    communesLayerRef.current = commGroup;
+    poisLayerRef.current = poisGroup;
+    propertiesLayerRef.current = propGroup;
+
+    mapInstanceRef.current = map;
+
+    // Redimensionnement propre après le premier rendu
+    const timer = setTimeout(() => {
+      try {
+        map.invalidateSize();
+      } catch {
+        // no-op
+      }
+    }, 200);
+
+    return () => {
+      clearTimeout(timer);
+      try {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.remove();
+          mapInstanceRef.current = null;
+        }
+      } catch {
+        // no-op
+      }
+      if (container && (container as any)._leaflet_id) {
+        delete (container as any)._leaflet_id;
+      }
+    };
+  }, []);
+
+  // 2. Mise à jour dynamique du style de fond de carte (OSM / CartoDB / Satellite / Relief)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+
+    const provider = TILE_PROVIDERS[mapStyle];
+    const newTile = L.tileLayer(provider.url, {
+      attribution: provider.attribution,
+      maxZoom: provider.maxZoom,
+      subdomains: 'abc',
+    }).addTo(map);
+
+    tileLayerRef.current = newTile;
+  }, [mapStyle]);
+
+  // 3. Redimensionnement lors du passage plein écran
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [isFullscreen, height]);
+
+  // 4. Dessin des Boulevards Majeurs de Kinshasa
+  useEffect(() => {
+    const layer = roadsLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    if (!showRoads) return;
+
+    KINSHASA_MAIN_ROADS.forEach((road) => {
+      const color =
+        road.type === 'highway'
+          ? '#f97316'
+          : road.type === 'boulevard'
+          ? '#06b6d4'
+          : '#3b82f6';
+
+      const polyline = L.polyline(road.coordinates, {
+        color,
+        weight: road.type === 'highway' ? 6 : 4,
+        opacity: 0.85,
+        lineCap: 'round',
+        lineJoin: 'round',
+      });
+
+      polyline.on('click', () => {
+        const mid = road.coordinates[Math.floor(road.coordinates.length / 2)];
+        setSelectedRoad({
+          name: road.name,
+          type: road.type,
+          speed: road.trafficSpeed,
+          importance: road.importance,
+          lat: mid[0],
+          lng: mid[1],
+        });
+      });
+
+      layer.addLayer(polyline);
+    });
+  }, [showRoads]);
+
+  // 5. Affichage des Zones Urbaines (Sécurité & Énergie/Eau)
+  useEffect(() => {
+    const layer = zonesLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    if (showSecurityHeat) {
+      KINSHASA_URBAN_COMMUNES.forEach((commune) => {
+        const score = commune.securityScore;
+        const color = score >= 8 ? '#10b981' : score >= 6 ? '#f59e0b' : '#ef4444';
+        const circle = L.circle([commune.lat, commune.lng], {
+          radius: 1400,
+          color,
+          fillColor: color,
+          fillOpacity: 0.2,
+          weight: 1.5,
+        });
+        layer.addLayer(circle);
+      });
+    }
+
+    if (showUtilities) {
+      KINSHASA_URBAN_COMMUNES.forEach((commune) => {
+        const score = (commune.waterScore + commune.powerScore) / 2;
+        const color = score >= 7 ? '#3b82f6' : score >= 5 ? '#eab308' : '#f97316';
+        const circle = L.circle([commune.lat, commune.lng], {
+          radius: 1200,
+          color,
+          fillColor: color,
+          fillOpacity: 0.22,
+          weight: 1.5,
+          dashArray: '4, 4',
+        });
+        layer.addLayer(circle);
+      });
+    }
+  }, [showSecurityHeat, showUtilities]);
+
+  // 6. Affichage des Marqueurs de Communes (Intelligence Urbaine & Prix/Loyers)
+  useEffect(() => {
+    const layer = communesLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    if (!showAveragePrices) return;
+
+    KINSHASA_URBAN_COMMUNES.forEach((commune) => {
+      const html = `
+        <div class="cursor-pointer group transform hover:scale-105 transition-all select-none">
+          <div class="bg-slate-900/95 backdrop-blur-md text-white px-2.5 py-1.5 rounded-xl border border-blue-500/50 shadow-xl flex flex-col gap-0.5 min-w-[110px]">
+            <div class="flex items-center justify-between text-[11px] font-black text-blue-400">
+              <span class="truncate">${commune.name}</span>
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-slate-300">
+              <span>Vente:</span>
+              <span class="font-bold text-emerald-400">$${commune.avgSalePerSqmUSD}/m²</span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-slate-300">
+              <span>Loyer:</span>
+              <span class="font-bold text-amber-400">$${commune.avgRentMonthlyUSD}/m</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const icon = L.divIcon({
+        className: 'custom-leaflet-marker',
+        html,
+        iconSize: [120, 56],
+        iconAnchor: [60, 28],
+      });
+
+      const marker = L.marker([commune.lat, commune.lng], {
+        icon,
+        title: `Intelligence : ${commune.name}`,
+      });
+
+      marker.on('click', () => {
+        setSelectedCommune(commune);
+        setIsSidePanelOpen(true);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView([commune.lat, commune.lng], 14, {
+            animate: true,
+          });
+        }
+      });
+
+      layer.addLayer(marker);
+    });
+  }, [showAveragePrices]);
+
+  // 7. Affichage des POIs (Écoles, Hôpitaux, Marchés, Hubs Stratégiques)
+  useEffect(() => {
+    const layer = poisLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    // Écoles
+    if (showSchools) {
+      KINSHASA_SCHOOLS.forEach((school) => {
+        const icon = L.divIcon({
+          className: 'custom-leaflet-marker',
+          html: `
+            <div class="w-7 h-7 rounded-full bg-indigo-600 border-2 border-white shadow-lg flex items-center justify-center text-white cursor-pointer hover:scale-125 transition-all text-xs font-bold">
+              🎓
+            </div>
+          `,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        });
+
+        const marker = L.marker([school.lat, school.lng], {
+          icon,
+          title: school.name,
+        });
+
+        marker.on('click', () => {
+          setSelectedPOI({
+            name: school.name,
+            type: 'Établissement Scolaire',
+            details: school.description,
+            lat: school.lat,
+            lng: school.lng,
+          });
+        });
+
+        layer.addLayer(marker);
+      });
+    }
+
+    // Hôpitaux
+    if (showHospitals) {
+      KINSHASA_HOSPITALS.forEach((hosp) => {
+        const icon = L.divIcon({
+          className: 'custom-leaflet-marker',
+          html: `
+            <div class="w-7 h-7 rounded-full bg-rose-600 border-2 border-white shadow-lg flex items-center justify-center text-white cursor-pointer hover:scale-125 transition-all text-xs font-bold">
+              🏥
+            </div>
+          `,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        });
+
+        const marker = L.marker([hosp.lat, hosp.lng], {
+          icon,
+          title: hosp.name,
+        });
+
+        marker.on('click', () => {
+          setSelectedPOI({
+            name: hosp.name,
+            type: 'Centre Hospitalier & Clinique',
+            details: hosp.description,
+            lat: hosp.lat,
+            lng: hosp.lng,
+          });
+        });
+
+        layer.addLayer(marker);
+      });
+    }
+
+    // Marchés
+    if (showMarkets) {
+      KINSHASA_MARKETS.forEach((mkt) => {
+        const icon = L.divIcon({
+          className: 'custom-leaflet-marker',
+          html: `
+            <div class="w-7 h-7 rounded-full bg-amber-500 border-2 border-white shadow-lg flex items-center justify-center text-slate-900 cursor-pointer hover:scale-125 transition-all text-xs font-bold">
+              🛒
+            </div>
+          `,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        });
+
+        const marker = L.marker([mkt.lat, mkt.lng], {
+          icon,
+          title: mkt.name,
+        });
+
+        marker.on('click', () => {
+          setSelectedPOI({
+            name: mkt.name,
+            type: 'Marché & Commerce',
+            details: mkt.description,
+            lat: mkt.lat,
+            lng: mkt.lng,
+          });
+        });
+
+        layer.addLayer(marker);
+      });
+    }
+
+    // Hubs Stratégiques (Aéroport Ndjili, Beach Ngobila, etc.)
+    KINSHASA_DISTANCE_HUBS.forEach((hub) => {
+      const icon = L.divIcon({
+        className: 'custom-leaflet-marker',
+        html: `
+          <div class="flex items-center gap-1.5 bg-slate-900/90 text-white px-2 py-1 rounded-full border border-emerald-400 shadow-xl cursor-pointer hover:scale-110 transition-transform whitespace-nowrap select-none">
+            <span class="text-emerald-400 text-xs">✈️</span>
+            <span class="text-[10px] font-bold truncate max-w-[90px]">${hub.name}</span>
+          </div>
+        `,
+        iconSize: [120, 28],
+        iconAnchor: [60, 14],
+      });
+
+      const marker = L.marker([hub.lat, hub.lng], {
+        icon,
+        title: `Hub : ${hub.name}`,
+      });
+
+      marker.on('click', () => {
+        setSelectedHubId(hub.id);
+        handleCalculateRoute(
+          currentDeparturePoint.lat,
+          currentDeparturePoint.lng,
+          hub.lat,
+          hub.lng,
+          currentDeparturePoint.label,
+          hub.name
+        );
+      });
+
+      layer.addLayer(marker);
+    });
+  }, [showSchools, showHospitals, showMarkets, currentDeparturePoint]);
+
+  // 8. Affichage des Biens Immobiliers (avec badges de prix)
+  useEffect(() => {
+    const layer = propertiesLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    if (!showProperties) return;
+
+    properties.forEach((prop) => {
+      if (!prop.lat || !prop.lng) return;
+
+      const isSelected = selectedProperty?.id === prop.id;
+      const isSale = prop.status === 'for-sale';
+      const formattedPrice = convertAndFormatPrice(prop.price, currency);
+
+      const html = `
+        <div class="group cursor-pointer transform transition-all duration-200 hover:scale-110 select-none ${
+          isSelected ? 'scale-115 z-30' : 'z-10'
+        }">
+          <div class="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black shadow-xl border ${
+            isSale
+              ? 'bg-emerald-600 text-white border-emerald-400'
+              : 'bg-indigo-600 text-white border-indigo-400'
+          }">
+            <svg class="w-3 h-3 shrink-0 inline-block -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-8-7.5-8-12a8 8 0 1116 0c0 4.5-8 12-8 12z"/><circle cx="12" cy="9" r="3"/></svg>
+            <span>${formattedPrice}</span>
+          </div>
+        </div>
+      `;
+
+      const icon = L.divIcon({
+        className: 'custom-leaflet-marker',
+        html,
+        iconSize: [110, 32],
+        iconAnchor: [55, 16],
+      });
+
+      const marker = L.marker([prop.lat, prop.lng], {
+        icon,
+        title: prop.title,
+      });
+
+      marker.on('click', () => {
+        setSelectedProperty(prop);
+        setSelectedCommune(
+          KINSHASA_URBAN_COMMUNES.find(
+            (c) =>
+              prop.commune &&
+              prop.commune.toLowerCase().includes(c.name.toLowerCase())
+          ) || null
+        );
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.panTo([prop.lat!, prop.lng!], { animate: true });
+        }
+      });
+
+      layer.addLayer(marker);
+    });
+  }, [properties, showProperties, selectedProperty, currency]);
+
+  // 9. Tracé de l'itinéraire sélectionné
+  useEffect(() => {
+    const layer = routeLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    if (!realRouteData) return;
+
+    // Ligne d'ombrage/halo
+    const glow = L.polyline(realRouteData.path, {
+      color: '#047857',
+      weight: 8,
+      opacity: 0.5,
+      lineCap: 'round',
+      lineJoin: 'round',
+    });
+
+    // Ligne principale émeraude
+    const line = L.polyline(realRouteData.path, {
+      color: '#10b981',
+      weight: 5,
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round',
+    });
+
+    layer.addLayer(glow);
+    layer.addLayer(line);
+  }, [realRouteData]);
+
+  // Fonction de calcul d'itinéraire routier
+  const handleCalculateRoute = (
     startLat: number,
     startLng: number,
     destLat: number,
@@ -263,32 +678,33 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
     setIsRoutingLoading(true);
 
     try {
-      // 1. Tenter un calcul précis d'itinéraire routier reliant Kinshasa
-      const distDirect = calculateHaversineDistanceKm(startLat, startLng, destLat, destLng);
-      const isAirport = destLabel.toLowerCase().includes('aéroport') || destLabel.toLowerCase().includes('ndjili');
+      const distDirect = calculateHaversineDistanceKm(
+        startLat,
+        startLng,
+        destLat,
+        destLng
+      );
+      const isAirport =
+        destLabel.toLowerCase().includes('aéroport') ||
+        destLabel.toLowerCase().includes('ndjili');
       const driveTimeObj = estimateKinshasaDriveTime(distDirect, isAirport);
 
-      // Calcul des points intermédiaires suivant les artères de Kinshasa pour un tracé naturel
-      const waypoints: google.maps.LatLngLiteral[] = [
-        { lat: startLat, lng: startLng },
-      ];
+      // Tracé des waypoints selon les artères routières réelles de Kinshasa
+      const waypoints: [number, number][] = [[startLat, startLng]];
 
-      // Si le trajet va vers l'Aéroport Ndjili (Est)
       if (destLat < -4.37 && destLng > 15.4) {
-        waypoints.push({ lat: -4.3295, lng: 15.3045 }); // Bd Triomphal
-        waypoints.push({ lat: -4.3512, lng: 15.3345 }); // Échangeur de Limete
-        waypoints.push({ lat: -4.3785, lng: 15.3785 }); // Bd Lumumba Masina
-        waypoints.push({ lat: -4.3985, lng: 15.4485 }); // Pont Ndjili
+        waypoints.push([-4.3295, 15.3045]); // Bd Triomphal
+        waypoints.push([-4.3512, 15.3345]); // Échangeur de Limete
+        waypoints.push([-4.3785, 15.3785]); // Bd Lumumba Masina
+        waypoints.push([-4.3985, 15.4485]); // Pont Ndjili
       } else if (destLng < 15.28) {
-        // Vers l'Ouest (Ngaliema / Kintambo)
-        waypoints.push({ lat: -4.3165, lng: 15.2865 }); // Mondjiba
-        waypoints.push({ lat: -4.3295, lng: 15.2745 }); // Kintambo Magasin
+        waypoints.push([-4.3165, 15.2865]); // Mondjiba
+        waypoints.push([-4.3295, 15.2745]); // Kintambo Magasin
       } else {
-        // Vers le centre Gombe
-        waypoints.push({ lat: -4.3092, lng: 15.2985 }); // Bd du 30 Juin
+        waypoints.push([-4.3092, 15.2985]); // Bd du 30 Juin
       }
 
-      waypoints.push({ lat: destLat, lng: destLng });
+      waypoints.push([destLat, destLng]);
 
       setRealRouteData({
         path: waypoints,
@@ -299,35 +715,39 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
         destLabel: destLabel,
         steps: [
           `Départ depuis ${startLabel}`,
-          'Emprunter l\'artère principale de circulation fluide',
-          `Rejoindre l\'axe prioritaire vers ${destLabel}`,
-          `Arrivée estimée à destination : ${destLabel} (${driveTimeObj.text})`
-        ]
+          "Emprunter l'artère principale de circulation fluide",
+          `Rejoindre l'axe prioritaire vers ${destLabel}`,
+          `Arrivée estimée à destination : ${destLabel} (${driveTimeObj.text})`,
+        ],
       });
 
-      // Recadrer la caméra sur le point médian
-      setTargetCamera({
-        lat: (startLat + destLat) / 2,
-        lng: (startLng + destLng) / 2,
-        zoom: 12
-      });
+      if (mapInstanceRef.current) {
+        const bounds = L.latLngBounds(waypoints);
+        mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
+      }
     } catch {
-      // Fallback direct
-      const dist = calculateHaversineDistanceKm(startLat, startLng, destLat, destLng);
-      const isAirport = destLabel.toLowerCase().includes('aéroport') || destLabel.toLowerCase().includes('ndjili');
+      const dist = calculateHaversineDistanceKm(
+        startLat,
+        startLng,
+        destLat,
+        destLng
+      );
+      const isAirport =
+        destLabel.toLowerCase().includes('aéroport') ||
+        destLabel.toLowerCase().includes('ndjili');
       const driveTimeObj = estimateKinshasaDriveTime(dist, isAirport);
 
       setRealRouteData({
         path: [
-          { lat: startLat, lng: startLng },
-          { lat: destLat, lng: destLng }
+          [startLat, startLng],
+          [destLat, destLng],
         ],
         distanceKm: Math.round(dist * 10) / 10,
         durationMin: driveTimeObj.maxMinutes,
         summary: `Ligne de transit direct (${startLabel} ➔ ${destLabel})`,
         originLabel: startLabel,
         destLabel: destLabel,
-        steps: [`Départ de ${startLabel}`, `Direction ${destLabel}`]
+        steps: [`Départ de ${startLabel}`, `Direction ${destLabel}`],
       });
     } finally {
       setIsRoutingLoading(false);
@@ -336,7 +756,9 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
 
   // Réinitialiser la vue sur Kinshasa
   const handleResetView = () => {
-    setTargetCamera({ lat: -4.325, lng: 15.31, zoom: 12 });
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([-4.325, 15.31], 12, { animate: true });
+    }
     setRealRouteData(null);
     setSelectedProperty(null);
     setSelectedPOI(null);
@@ -346,21 +768,19 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
   return (
     <div
       className={`relative w-full rounded-3xl overflow-hidden border border-slate-200 bg-slate-900 shadow-2xl transition-all duration-300 ${
-        isFullscreen
-          ? 'fixed inset-0 z-50 rounded-none h-screen'
-          : height
+        isFullscreen ? 'fixed inset-0 z-50 rounded-none h-screen' : height
       }`}
     >
       {/* ------------------------------------------------------------- */}
       {/* BARRE D'OUTILS ET CONTRÔLES SUPÉRIEURS                        */}
       {/* ------------------------------------------------------------- */}
       <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-        {/* Badge Google Maps & Commune */}
+        {/* Badge OpenStreetMap & Commune */}
         <div className="flex items-center gap-2 pointer-events-auto bg-slate-900/90 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-slate-700/80 shadow-lg text-white">
           <div className="flex items-center gap-1.5 text-xs font-black tracking-wide text-emerald-400">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <Globe className="w-3.5 h-3.5" />
-            <span>Google Maps</span>
+            <span>OpenStreetMap</span>
           </div>
           <span className="text-slate-600">|</span>
           <span className="text-xs font-semibold text-slate-300 truncate max-w-[140px] sm:max-w-[200px]">
@@ -374,22 +794,32 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
           </button>
         </div>
 
-        {/* Sélecteurs de Type de Carte Google Maps */}
+        {/* Sélecteurs de Style de Fond de Carte OpenStreetMap */}
         <div className="flex items-center gap-1 pointer-events-auto bg-slate-900/90 backdrop-blur-md p-1 rounded-2xl border border-slate-700/80 shadow-lg">
           <button
-            onClick={() => setMapTypeId('roadmap')}
+            onClick={() => setMapStyle('voyager')}
             className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              mapTypeId === 'roadmap'
+              mapStyle === 'voyager'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800'
             }`}
           >
-            Plan
+            Plan Clair
           </button>
           <button
-            onClick={() => setMapTypeId('satellite')}
+            onClick={() => setMapStyle('osm')}
             className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              mapTypeId === 'satellite'
+              mapStyle === 'osm'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            Standard OSM
+          </button>
+          <button
+            onClick={() => setMapStyle('satellite')}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              mapStyle === 'satellite'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800'
             }`}
@@ -397,19 +827,9 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
             Satellite HD
           </button>
           <button
-            onClick={() => setMapTypeId('hybrid')}
+            onClick={() => setMapStyle('topo')}
             className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              mapTypeId === 'hybrid'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            Hybride
-          </button>
-          <button
-            onClick={() => setMapTypeId('terrain')}
-            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              mapTypeId === 'terrain'
+              mapStyle === 'topo'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800'
             }`}
@@ -558,7 +978,9 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
             value={selectedHubId}
             onChange={(e) => {
               setSelectedHubId(e.target.value);
-              const target = KINSHASA_DISTANCE_HUBS.find((h) => h.id === e.target.value);
+              const target = KINSHASA_DISTANCE_HUBS.find(
+                (h) => h.id === e.target.value
+              );
               if (target) {
                 handleCalculateRoute(
                   currentDeparturePoint.lat,
@@ -573,7 +995,11 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
             className="bg-transparent text-xs font-bold text-white focus:outline-hidden cursor-pointer"
           >
             {KINSHASA_DISTANCE_HUBS.map((hub) => (
-              <option key={hub.id} value={hub.id} className="bg-slate-800 text-white">
+              <option
+                key={hub.id}
+                value={hub.id}
+                className="bg-slate-800 text-white"
+              >
                 Itinéraire ➔ {hub.name}
               </option>
             ))}
@@ -612,7 +1038,7 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
               </div>
               <div>
                 <h4 className="text-xs font-black text-emerald-400 uppercase tracking-wider">
-                  Itinéraire Routier Google Maps
+                  Itinéraire Routier OpenStreetMap
                 </h4>
                 <p className="text-sm font-bold text-slate-100 line-clamp-1">
                   {realRouteData.originLabel} ➔ {realRouteData.destLabel}
@@ -631,7 +1057,9 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
             <div className="flex items-center gap-2">
               <Compass className="w-4 h-4 text-emerald-400" />
               <div>
-                <div className="text-[10px] text-slate-400 font-medium">Distance réelle</div>
+                <div className="text-[10px] text-slate-400 font-medium">
+                  Distance estimée
+                </div>
                 <div className="text-sm font-black text-emerald-300">
                   {realRouteData.distanceKm} km
                 </div>
@@ -640,7 +1068,9 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-400" />
               <div>
-                <div className="text-[10px] text-slate-400 font-medium">Temps moyen Kin</div>
+                <div className="text-[10px] text-slate-400 font-medium">
+                  Temps moyen Kin
+                </div>
                 <div className="text-sm font-black text-amber-300">
                   ~{realRouteData.durationMin} min
                 </div>
@@ -660,374 +1090,149 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* CARTE GOOGLE MAPS DIRECTE (@vis.gl/react-google-maps)          */}
+      {/* CARTE LEAFLET / OPENSTREETMAP CONTAINER                      */}
       {/* ------------------------------------------------------------- */}
-      <APIProvider
-        apiKey={GOOGLE_MAPS_API_KEY}
-        language="fr"
-        region="CD"
-      >
-        <Map
-          defaultCenter={{ lat: -4.325, lng: 15.31 }}
-          defaultZoom={12}
-          mapTypeId={mapTypeId}
-          gestureHandling="greedy"
-          mapId="DEMO_MAP_ID"
-          internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-          className="w-full h-full min-h-[400px]"
-        >
-          {/* Synchronisation de la caméra de carte */}
-          <MapCameraSync target={targetCamera} zoom={targetCamera?.zoom} />
+      <div
+        ref={mapContainerRef}
+        className="w-full h-full min-h-[400px] z-10"
+      />
 
-          {/* 1. TRACÉ DES BOULEVARDS MAJEURS (Polylines Google Maps) */}
-          {showRoads &&
-            KINSHASA_MAIN_ROADS.map((road) => (
-              <GoogleMapPolyline
-                key={road.id}
-                path={road.coordinates.map(([lat, lng]) => ({ lat, lng }))}
-                strokeColor={
-                  road.type === 'highway'
-                    ? '#f97316'
-                    : road.type === 'boulevard'
-                    ? '#06b6d4'
-                    : '#3b82f6'
-                }
-                strokeWeight={road.type === 'highway' ? 6 : 4}
-                strokeOpacity={0.8}
-                onClick={() => {
-                  const mid = road.coordinates[Math.floor(road.coordinates.length / 2)];
-                  setSelectedRoad({
-                    name: road.name,
-                    type: road.type,
-                    speed: road.trafficSpeed,
-                    importance: road.importance,
-                    lat: mid[0],
-                    lng: mid[1]
-                  });
-                }}
-              />
-            ))}
+      {/* ------------------------------------------------------------- */}
+      {/* CARTE FLOTTANTE : DÉTAIL DU BIEN IMMOBILIER SÉLECTIONNÉ       */}
+      {/* ------------------------------------------------------------- */}
+      {selectedProperty && (
+        <div className="absolute top-16 right-3 sm:right-4 z-30 pointer-events-auto bg-white/95 backdrop-blur-md p-3 rounded-2xl border border-slate-200 shadow-2xl text-slate-900 w-72 animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className="relative h-32 rounded-xl overflow-hidden mb-2 bg-slate-100">
+            <img
+              src={
+                selectedProperty.images?.[0] ||
+                'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=400&q=80'
+              }
+              alt={selectedProperty.title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-slate-900/80 text-white">
+              {selectedProperty.status === 'for-sale' ? 'Vente' : 'Location'}
+            </div>
+            <button
+              onClick={() => setSelectedProperty(null)}
+              className="absolute top-1.5 right-1.5 p-1 rounded-full bg-slate-900/60 hover:bg-slate-900 text-white transition-all cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-          {/* 2. TRACÉ D'ITINÉRAIRE EN COURS (Polyline brillante) */}
-          {realRouteData && (
-            <>
-              {/* Ligne d'ombre/glow */}
-              <GoogleMapPolyline
-                path={realRouteData.path}
-                strokeColor="#047857"
-                strokeWeight={8}
-                strokeOpacity={0.5}
-                zIndex={40}
-              />
-              {/* Ligne principale */}
-              <GoogleMapPolyline
-                path={realRouteData.path}
-                strokeColor="#10b981"
-                strokeWeight={5}
-                strokeOpacity={0.95}
-                zIndex={41}
-              />
-            </>
-          )}
+          <h4 className="font-bold text-xs text-slate-900 line-clamp-1">
+            {selectedProperty.title}
+          </h4>
+          <p className="text-[11px] text-slate-500 line-clamp-1 mb-1.5">
+            {selectedProperty.commune || 'Kinshasa'}
+          </p>
 
-          {/* 3. MARQUEURS DES BIENS IMMOBILIERS (AdvancedMarker) */}
-          {showProperties &&
-            properties.map((prop) => {
-              if (!prop.lat || !prop.lng) return null;
-              const isSelected = selectedProperty?.id === prop.id;
-              const isSale = prop.status === 'for-sale';
+          <div className="flex items-center justify-between font-black text-sm text-emerald-700 mb-2">
+            <span>{convertAndFormatPrice(selectedProperty.price, currency)}</span>
+            <span className="text-[10px] text-slate-500 font-normal">
+              {selectedProperty.bedrooms} ch • {selectedProperty.area} m²
+            </span>
+          </div>
 
-              return (
-                <AdvancedMarker
-                  key={prop.id}
-                  position={{ lat: prop.lat, lng: prop.lng }}
-                  onClick={() => {
-                    setSelectedProperty(prop);
-                    setSelectedCommune(
-                      KINSHASA_URBAN_COMMUNES.find((c) =>
-                        prop.commune && prop.commune.toLowerCase().includes(c.name.toLowerCase())
-                      ) || null
-                    );
-                  }}
-                  title={prop.title}
-                >
-                  <div
-                    className={`group cursor-pointer transform transition-all duration-200 hover:scale-110 ${
-                      isSelected ? 'scale-115 z-30' : 'z-10'
-                    }`}
-                  >
-                    <div
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black shadow-xl border ${
-                        isSale
-                          ? 'bg-emerald-600 text-white border-emerald-400'
-                          : 'bg-indigo-600 text-white border-indigo-400'
-                      }`}
-                    >
-                      <MapPin className="w-3 h-3 shrink-0" />
-                      <span>{convertAndFormatPrice(prop.price, currency)}</span>
-                    </div>
-                  </div>
-                </AdvancedMarker>
-              );
-            })}
-
-          {/* 4. MARQUEURS D'INTELLIGENCE URBAINE PAR COMMUNE (Prix moyens & Loyers) */}
-          {showAveragePrices &&
-            KINSHASA_URBAN_COMMUNES.map((commune) => (
-              <AdvancedMarker
-                key={commune.id}
-                position={{ lat: commune.lat, lng: commune.lng }}
-                onClick={() => {
-                  setSelectedCommune(commune);
-                  setIsSidePanelOpen(true);
-                  setTargetCamera({ lat: commune.lat, lng: commune.lng, zoom: 14 });
-                }}
-                title={`Intelligence Urbaine : ${commune.name}`}
-              >
-                <div className="cursor-pointer group transform hover:scale-105 transition-all">
-                  <div className="bg-slate-900/95 backdrop-blur-md text-white px-2.5 py-1.5 rounded-xl border border-blue-500/50 shadow-xl flex flex-col gap-0.5 min-w-[110px]">
-                    <div className="flex items-center justify-between text-[11px] font-black text-blue-400">
-                      <span className="truncate">{commune.name}</span>
-                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-300">
-                      <span>Vente:</span>
-                      <span className="font-bold text-emerald-400">
-                        ${commune.avgSalePerSqmUSD}/m²
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-300">
-                      <span>Loyer:</span>
-                      <span className="font-bold text-amber-400">
-                        ${commune.avgRentMonthlyUSD}/m
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </AdvancedMarker>
-            ))}
-
-          {/* 5. MARQUEURS D'ÉCOLES (GraduationCap) */}
-          {showSchools &&
-            KINSHASA_SCHOOLS.map((school) => (
-              <AdvancedMarker
-                key={school.id}
-                position={{ lat: school.lat, lng: school.lng }}
-                onClick={() => {
-                  setSelectedPOI({
-                    name: school.name,
-                    type: 'Établissement Scolaire',
-                    details: school.description,
-                    lat: school.lat,
-                    lng: school.lng,
-                  });
-                }}
-                title={school.name}
-              >
-                <div className="w-7 h-7 rounded-full bg-indigo-600 border-2 border-white shadow-lg flex items-center justify-center text-white cursor-pointer hover:scale-125 transition-all">
-                  <GraduationCap className="w-3.5 h-3.5" />
-                </div>
-              </AdvancedMarker>
-            ))}
-
-          {/* 6. MARQUEURS D'HÔPITAUX (Hospital) */}
-          {showHospitals &&
-            KINSHASA_HOSPITALS.map((hosp) => (
-              <AdvancedMarker
-                key={hosp.id}
-                position={{ lat: hosp.lat, lng: hosp.lng }}
-                onClick={() => {
-                  setSelectedPOI({
-                    name: hosp.name,
-                    type: 'Centre Hospitalier & Clinique',
-                    details: hosp.description,
-                    lat: hosp.lat,
-                    lng: hosp.lng,
-                  });
-                }}
-                title={hosp.name}
-              >
-                <div className="w-7 h-7 rounded-full bg-rose-600 border-2 border-white shadow-lg flex items-center justify-center text-white cursor-pointer hover:scale-125 transition-all">
-                  <Hospital className="w-3.5 h-3.5" />
-                </div>
-              </AdvancedMarker>
-            ))}
-
-          {/* 7. MARQUEURS DE MARCHÉS (ShoppingCart) */}
-          {showMarkets &&
-            KINSHASA_MARKETS.map((mkt) => (
-              <AdvancedMarker
-                key={mkt.id}
-                position={{ lat: mkt.lat, lng: mkt.lng }}
-                onClick={() => {
-                  setSelectedPOI({
-                    name: mkt.name,
-                    type: 'Marché & Commerce',
-                    details: mkt.description,
-                    lat: mkt.lat,
-                    lng: mkt.lng,
-                  });
-                }}
-                title={mkt.name}
-              >
-                <div className="w-7 h-7 rounded-full bg-amber-500 border-2 border-white shadow-lg flex items-center justify-center text-slate-900 cursor-pointer hover:scale-125 transition-all">
-                  <ShoppingCart className="w-3.5 h-3.5" />
-                </div>
-              </AdvancedMarker>
-            ))}
-
-          {/* 8. MARQUEURS HUBS STRATÉGIQUES (Aéroport, Beach Ngobila, etc.) */}
-          {KINSHASA_DISTANCE_HUBS.map((hub) => (
-            <AdvancedMarker
-              key={hub.id}
-              position={{ lat: hub.lat, lng: hub.lng }}
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              onClick={() => setActivePropertyModalId(selectedProperty.id)}
+              className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer text-center"
+            >
+              Voir l'annonce
+            </button>
+            <button
               onClick={() => {
-                setSelectedHubId(hub.id);
-                handleCalculateRoute(
-                  currentDeparturePoint.lat,
-                  currentDeparturePoint.lng,
-                  hub.lat,
-                  hub.lng,
-                  currentDeparturePoint.label,
-                  hub.name
-                );
+                if (selectedHub && selectedProperty.lat && selectedProperty.lng) {
+                  handleCalculateRoute(
+                    selectedProperty.lat,
+                    selectedProperty.lng,
+                    selectedHub.lat,
+                    selectedHub.lng,
+                    selectedProperty.title,
+                    selectedHub.name
+                  );
+                }
               }}
-              title={`Hub : ${hub.name}`}
+              className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer text-center"
             >
-              <div className="flex items-center gap-1.5 bg-slate-900/90 text-white px-2 py-1 rounded-full border border-emerald-400 shadow-xl cursor-pointer hover:scale-110 transition-transform">
-                <Plane className="w-3 h-3 text-emerald-400" />
-                <span className="text-[10px] font-bold truncate max-w-[90px]">
-                  {hub.name}
-                </span>
-              </div>
-            </AdvancedMarker>
-          ))}
+              Itinéraire
+            </button>
+          </div>
+        </div>
+      )}
 
-          {/* INFOWINDOW : BIEN IMMOBILIER SÉLECTIONNÉ */}
-          {selectedProperty && selectedProperty.lat && selectedProperty.lng && (
-            <InfoWindow
-              position={{
-                lat: selectedProperty.lat,
-                lng: selectedProperty.lng,
-              }}
-              onCloseClick={() => setSelectedProperty(null)}
+      {/* ------------------------------------------------------------- */}
+      {/* CARTE FLOTTANTE : DÉTAIL D'UN POI SÉLECTIONNÉ (ÉCOLE, HÔPITAL) */}
+      {/* ------------------------------------------------------------- */}
+      {selectedPOI && (
+        <div className="absolute top-16 right-3 sm:right-4 z-30 pointer-events-auto bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200 shadow-2xl text-slate-900 w-72 animate-in fade-in duration-200">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <div className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">
+              {selectedPOI.type}
+            </div>
+            <button
+              onClick={() => setSelectedPOI(null)}
+              className="p-1 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-all cursor-pointer"
             >
-              <div className="p-1 max-w-[240px] text-slate-900 font-sans">
-                <div className="relative h-28 rounded-xl overflow-hidden mb-2 bg-slate-100">
-                  <img
-                    src={selectedProperty.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=400&q=80'}
-                    alt={selectedProperty.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-slate-900/80 text-white">
-                    {selectedProperty.status === 'for-sale' ? 'Vente' : 'Location'}
-                  </div>
-                </div>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <h4 className="font-bold text-xs text-slate-900 mb-1">
+            {selectedPOI.name}
+          </h4>
+          <p className="text-[11px] text-slate-600 leading-tight mb-2.5">
+            {selectedPOI.details}
+          </p>
+          <button
+            onClick={() => {
+              handleCalculateRoute(
+                currentDeparturePoint.lat,
+                currentDeparturePoint.lng,
+                selectedPOI.lat,
+                selectedPOI.lng,
+                currentDeparturePoint.label,
+                selectedPOI.name
+              );
+              setSelectedPOI(null);
+            }}
+            className="w-full py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors cursor-pointer text-center flex items-center justify-center gap-1"
+          >
+            <Navigation className="w-3 h-3" />
+            <span>Tracer route vers ce lieu</span>
+          </button>
+        </div>
+      )}
 
-                <h4 className="font-bold text-xs text-slate-900 line-clamp-1">
-                  {selectedProperty.title}
-                </h4>
-                <p className="text-[11px] text-slate-500 line-clamp-1 mb-1.5">
-                  {selectedProperty.commune || 'Kinshasa'}
-                </p>
-
-                <div className="flex items-center justify-between font-black text-sm text-emerald-700 mb-2">
-                  <span>{convertAndFormatPrice(selectedProperty.price, currency)}</span>
-                  <span className="text-[10px] text-slate-500 font-normal">
-                    {selectedProperty.bedrooms} ch • {selectedProperty.area} m²
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => setActivePropertyModalId(selectedProperty.id)}
-                    className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer text-center"
-                  >
-                    Voir l'annonce
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (selectedHub && selectedProperty.lat && selectedProperty.lng) {
-                        handleCalculateRoute(
-                          selectedProperty.lat,
-                          selectedProperty.lng,
-                          selectedHub.lat,
-                          selectedHub.lng,
-                          selectedProperty.title,
-                          selectedHub.name
-                        );
-                      }
-                    }}
-                    className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer text-center"
-                  >
-                    Itinéraire
-                  </button>
-                </div>
-              </div>
-            </InfoWindow>
-          )}
-
-          {/* INFOWINDOW : POI (ÉCOLE / HÔPITAL / MARCHÉ) */}
-          {selectedPOI && (
-            <InfoWindow
-              position={{ lat: selectedPOI.lat, lng: selectedPOI.lng }}
-              onCloseClick={() => setSelectedPOI(null)}
+      {/* ------------------------------------------------------------- */}
+      {/* CARTE FLOTTANTE : BOULEVARD SÉLECTIONNÉ                       */}
+      {/* ------------------------------------------------------------- */}
+      {selectedRoad && (
+        <div className="absolute top-16 right-3 sm:right-4 z-30 pointer-events-auto bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200 shadow-2xl text-slate-900 w-72 animate-in fade-in duration-200">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <div className="text-[10px] font-bold text-cyan-600 uppercase tracking-wider">
+              Axe Routier Stratégique
+            </div>
+            <button
+              onClick={() => setSelectedRoad(null)}
+              className="p-1 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-all cursor-pointer"
             >
-              <div className="p-1 max-w-[230px] text-slate-900 font-sans">
-                <div className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">
-                  {selectedPOI.type}
-                </div>
-                <h4 className="font-bold text-xs text-slate-900 mb-1">
-                  {selectedPOI.name}
-                </h4>
-                <p className="text-[11px] text-slate-600 leading-tight mb-2">
-                  {selectedPOI.details}
-                </p>
-                <button
-                  onClick={() => {
-                    handleCalculateRoute(
-                      currentDeparturePoint.lat,
-                      currentDeparturePoint.lng,
-                      selectedPOI.lat,
-                      selectedPOI.lng,
-                      currentDeparturePoint.label,
-                      selectedPOI.name
-                    );
-                    setSelectedPOI(null);
-                  }}
-                  className="w-full py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors cursor-pointer text-center flex items-center justify-center gap-1"
-                >
-                  <Navigation className="w-3 h-3" />
-                  <span>Tracer route vers ce lieu</span>
-                </button>
-              </div>
-            </InfoWindow>
-          )}
-
-          {/* INFOWINDOW : BOULEVARD SÉLECTIONNÉ */}
-          {selectedRoad && (
-            <InfoWindow
-              position={{ lat: selectedRoad.lat, lng: selectedRoad.lng }}
-              onCloseClick={() => setSelectedRoad(null)}
-            >
-              <div className="p-1 max-w-[240px] text-slate-900 font-sans">
-                <div className="text-[10px] font-bold text-cyan-600 uppercase tracking-wider mb-0.5">
-                  Axe Routier Stratégique Kinshasa
-                </div>
-                <h4 className="font-bold text-xs text-slate-900 mb-1">
-                  {selectedRoad.name}
-                </h4>
-                <div className="text-[11px] text-slate-700 mb-1">
-                  <span className="font-bold">Trafic :</span> {selectedRoad.speed}
-                </div>
-                <p className="text-[11px] text-slate-500 leading-tight">
-                  {selectedRoad.importance}
-                </p>
-              </div>
-            </InfoWindow>
-          )}
-        </Map>
-      </APIProvider>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <h4 className="font-bold text-xs text-slate-900 mb-1">
+            {selectedRoad.name}
+          </h4>
+          <div className="text-[11px] text-slate-700 mb-1">
+            <span className="font-bold">Trafic moyen :</span> {selectedRoad.speed}
+          </div>
+          <p className="text-[11px] text-slate-500 leading-tight">
+            {selectedRoad.importance}
+          </p>
+        </div>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* TIROIR LATÉRAL : STATISTIQUES & INTELLIGENCE DU QUARTIER      */}
@@ -1043,7 +1248,9 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
                 <h3 className="text-xl font-black text-white">
                   {selectedCommune.name}
                 </h3>
-                <p className="text-xs text-slate-400">District : {selectedCommune.district}</p>
+                <p className="text-xs text-slate-400">
+                  District : {selectedCommune.district}
+                </p>
               </div>
               <button
                 onClick={() => setIsSidePanelOpen(false)}
@@ -1056,18 +1263,24 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
             {/* PRIX & LOYERS MOYENS */}
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/60">
-                <div className="text-[10px] text-slate-400 font-semibold mb-1">Prix Moyen Vente</div>
+                <div className="text-[10px] text-slate-400 font-semibold mb-1">
+                  Prix Moyen Vente
+                </div>
                 <div className="text-lg font-black text-emerald-400">
-                  ${selectedCommune.avgSalePerSqmUSD} <span className="text-xs font-normal">/ m²</span>
+                  ${selectedCommune.avgSalePerSqmUSD}{' '}
+                  <span className="text-xs font-normal">/ m²</span>
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">
                   Moy. Bien: ~${selectedCommune.avgSalePriceUSD.toLocaleString()}
                 </div>
               </div>
               <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/60">
-                <div className="text-[10px] text-slate-400 font-semibold mb-1">Loyer Moyen</div>
+                <div className="text-[10px] text-slate-400 font-semibold mb-1">
+                  Loyer Moyen
+                </div>
                 <div className="text-lg font-black text-amber-400">
-                  ${selectedCommune.avgRentMonthlyUSD} <span className="text-xs font-normal">/ mois</span>
+                  ${selectedCommune.avgRentMonthlyUSD}{' '}
+                  <span className="text-xs font-normal">/ mois</span>
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">
                   Rendement: +{selectedCommune.annualAppreciationRate}% /an
@@ -1091,20 +1304,42 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
                   <AreaChart data={selectedCommune.priceHistory}>
                     <defs>
                       <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                        <stop
+                          offset="5%"
+                          stopColor="#10b981"
+                          stopOpacity={0.4}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor="#10b981"
+                          stopOpacity={0.0}
+                        />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-                    <XAxis dataKey="year" stroke="#94a3b8" fontSize={10} tickLine={false} />
-                    <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} domain={['dataMin - 100', 'dataMax + 100']} />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#334155"
+                      opacity={0.5}
+                    />
+                    <XAxis
+                      dataKey="year"
+                      stroke="#94a3b8"
+                      fontSize={10}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke="#94a3b8"
+                      fontSize={10}
+                      tickLine={false}
+                      domain={['dataMin - 100', 'dataMax + 100']}
+                    />
                     <Tooltip
                       contentStyle={{
                         backgroundColor: '#0f172a',
                         borderColor: '#334155',
                         borderRadius: '0.75rem',
                         fontSize: '11px',
-                        color: '#f8fafc'
+                        color: '#f8fafc',
                       }}
                       formatter={(val: any) => [`$${val}/m²`, 'Prix']}
                     />
@@ -1121,14 +1356,16 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
               </div>
             </div>
 
-            {/* SCORES VITALES (SÉCURITÉ, EAU, ÉLECTRICITÉ) */}
+            {/* SCORES VITAUX (SÉCURITÉ, EAU, ÉLECTRICITÉ) */}
             <div className="space-y-2 mb-4">
               <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
                   <div>
                     <div className="text-xs font-bold text-slate-200">Sécurité</div>
-                    <div className="text-[10px] text-slate-400 line-clamp-1">{selectedCommune.securityLabel}</div>
+                    <div className="text-[10px] text-slate-400 line-clamp-1">
+                      {selectedCommune.securityLabel}
+                    </div>
                   </div>
                 </div>
                 <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300">
@@ -1140,8 +1377,12 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
                 <div className="flex items-center gap-2">
                   <Droplets className="w-4 h-4 text-blue-400" />
                   <div>
-                    <div className="text-xs font-bold text-slate-200">Disponibilité Eau</div>
-                    <div className="text-[10px] text-slate-400 line-clamp-1">{selectedCommune.waterLabel}</div>
+                    <div className="text-xs font-bold text-slate-200">
+                      Disponibilité Eau
+                    </div>
+                    <div className="text-[10px] text-slate-400 line-clamp-1">
+                      {selectedCommune.waterLabel}
+                    </div>
                   </div>
                 </div>
                 <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-blue-500/20 text-blue-300">
@@ -1153,8 +1394,12 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
                 <div className="flex items-center gap-2">
                   <Zap className="w-4 h-4 text-amber-400" />
                   <div>
-                    <div className="text-xs font-bold text-slate-200">Électricité (SNEL)</div>
-                    <div className="text-[10px] text-slate-400 line-clamp-1">{selectedCommune.powerLabel}</div>
+                    <div className="text-xs font-bold text-slate-200">
+                      Électricité (SNEL)
+                    </div>
+                    <div className="text-[10px] text-slate-400 line-clamp-1">
+                      {selectedCommune.powerLabel}
+                    </div>
                   </div>
                 </div>
                 <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300">
@@ -1171,7 +1416,20 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
               </div>
               <div className="text-[11px] text-slate-300 space-y-1">
                 <div>• Vers Gombe (Centre): {selectedCommune.commuteToGombeMin}</div>
-                <div>• Vers Aéroport N'djili: ~{estimateKinshasaDriveTime(calculateHaversineDistanceKm(selectedCommune.lat, selectedCommune.lng, -4.3855, 15.4445), true).text}</div>
+                <div>
+                  • Vers Aéroport N'djili: ~
+                  {
+                    estimateKinshasaDriveTime(
+                      calculateHaversineDistanceKm(
+                        selectedCommune.lat,
+                        selectedCommune.lng,
+                        -4.3855,
+                        15.4445
+                      ),
+                      true
+                    ).text
+                  }
+                </div>
               </div>
             </div>
           </div>
@@ -1179,7 +1437,10 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
           {/* ACTION : FILTRER LES BIENS DE CETTE COMMUNE */}
           <button
             onClick={() => {
-              setFilters((prev) => ({ ...prev, commune: selectedCommune.name.split(' ')[0] }));
+              setFilters((prev) => ({
+                ...prev,
+                commune: selectedCommune.name.split(' ')[0],
+              }));
               setIsSidePanelOpen(false);
             }}
             className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all active:scale-95 cursor-pointer text-center flex items-center justify-center gap-1.5"
