@@ -155,13 +155,15 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('popstate', handleTabPopState);
   }, []);
 
-  // Strict role segregation: Agent never enters agency space, Agency never enters agent space
+  // Strict role segregation: Agent never enters agency space, Agency never enters agent space, Admin stays in admin dashboard
   useEffect(() => {
     if (user) {
       if (user.role === 'agent' && currentTab === 'agency-dashboard') {
         setCurrentTab('agent-dashboard');
       } else if (user.role === 'agency' && currentTab === 'agent-dashboard') {
         setCurrentTab('agency-dashboard');
+      } else if (user.role === 'admin' && (currentTab === 'agent-dashboard' || currentTab === 'agency-dashboard')) {
+        setCurrentTab('dashboard');
       }
     }
   }, [user, currentTab]);
@@ -569,8 +571,8 @@ const AppContent: React.FC = () => {
         {/* TAB 4: WIDGETS & SHORTCODES */}
         {currentTab === 'shortcodes' && <ShortcodesGallery onReturnHome={handleGoHome} />}
 
-        {/* TAB 5: GENERAL DASHBOARD */}
-        {currentTab === 'dashboard' && (
+        {/* TAB 5: GENERAL DASHBOARD / ADMIN PANEL */}
+        {(currentTab === 'dashboard' || currentTab === 'admin') && (
           !user ? (
             <div className="p-8 sm:p-12 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-6 max-w-xl mx-auto my-12 shadow-2xl">
               <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg">
@@ -636,7 +638,7 @@ const AppContent: React.FC = () => {
                 </button>
               </div>
             </div>
-          ) : user.role === 'agency' ? (
+          ) : user.role !== 'agent' ? (
             <div className="p-8 sm:p-12 bg-slate-900 border border-amber-500/30 rounded-3xl text-center space-y-6 max-w-xl mx-auto my-12 shadow-2xl">
               <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-lg">
                 <ShieldCheck className="w-8 h-8" />
@@ -647,16 +649,27 @@ const AppContent: React.FC = () => {
                 </span>
                 <h3 className="text-2xl font-black text-white">Espace Non Autorisé</h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                  Votre compte est un compte <strong>Agence Immobilière</strong>. Vous ne pouvez pas accéder à l'Espace Agent individuel.
+                  {user.role === 'admin'
+                    ? "En tant qu'administrateur, votre espace de gestion et de gouvernance se trouve dans votre panneau d'administration."
+                    : "Votre compte est un compte Agence Immobilière. Vous ne pouvez pas accéder à l'Espace Agent individuel."}
                 </p>
               </div>
               <div className="flex justify-center gap-3 pt-2">
-                <button
-                  onClick={() => setCurrentTab('agency-dashboard')}
-                  className="px-6 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-black text-xs shadow-lg transition-all cursor-pointer"
-                >
-                  Aller à mon Espace Agence
-                </button>
+                {user.role === 'admin' ? (
+                  <button
+                    onClick={() => setCurrentTab('dashboard')}
+                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shadow-lg transition-all cursor-pointer"
+                  >
+                    Aller au Panneau Administrateur
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setCurrentTab('agency-dashboard')}
+                    className="px-6 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-black text-xs shadow-lg transition-all cursor-pointer"
+                  >
+                    Aller à mon Espace Agence
+                  </button>
+                )}
                 <button
                   onClick={handleGoHome}
                   className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 cursor-pointer"
@@ -685,15 +698,6 @@ const AppContent: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                  {user.role === 'admin' && (
-                    <button
-                      onClick={() => setCurrentTab('agency-dashboard')}
-                      className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Building2 className="w-4 h-4 text-indigo-400" />
-                      <span>Espace Agence (Admin)</span>
-                    </button>
-                  )}
                   <button
                     onClick={handleGoHome}
                     className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -744,7 +748,7 @@ const AppContent: React.FC = () => {
                 </button>
               </div>
             </div>
-          ) : user.role === 'agent' ? (
+          ) : user.role !== 'agency' ? (
             <div className="p-8 sm:p-12 bg-slate-900 border border-amber-500/30 rounded-3xl text-center space-y-6 max-w-xl mx-auto my-12 shadow-2xl">
               <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-lg">
                 <ShieldCheck className="w-8 h-8" />
@@ -755,16 +759,27 @@ const AppContent: React.FC = () => {
                 </span>
                 <h3 className="text-2xl font-black text-white">Espace Non Autorisé</h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                  Votre compte est un compte <strong>Agent Indépendant</strong>. Vous ne pouvez pas accéder à l'Espace Agence de direction.
+                  {user.role === 'admin'
+                    ? "En tant qu'administrateur, votre espace de gestion et de gouvernance se trouve dans votre panneau d'administration."
+                    : "Votre compte est un compte Agent Indépendant. Vous ne pouvez pas accéder à l'Espace Agence de direction."}
                 </p>
               </div>
               <div className="flex justify-center gap-3 pt-2">
-                <button
-                  onClick={() => setCurrentTab('agent-dashboard')}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs shadow-lg transition-all cursor-pointer"
-                >
-                  Aller à mon Espace Agent
-                </button>
+                {user.role === 'admin' ? (
+                  <button
+                    onClick={() => setCurrentTab('dashboard')}
+                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shadow-lg transition-all cursor-pointer"
+                  >
+                    Aller au Panneau Administrateur
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setCurrentTab('agent-dashboard')}
+                    className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs shadow-lg transition-all cursor-pointer"
+                  >
+                    Aller à mon Espace Agent
+                  </button>
+                )}
                 <button
                   onClick={handleGoHome}
                   className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 cursor-pointer"
@@ -793,15 +808,6 @@ const AppContent: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                  {user.role === 'admin' && (
-                    <button
-                      onClick={() => setCurrentTab('agent-dashboard')}
-                      className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Briefcase className="w-4 h-4 text-emerald-400" />
-                      <span>Espace Agent (Admin)</span>
-                    </button>
-                  )}
                   <button
                     onClick={handleGoHome}
                     className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"

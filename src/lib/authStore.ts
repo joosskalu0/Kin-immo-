@@ -132,7 +132,7 @@ export const getRegisteredAccounts = (): StoredUserAccount[] => {
 };
 
 /**
- * Sync Firestore users into in-memory store without EVER overriding individual passwords
+ * Synchroniser les utilisateurs dans le magasin local d'authentification
  */
 export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUserAccount[] => {
   const currentAccounts = getRegisteredAccounts();
@@ -144,7 +144,7 @@ export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUse
     if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
   });
 
-  // 2. Merge Firestore users (without assigning admin password, excluding demo accounts)
+  // 2. Fusionner les utilisateurs (sans assigner le mot de passe admin, en excluant les comptes démo)
   firestoreUsers.forEach((fu) => {
     if (!fu || isDemoAccount(fu.email, fu.id, fu.name)) return;
     const existing = (fu.id ? accountsMap.get(fu.id) : undefined) || (fu.email ? accountsMap.get(fu.email.toLowerCase()) : undefined);
@@ -166,7 +166,7 @@ export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUse
 };
 
 /**
- * Sync Firestore agents into in-memory store so agents can log in directly
+ * Synchroniser les agents dans le magasin d'authentification
  */
 export const syncFirestoreAgentsToAuthStore = (firestoreAgents: Agent[]): StoredUserAccount[] => {
   const currentAccounts = getRegisteredAccounts();
@@ -212,7 +212,7 @@ export const syncFirestoreAgentsToAuthStore = (firestoreAgents: Agent[]): Stored
 };
 
 /**
- * Register account into in-memory list and Firestore (NEVER storing password in Firestore)
+ * Enregistrer un compte utilisateur dans le magasin d'authentification Kinimmo
  */
 export const registerUserAccount = (user: User, password?: string): StoredUserAccount => {
   const accounts = getRegisteredAccounts();
@@ -439,7 +439,7 @@ export const updateAccountPassword = (
 };
 
 /**
- * Admin directly resets/changes any user password and saves to Firestore
+ * Réinitialiser le mot de passe d'un utilisateur
  */
 export const adminResetUserPassword = async (
   userIdOrEmail: string,

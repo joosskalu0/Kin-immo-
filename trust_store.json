@@ -62,10 +62,10 @@
       "submittedAt": "2026-10-14T08:30:00Z",
       "adminNotes": "Contrôle cadastral Lukunga validé conforme sans réserve.",
       "createdAt": "2026-10-14T08:30:00Z",
-      "updatedAt": "2026-10-24T05:34:27.392Z",
-      "reviewedAt": "2026-10-24T05:34:27.392Z",
-      "approvedAt": "2026-10-24T05:34:27.392Z",
-      "expiresAt": "2027-10-24T05:34:27.392Z",
+      "updatedAt": "2026-10-28T05:43:36.193Z",
+      "reviewedAt": "2026-10-28T05:43:36.193Z",
+      "approvedAt": "2026-10-28T05:43:36.193Z",
+      "expiresAt": "2027-10-28T05:43:36.193Z",
       "rejectionReason": null,
       "rejectionCategory": null,
       "suspensionReason": null,
@@ -171,6 +171,49 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "audit_1793166216193",
+      "verificationId": "trust_prop_penthouse_river",
+      "targetType": "property",
+      "targetId": "prop_2",
+      "adminUserId": "admin_test_1",
+      "adminName": "Admin Conformité",
+      "adminEmail": "admin.conformite@kinimmo.cd",
+      "action": "TRUST_GRANTED",
+      "previousStatus": "in_progress",
+      "newStatus": "property_verified",
+      "reasonOrNotes": "Contrôle cadastral Lukunga validé conforme sans réserve.",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-28T05:43:36.194Z"
+    },
+    {
+      "id": "audit_1793166216189",
+      "verificationId": "trust_prop_gombe_villa",
+      "targetType": "system",
+      "targetId": "doc_cert_gombe_1",
+      "adminUserId": "admin_test_1",
+      "adminName": "Admin Conformité",
+      "adminEmail": "admin.conformite@kinimmo.cd",
+      "action": "DOCUMENT_VIEWED",
+      "reasonOrNotes": "Consultation du document sensible \"Certificat d’Enregistrement Vol. 142 Folio 58\" par Admin Conformité (admin)",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-28T05:43:36.189Z"
+    },
+    {
+      "id": "audit_1793166216186",
+      "verificationId": "trust_prop_penthouse_river",
+      "targetType": "property",
+      "targetId": "prop_2",
+      "adminUserId": "admin_test_1",
+      "adminName": "Admin Conformité",
+      "adminEmail": "admin.conformite@kinimmo.cd",
+      "action": "INFO_REQUESTED",
+      "previousStatus": "in_progress",
+      "newStatus": "in_progress",
+      "reasonOrNotes": "Complément demandé : Veuillez joindre la copie notariée du contrat de bail original.",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-28T05:43:36.186Z"
+    },
     {
       "id": "audit_1792820067392",
       "verificationId": "trust_prop_penthouse_river",
@@ -553,6 +596,28 @@
     }
   ],
   "notifications": [
+    {
+      "id": "notif_1793166216194",
+      "userId": "usr_sarah_01",
+      "title": "Badge Kinimmo Trust Approuvé !",
+      "message": "Votre demande de vérification pour \"Penthouse Exécutif Vue Fleuve Congo - Ngaliema\" est approuvée.",
+      "type": "trust_approved",
+      "targetType": "property",
+      "targetId": "prop_2",
+      "isRead": false,
+      "createdAt": "2026-10-28T05:43:36.194Z"
+    },
+    {
+      "id": "notif_1793166216186",
+      "userId": "usr_sarah_01",
+      "title": "Pièces complémentaires requises pour Kinimmo Trust",
+      "message": "L'équipe d'audit Kinimmo Trust a besoin de compléments : Veuillez joindre la copie notariée du contrat de bail original.",
+      "type": "doc_required",
+      "targetType": "property",
+      "targetId": "prop_2",
+      "isRead": false,
+      "createdAt": "2026-10-28T05:43:36.186Z"
+    },
     {
       "id": "notif_1792820067392",
       "userId": "usr_sarah_01",

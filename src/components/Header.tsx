@@ -285,7 +285,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
                       {user.name}
                     </span>
                     <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-0.5">
-                      <BadgeCheck className="w-3 h-3 inline text-emerald-600" /> {user.role === 'agency' ? 'Agence' : user.role === 'agent' ? 'Agent' : 'Vérifié'}
+                      <BadgeCheck className="w-3 h-3 inline text-emerald-600" /> {user.role === 'admin' ? 'Administrateur' : user.role === 'agency' ? 'Agence' : user.role === 'agent' ? 'Agent' : 'Vérifié'}
                     </span>
                   </div>
                 </button>

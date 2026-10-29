@@ -82,7 +82,7 @@ import {
   savePricingConfigToFirestore,
   listenToAuthChanges,
   logOutFromFirebase
-} from '../lib/firebase';
+} from '../lib/kinimmoStore';
 import { mysqlApi } from '../services/mysqlApi';
 import { getAdminCredentials, saveAdminCredentials } from '../lib/adminCredentials';
 import { parsePropertyIdFromUrl, updateBrowserUrlForProperty } from '../utils/shareUtils';
@@ -375,10 +375,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   }, []);
 
-  // Listen to Firebase Auth state changes
+  // Écouter les changements d'état d'authentification utilisateur
   useEffect(() => {
-    const unsub = listenToAuthChanges((fbUser) => {
-      setUser(fbUser);
+    const unsub = listenToAuthChanges((currentUser) => {
+      setUser(currentUser);
     });
     return () => unsub();
   }, []);
@@ -411,7 +411,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await logOutFromFirebase();
   };
 
-  // Firestore is the single source of truth - initialized with clean mock data and durable local cache
+  // Magasin de données Kinimmo - synchronisé avec l'API MySQL et le stockage local
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>(initialCustomFields);
   const [properties, setProperties] = useState<Property[]>(() => {
     const durable = getDurableLocalProperties();
@@ -958,7 +958,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  // When activePropertyModalId changes or properties list updates, sync URL & fetch from Firestore if missing
+  // Synchronisation de l'URL et récupération de la propriété si nécessaire
   useEffect(() => {
     if (!activePropertyModalId) {
       updateBrowserUrlForProperty(null);
@@ -969,7 +969,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (foundProp) {
       updateBrowserUrlForProperty(foundProp.id, foundProp.title);
     } else {
-      // Property might be stored in Firestore but not yet in local state
+      // Récupérer depuis le magasin de données
       let isMounted = true;
       getPropertyFromFirestore(activePropertyModalId).then((fetchedProp) => {
         if (isMounted && fetchedProp) {
@@ -1016,20 +1016,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     saveAdminCredentials({ pin: newPin });
   };
 
-  // Initialize and subscribe to Firestore (Single source of truth)
+  // Initialisation et abonnement aux flux de données Kinimmo
   useEffect(() => {
-    // Seed initial data if Firestore collections are empty
     seedInitialFirestoreData();
 
-    // Subscribe to real-time updates from Firestore
-    const unsubProperties = subscribeToProperties((firestoreProps) => {
-      if (Array.isArray(firestoreProps)) {
+    // Abonnement aux propriétés
+    const unsubProperties = subscribeToProperties((storeProps) => {
+      if (Array.isArray(storeProps)) {
         setProperties((currentLocalProps) => {
           const deleted = getDeletedPropertiesIds();
           const durable = getDurableLocalProperties();
           const propsMap = new Map<string, Property>();
 
-          // 1. Load baseline & local durable properties
+          // 1. Charger les propriétés de base et locales
           currentLocalProps.forEach((p) => {
             if (!deleted.has(p.id)) propsMap.set(p.id, p);
           });
@@ -1037,8 +1036,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (!deleted.has(p.id)) propsMap.set(p.id, p);
           });
 
-          // 2. Merge Firestore properties (authoritative updates)
-          firestoreProps.forEach((fp) => {
+          // 2. Fusionner les propriétés mises à jour
+          storeProps.forEach((fp) => {
             if (!deleted.has(fp.id)) {
               propsMap.set(fp.id, fp);
             }

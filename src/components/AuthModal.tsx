@@ -39,7 +39,7 @@ import {
   signInWithGoogleAuth,
   registerWithFirebaseEmailPassword,
   loginWithFirebaseEmailPassword,
-} from '../lib/firebase';
+} from '../lib/kinimmoStore';
 import { authenticateUser, registerUserAccount, authenticateOrRegisterGoogleUser } from '../lib/authStore';
 
 /**
@@ -154,11 +154,10 @@ export const formatAuthErrorMessage = (
     return rawMsg.replace(/kalu2002jooss/gi, '******');
   }
 
-  // Clean Firebase default prefix if present
-  if (rawMsg.startsWith('Firebase:')) {
+  // Nettoyer les préfixes d'erreurs éventuels
+  if (rawMsg.startsWith('AuthError:')) {
     const cleaned = rawMsg
-      .replace(/^Firebase:\s*/, '')
-      .replace(/\(auth\/[a-z0-9-]+\)\.?/i, '')
+      .replace(/^AuthError:\s*/, '')
       .trim();
     if (cleaned.length > 5) return cleaned;
   }
@@ -304,7 +303,7 @@ export const AuthModal: React.FC = () => {
 
   const strength = getPasswordStrength();
 
-  // Social Sign-In Prompt with Google Authentication & Firebase
+  // Connexion via compte Google
   const handleSocialLogin = async (provider: 'google' | 'facebook') => {
     if (isLoading) return; // Prevent multiple clicks while authenticating
     setError(null);
@@ -459,10 +458,10 @@ export const AuthModal: React.FC = () => {
     setIsLoading(true);
 
     if (mode === 'register') {
-      // Firebase Authentication Email/Password Registration
+      // Inscription Email/Mot de passe sécurisée Kinimmo
       if (method === 'email') {
         try {
-          const registeredFbUser = await registerWithFirebaseEmailPassword({
+          const registeredUser = await registerWithFirebaseEmailPassword({
             email: email.trim(),
             password: password.trim(),
             name: name.trim() || email.split('@')[0],
@@ -475,14 +474,14 @@ export const AuthModal: React.FC = () => {
 
           setIsLoading(false);
           completeAuthentication(
-            registeredFbUser,
-            `Compte créé avec succès dans Firebase Authentication & Firestore ! Bienvenue ${registeredFbUser.name}`
+            registeredUser,
+            `Compte créé avec succès ! Bienvenue ${registeredUser.name}`
           );
           return;
-        } catch (fbRegErr: any) {
+        } catch (regErr: any) {
           setIsLoading(false);
-          console.error('Firebase registration error:', fbRegErr);
-          setError(formatAuthErrorMessage(fbRegErr, 'register'));
+          console.error('Registration error:', regErr);
+          setError(formatAuthErrorMessage(regErr, 'register'));
           return;
         }
       } else {
@@ -536,7 +535,7 @@ export const AuthModal: React.FC = () => {
           completeAuthentication(authedFbUser, `Connexion réussie ! Bienvenue ${authedFbUser.name}`);
           return;
         } catch (loginErr: any) {
-          console.warn('Firebase login fallback check:', loginErr?.code, loginErr?.message);
+          console.warn('Login fallback check:', loginErr?.code, loginErr?.message);
 
           const code = loginErr?.code || '';
           const msg = loginErr?.message || '';

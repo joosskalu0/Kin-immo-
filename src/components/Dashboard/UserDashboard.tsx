@@ -17,12 +17,19 @@ import { AgencyDashboardView } from './AgencyDashboardView';
 import { TrustAdminDashboard } from '../Trust/TrustAdminDashboard';
 import { TrustVerificationModal } from '../Trust/TrustVerificationModal';
 import { TrustBadge } from '../Trust/TrustBadge';
+import { AdminConciergerieManager } from '../Admin/AdminConciergerieManager';
+import { AdminAgentsAgenciesControl } from '../Admin/AdminAgentsAgenciesControl';
+import { AdminAllListingsManager } from '../Admin/AdminAllListingsManager';
+import { AdminHeroShowcaseManager } from '../Admin/AdminHeroShowcaseManager';
+import { AdminMonetizationManager } from '../Admin/AdminMonetizationManager';
+import { AdminFraudModerationManager } from '../Admin/AdminFraudModerationManager';
+import { AdminVideosModerationManager } from '../Admin/AdminVideosModerationManager';
 import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
 import {
   saveUserToFirestore,
   verifyUserAdminInFirestore,
   AdminClaimVerificationResult,
-} from '../../lib/firebase';
+} from '../../lib/kinimmoStore';
 import {
   Home,
   Building2,
@@ -98,9 +105,9 @@ const ProtectedAdminFeature: React.FC<ProtectedAdminFeatureProps> = ({
         <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto animate-spin">
           <RefreshCw className="w-7 h-7" />
         </div>
-        <h3 className="text-lg font-black text-white">Vérification de Sécurité Firestore</h3>
+        <h3 className="text-lg font-black text-white">Vérification de Sécurité Kinimmo</h3>
         <p className="text-xs text-slate-400 leading-relaxed max-w-md mx-auto">
-          Contrôle d'accès en cours : vérification de l'autorisation et du claim <code className="text-emerald-400 font-mono">admin</code> dans votre document Firestore...
+          Contrôle d'accès en cours : vérification de l'autorisation et du rôle <code className="text-emerald-400 font-mono">admin</code> dans la base de données...
         </p>
       </div>
     );
@@ -119,21 +126,21 @@ const ProtectedAdminFeature: React.FC<ProtectedAdminFeatureProps> = ({
             Accès Protégé • Non Autorisé
           </span>
           <h3 className="text-xl font-black text-white">
-            Autorisation Administrateur Firestore Requise
+            Autorisation Administrateur Kinimmo Requise
           </h3>
           <p className="text-xs text-slate-300 leading-relaxed max-w-md mx-auto">
             La fonctionnalité <strong className="text-white">« {featureName} »</strong> est strictement réservée aux administrateurs.
-            Aucun document utilisateur avec le claim <code className="text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded font-mono">adminClaim: true</code> ou le rôle <code className="text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded font-mono">role: 'admin'</code> n'a été validé dans la base Firestore pour ce compte.
+            Aucun compte utilisateur avec le rôle <code className="text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded font-mono">role: 'admin'</code> n'a été validé dans la base de données Kinimmo pour ce compte.
           </p>
         </div>
 
         <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800 text-left text-xs space-y-1.5">
           <div className="flex items-center gap-2 text-slate-300 font-semibold">
             <Lock className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-            <span>Contrôle d'accès basé sur les claims Firestore (RBAC)</span>
+            <span>Contrôle d'accès sécurisé Kinimmo (RBAC)</span>
           </div>
           <p className="text-[11px] text-slate-400 pl-5 leading-relaxed">
-            L'accès non autorisé est systématiquement bloqué au niveau du composant et de la base de données Firestore pour prévenir toute escalade de privilèges.
+            L'accès non autorisé est systématiquement bloqué au niveau du composant et de la base de données pour prévenir toute escalade de privilèges.
           </p>
         </div>
 
@@ -190,6 +197,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
     pricingDisplayCurrency,
     cdfExchangeRate,
     agencyCollaborators,
+    agencies,
+    heroSlides,
   } = useApp();
 
   // Explicit real-time Firestore claim verification
@@ -210,7 +219,22 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       setAdminVerificationDetails(result);
 
       // If user is currently on an admin-exclusive tab and not verified in Firestore, redirect to safe tab
-      const adminOnlyTabs = ['admin_settings', 'admin_users', 'billing', 'verification', 'gtm_manager'];
+      const adminOnlyTabs = [
+        'admin_settings',
+        'admin_users',
+        'admin_agents',
+        'admin_agencies',
+        'admin_conciergerie',
+        'admin_all_listings',
+        'admin_hero_showcase',
+        'admin_monetization',
+        'admin_fraud',
+        'admin_videos',
+        'billing',
+        'verification',
+        'gtm_manager',
+        'trust_admin',
+      ];
       if (!result.isAdmin && adminOnlyTabs.includes(activeTab)) {
         setActiveTab('analytics');
       }
@@ -235,6 +259,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
     | 'analytics'
     | 'verification'
     | 'trust_admin'
+    | 'admin_all_listings'
+    | 'admin_hero_showcase'
+    | 'admin_monetization'
+    | 'admin_fraud'
+    | 'admin_videos'
+    | 'admin_conciergerie'
+    | 'admin_agents'
+    | 'admin_agencies'
     | 'admin_users'
     | 'billing'
     | 'invitations'
@@ -247,14 +279,16 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
     | 'plans'
     | 'csv'
     | 'gtm_manager'
-  >(user?.role === 'admin' ? 'trust_admin' : (user?.role === 'agency' ? 'agency_desk' : 'agent_desk'));
+  >(user?.role === 'admin' ? 'admin_all_listings' : (user?.role === 'agency' ? 'agency_desk' : 'agent_desk'));
 
-  // Strict role isolation: agent never enters agency_desk, agency never enters agent_desk
+  // Strict role isolation: agent never enters agency_desk, agency never enters agent_desk, admin never enters agent or agency desk
   useEffect(() => {
     if (user?.role === 'agent' && activeTab === 'agency_desk') {
       setActiveTab('agent_desk');
     } else if (user?.role === 'agency' && activeTab === 'agent_desk') {
       setActiveTab('agency_desk');
+    } else if (user?.role === 'admin' && (activeTab === 'agent_desk' || activeTab === 'agency_desk')) {
+      setActiveTab('trust_admin');
     }
   }, [user?.role, activeTab]);
 
@@ -325,7 +359,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       setShowPinModal(false);
       setPinInput('');
     } catch (err: any) {
-      setPinError(err?.message || "Erreur de validation du document administrateur dans Firestore.");
+      setPinError(err?.message || "Erreur de validation du compte administrateur dans la base de données.");
     } finally {
       setIsPinVerifying(false);
     }
@@ -352,13 +386,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       createdAt: new Date().toISOString(),
     };
 
-    // 1. Explicitly persist into Firestore with admin claim fields
+    // 1. Persister dans la base de données
     await saveUserToFirestore(adminProfile);
 
-    // 2. Explicitly verify the Firestore document
+    // 2. Vérifier le profil administrateur
     const verification = await verifyUserAdminInFirestore(adminProfile);
     if (!verification.isAdmin) {
-      throw new Error("Échec d'enregistrement ou de vérification du claim administrateur dans Firestore.");
+      throw new Error("Échec d'enregistrement ou de validation des droits administrateur.");
     }
 
     setUser(adminProfile);
@@ -570,12 +604,20 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl sm:text-2xl font-bold text-white">{user?.name}</h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold capitalize flex items-center gap-1">
-                <BadgeCheck className="w-3.5 h-3.5" /> Compte {user?.role} PRO
+              <span className={`px-2.5 py-0.5 rounded-full border text-xs font-bold capitalize flex items-center gap-1 ${
+                user?.role === 'admin'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                  : user?.role === 'agency'
+                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                  : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+              }`}>
+                <BadgeCheck className="w-3.5 h-3.5" /> {user?.role === 'admin' ? 'Super Administrateur' : user?.role === 'agency' ? 'Agence Immobilière' : 'Agent Indépendant PRO'}
               </span>
             </div>
             <div className="flex items-center gap-3 mt-0.5">
-              <p className="text-xs text-slate-400">{user?.email} • Formule Pro Agent Active</p>
+              <p className="text-xs text-slate-400">
+                {user?.email} • {user?.role === 'admin' ? 'Supervision Globale & Gouvernance Plateforme' : user?.role === 'agency' ? 'Direction & Gestion Équipe Agence' : 'Mandats & Portefeuille Agent'}
+              </p>
               {photoUploadSuccess && (
                 <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1 animate-fadeIn">
                   <CheckCircle2 className="w-3 h-3" /> Photo mise à jour !
@@ -607,6 +649,102 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
         <div className="flex flex-wrap items-center gap-3">
           {isAdmin && (
             <>
+              <button
+                onClick={() => setActiveTab('admin_all_listings')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_all_listings'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-emerald-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+                }`}
+              >
+                <Building2 className="w-4 h-4 text-emerald-400" />
+                <span>🏛️ Annonces BDD ({properties.length})</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('admin_hero_showcase')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_hero_showcase'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-extrabold shadow-amber-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border-slate-700'
+                }`}
+              >
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>⭐ Vitrine Hero ({heroSlides.length})</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('admin_monetization')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_monetization'
+                    ? 'bg-purple-500 text-white border-purple-400 font-extrabold shadow-purple-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-purple-400 border-slate-700'
+                }`}
+              >
+                <Zap className="w-4 h-4 text-purple-400" />
+                <span>🚀 Boostages & Tarifs</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('admin_fraud')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_fraud'
+                    ? 'bg-rose-500 text-white border-rose-400 font-extrabold shadow-rose-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-rose-400 border-slate-700'
+                }`}
+              >
+                <ShieldAlert className="w-4 h-4 text-rose-400" />
+                <span>🚨 Anti-Fraude</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('admin_videos')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_videos'
+                    ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-extrabold shadow-cyan-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-cyan-400 border-slate-700'
+                }`}
+              >
+                <Film className="w-4 h-4 text-cyan-400" />
+                <span>🎬 Vidéos ({propertyVideos.length})</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('admin_conciergerie')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_conciergerie'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-emerald-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+                }`}
+              >
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <span>Conciergerie VIP</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('admin_agents')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_agents'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-emerald-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700'
+                }`}
+              >
+                <Briefcase className="w-4 h-4 text-emerald-400" />
+                <span>Contrôle Agents ({agents.length})</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('admin_agencies')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
+                  activeTab === 'admin_agencies'
+                    ? 'bg-indigo-500 text-slate-950 border-indigo-400 font-extrabold shadow-indigo-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-indigo-400 border-slate-700'
+                }`}
+              >
+                <Building2 className="w-4 h-4 text-indigo-400" />
+                <span>Contrôle Agences ({agencies.length})</span>
+              </button>
+
               <button
                 onClick={() => setActiveTab('verification')}
                 className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm relative ${
@@ -677,7 +815,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
               </button>
 
               {/* Strict Role Segregation: Agent sees ONLY Agent space, Agency sees ONLY Agency space */}
-              {user?.role !== 'agency' && (
+              {user?.role === 'agent' && (
                 <button
                   onClick={() => setActiveTab('agent_desk')}
                   className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm cursor-pointer ${
@@ -691,7 +829,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
                 </button>
               )}
 
-              {user?.role !== 'agent' && (
+              {user?.role === 'agency' && (
                 <button
                   onClick={() => setActiveTab('agency_desk')}
                   className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm cursor-pointer ${
@@ -765,14 +903,38 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       {/* Navigation Tabs */}
       <div className="flex border-b border-slate-800 gap-2 overflow-x-auto text-xs font-semibold">
         {[
-          ...(user?.role === 'agency'
-            ? []
-            : [{ id: 'agent_desk', label: '👔 Espace Agent PRO', icon: Briefcase }]),
           ...(user?.role === 'agent'
-            ? []
-            : [{ id: 'agency_desk', label: `🏢 Espace Agence (${agencyCollaborators.length} Agents)`, icon: Building2 }]),
+            ? [{ id: 'agent_desk', label: '👔 Espace Agent PRO', icon: Briefcase }]
+            : []),
+          ...(user?.role === 'agency'
+            ? [{ id: 'agency_desk', label: `🏢 Espace Agence (${agencyCollaborators.length} Agents)`, icon: Building2 }]
+            : []),
+          ...(isAdmin
+            ? [{ id: 'admin_all_listings', label: `🏛️ Annonces BDD (${properties.length})`, icon: Building2 }]
+            : []),
+          ...(isAdmin
+            ? [{ id: 'admin_hero_showcase', label: `⭐ Vitrine Hero (${heroSlides.length})`, icon: Sparkles }]
+            : []),
+          ...(isAdmin
+            ? [{ id: 'admin_monetization', label: '🚀 Boostages & Options Payantes', icon: Zap }]
+            : []),
+          ...(isAdmin
+            ? [{ id: 'admin_fraud', label: '🚨 Bouclier Anti-Fraude & Signalements', icon: ShieldAlert }]
+            : []),
+          ...(isAdmin
+            ? [{ id: 'admin_videos', label: `🎬 Modération Vidéos Kinimmo Visites (${propertyVideos.length})`, icon: Film }]
+            : []),
           ...(isAdmin
             ? [{ id: 'trust_admin', label: '🛡️ Kinimmo Trust (Audit & Décisions)', icon: Award }]
+            : []),
+          ...(isAdmin
+            ? [{ id: 'admin_conciergerie', label: '🛎️ Kinimmo Conciergerie (Demandes VIP & Visites)', icon: Sparkles }]
+            : []),
+          ...(isAdmin
+            ? [{ id: 'admin_agents', label: `👔 Contrôle des Agents (${agents.length})`, icon: Briefcase }]
+            : []),
+          ...(isAdmin
+            ? [{ id: 'admin_agencies', label: `🏢 Contrôle des Agences (${agencies.length})`, icon: Building2 }]
             : []),
           ...(isAdmin
             ? [{ id: 'verification', label: `🛡️ Audit Badges Agents (${pendingVerificationsCount > 0 ? `${pendingVerificationsCount} en attente` : 'Conforme'})`, icon: ShieldCheck }]
@@ -822,7 +984,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       </div>
 
       {/* TAB: Agent Complete Dashboard (11 modules) */}
-      {activeTab === 'agent_desk' && user?.role !== 'agency' && (
+      {activeTab === 'agent_desk' && user?.role === 'agent' && (
         <AgentDashboardView
           onOpenSubmitProperty={() => {
             setEditingProperty(null);
@@ -833,7 +995,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       )}
 
       {/* TAB: Agency Complete Dashboard (8 modules) */}
-      {activeTab === 'agency_desk' && user?.role !== 'agent' && (
+      {activeTab === 'agency_desk' && user?.role === 'agency' && (
         <AgencyDashboardView
           onOpenSubmitProperty={() => {
             setEditingProperty(null);
@@ -853,6 +1015,141 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           onRetry={runAdminVerification}
         >
           <TrustAdminDashboard />
+        </ProtectedAdminFeature>
+      )}
+
+      {/* TAB: Kinimmo Conciergerie (Demandes VIP, Prospection & Visites Terrain) */}
+      {activeTab === 'admin_conciergerie' && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Kinimmo Conciergerie (Demandes VIP & Visites)"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <div className="space-y-6">
+            <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shadow-md">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-black text-white">Espace Kinimmo Conciergerie</h2>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase">
+                      Gestion VIP
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Traitement des demandes sur-mesure de clients VIP, matching intelligent de biens, programmation des visites terrain et assignation des agents.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <AdminConciergerieManager />
+          </div>
+        </ProtectedAdminFeature>
+      )}
+
+      {/* TAB: Contrôle & Supervision des Agents & Agences */}
+      {(activeTab === 'admin_agents' || activeTab === 'admin_agencies') && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Contrôle et Supervision des Agents et Agences"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminAgentsAgenciesControl
+            initialView={activeTab === 'admin_agencies' ? 'agencies' : 'agents'}
+            onOpenSubmitProperty={() => {
+              setEditingProperty(null);
+              setIsSubmitPropertyOpen(true);
+            }}
+          />
+        </ProtectedAdminFeature>
+      )}
+
+      {/* TAB: Toutes les Annonces BDD (Validation, Boostages, Mises en avant) */}
+      {activeTab === 'admin_all_listings' && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Toutes les Annonces BDD (Validation & Boostages)"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminAllListingsManager
+            onOpenSubmitProperty={() => {
+              setEditingProperty(null);
+              setIsSubmitPropertyOpen(true);
+            }}
+            onOpenEditProperty={(prop) => {
+              setEditingProperty(prop);
+              setIsSubmitPropertyOpen(true);
+            }}
+            onOpenDetailModal={(propId) => setActivePropertyModalId(propId)}
+          />
+        </ProtectedAdminFeature>
+      )}
+
+      {/* TAB: Vitrine Hero & Mises en avant Page d'Accueil */}
+      {activeTab === 'admin_hero_showcase' && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Vitrine Hero & Mises en Avant Page d'Accueil"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminHeroShowcaseManager onReturnHome={onReturnHome} />
+        </ProtectedAdminFeature>
+      )}
+
+      {/* TAB: Monétisation, Boostages & Tarifs BDD */}
+      {activeTab === 'admin_monetization' && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Boostages & Options Payantes BDD"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminMonetizationManager />
+        </ProtectedAdminFeature>
+      )}
+
+      {/* TAB: Bouclier Anti-Fraude & Signalements */}
+      {activeTab === 'admin_fraud' && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Bouclier Anti-Fraude & Signalements"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminFraudModerationManager
+            properties={properties}
+            onUpdateProperty={updateProperty}
+            onDeleteProperty={deleteProperty}
+          />
+        </ProtectedAdminFeature>
+      )}
+
+      {/* TAB: Modération des Vidéos Immersives Kinimmo Visites */}
+      {activeTab === 'admin_videos' && (
+        <ProtectedAdminFeature
+          isChecking={isCheckingAdmin}
+          isVerified={isFirestoreAdminVerified}
+          featureName="Modération Vidéos Kinimmo Visites"
+          onGoToAnalytics={() => setActiveTab('listings')}
+          onRetry={runAdminVerification}
+        >
+          <AdminVideosModerationManager
+            properties={properties}
+            onOpenPropertyModal={(id) => setActivePropertyModalId(id)}
+          />
         </ProtectedAdminFeature>
       )}
 

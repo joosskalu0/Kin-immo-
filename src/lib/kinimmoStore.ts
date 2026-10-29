@@ -1,6 +1,7 @@
 /**
  * Kinimmo Data Store & Authentication Layer
- * Fully decoupled from Firebase/Firestore: Powered 100% by Kinimmo Express API (MySQL) and durable local storage.
+ * Système 100% autonome propulsé par l'API REST Node.js / Express et MySQL (Hostinger).
+ * Aucune dépendance ni connexion à Firebase / Firestore.
  */
 
 import {
@@ -51,10 +52,11 @@ export const COLLECTIONS = {
   SYSTEM_SETTINGS: 'systemSettings'
 };
 
-export function sanitizeForFirestore<T>(data: T): T {
+export function sanitizeForStore<T>(data: T): T {
   if (data === null || data === undefined) return data;
   return JSON.parse(JSON.stringify(data));
 }
+export const sanitizeForFirestore = sanitizeForStore;
 
 export const initialUsersSeed: User[] = [
   {
@@ -77,15 +79,15 @@ export const initialUsersSeed: User[] = [
   }
 ];
 
-export async function syncUsersOnlyToFirestore() {
-  // Direct sync to local storage & MySQL backend
+export async function syncUsersOnlyToStore() {
   return;
 }
+export const syncUsersOnlyToFirestore = syncUsersOnlyToStore;
 
-export async function seedInitialFirestoreData() {
-  // Data initialization handled via MySQL / mockData
+export async function seedInitialStoreData() {
   return;
 }
+export const seedInitialFirestoreData = seedInitialStoreData;
 
 // Event-driven local and backend listeners
 type ListenerCallback<T> = (data: T) => void;
@@ -119,7 +121,6 @@ function registerListener<T>(key: string, callback: ListenerCallback<T>): () => 
 // -------------------------------------------------------------
 
 export function subscribeToProperties(callback: (properties: Property[]) => void): () => void {
-  // Load initially from localStorage or mock
   try {
     const raw = localStorage.getItem('kinimmo_properties');
     if (raw) {
@@ -136,7 +137,6 @@ export function subscribeToProperties(callback: (properties: Property[]) => void
     callback(initialProperties);
   }
 
-  // Also query MySQL API
   fetch('/api/properties')
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
@@ -333,7 +333,7 @@ export function subscribeToPricingConfig(
 // Persistence Actions (save / delete)
 // -------------------------------------------------------------
 
-export async function savePropertyToFirestore(property: Property) {
+export async function savePropertyToStore(property: Property) {
   try {
     const raw = localStorage.getItem('kinimmo_properties');
     let list: Property[] = raw ? JSON.parse(raw) : [...initialProperties];
@@ -356,8 +356,9 @@ export async function savePropertyToFirestore(property: Property) {
     });
   } catch {}
 }
+export const savePropertyToFirestore = savePropertyToStore;
 
-export async function getPropertyFromFirestore(id: string): Promise<Property | null> {
+export async function getPropertyFromStore(id: string): Promise<Property | null> {
   try {
     const raw = localStorage.getItem('kinimmo_properties');
     if (raw) {
@@ -368,8 +369,9 @@ export async function getPropertyFromFirestore(id: string): Promise<Property | n
   } catch {}
   return initialProperties.find((p) => p.id === id) || null;
 }
+export const getPropertyFromFirestore = getPropertyFromStore;
 
-export async function deletePropertyFromFirestore(id: string) {
+export async function deletePropertyFromStore(id: string) {
   try {
     const raw = localStorage.getItem('kinimmo_properties');
     if (raw) {
@@ -384,8 +386,9 @@ export async function deletePropertyFromFirestore(id: string) {
     await fetch(`/api/properties/${id}`, { method: 'DELETE' });
   } catch {}
 }
+export const deletePropertyFromFirestore = deletePropertyFromStore;
 
-export async function saveCustomFieldToFirestore(field: CustomFieldDefinition) {
+export async function saveCustomFieldToStore(field: CustomFieldDefinition) {
   try {
     const raw = localStorage.getItem('kinimmo_custom_fields');
     let list: CustomFieldDefinition[] = raw ? JSON.parse(raw) : [...initialCustomFields];
@@ -399,8 +402,9 @@ export async function saveCustomFieldToFirestore(field: CustomFieldDefinition) {
     notifyListeners('customFields', list);
   } catch {}
 }
+export const saveCustomFieldToFirestore = saveCustomFieldToStore;
 
-export async function deleteCustomFieldFromFirestore(id: string) {
+export async function deleteCustomFieldFromStore(id: string) {
   try {
     const raw = localStorage.getItem('kinimmo_custom_fields');
     if (raw) {
@@ -411,8 +415,9 @@ export async function deleteCustomFieldFromFirestore(id: string) {
     }
   } catch {}
 }
+export const deleteCustomFieldFromFirestore = deleteCustomFieldFromStore;
 
-export async function saveLeadToFirestore(lead: LeadRequest) {
+export async function saveLeadToStore(lead: LeadRequest) {
   try {
     const raw = localStorage.getItem('kinimmo_leads');
     let list: LeadRequest[] = raw ? JSON.parse(raw) : [...initialLeads];
@@ -426,8 +431,9 @@ export async function saveLeadToFirestore(lead: LeadRequest) {
     notifyListeners('leads', list);
   } catch {}
 }
+export const saveLeadToFirestore = saveLeadToStore;
 
-export async function deleteLeadFromFirestore(id: string) {
+export async function deleteLeadFromStore(id: string) {
   try {
     const raw = localStorage.getItem('kinimmo_leads');
     if (raw) {
@@ -438,8 +444,9 @@ export async function deleteLeadFromFirestore(id: string) {
     }
   } catch {}
 }
+export const deleteLeadFromFirestore = deleteLeadFromStore;
 
-export async function saveUserToFirestore(user: User) {
+export async function saveUserToStore(user: User) {
   try {
     const raw = localStorage.getItem('kinimmo_users');
     let list: User[] = raw ? JSON.parse(raw) : [...initialUsersSeed];
@@ -461,8 +468,9 @@ export async function saveUserToFirestore(user: User) {
     });
   } catch {}
 }
+export const saveUserToFirestore = saveUserToStore;
 
-export async function deleteUserFromFirestore(id: string) {
+export async function deleteUserFromStore(id: string) {
   try {
     const raw = localStorage.getItem('kinimmo_users');
     if (raw) {
@@ -473,8 +481,9 @@ export async function deleteUserFromFirestore(id: string) {
     }
   } catch {}
 }
+export const deleteUserFromFirestore = deleteUserFromStore;
 
-export async function adminUpdateUserPasswordInFirestore(userId: string, newPassword: string): Promise<void> {
+export async function adminUpdateUserPasswordInStore(userId: string, newPassword: string): Promise<void> {
   const accounts = getRegisteredAccounts();
   const found = accounts.find((a) => a.id === userId);
   if (found) {
@@ -482,16 +491,17 @@ export async function adminUpdateUserPasswordInFirestore(userId: string, newPass
     localStorage.setItem('kinimmo_stored_accounts', JSON.stringify(accounts));
   }
 }
+export const adminUpdateUserPasswordInFirestore = adminUpdateUserPasswordInStore;
 
 export interface AdminClaimVerificationResult {
   isAdmin: boolean;
-  source: 'firestore_user_doc' | 'firestore_email_query' | 'firebase_auth_token' | 'none';
+  source: 'database_user_doc' | 'database_email_query' | 'admin_credentials' | 'none';
   matchedField?: string;
   adminEmail?: string;
   error?: string;
 }
 
-export async function verifyUserAdminInFirestore(
+export async function verifyUserAdminInStore(
   user: User | null
 ): Promise<AdminClaimVerificationResult> {
   if (!user || !user.email) {
@@ -512,7 +522,7 @@ export async function verifyUserAdminInFirestore(
   if (user.role === 'admin' || isAdminEmail) {
     return {
       isAdmin: true,
-      source: 'firestore_user_doc',
+      source: 'database_user_doc',
       matchedField: 'role: admin',
       adminEmail: user.email
     };
@@ -524,8 +534,9 @@ export async function verifyUserAdminInFirestore(
     error: 'Accès administrateur non attribué à ce compte.'
   };
 }
+export const verifyUserAdminInFirestore = verifyUserAdminInStore;
 
-export async function saveInvoiceToFirestore(invoice: Invoice) {
+export async function saveInvoiceToStore(invoice: Invoice) {
   try {
     const raw = localStorage.getItem('kinimmo_invoices');
     let list: Invoice[] = raw ? JSON.parse(raw) : [...initialInvoices];
@@ -539,8 +550,9 @@ export async function saveInvoiceToFirestore(invoice: Invoice) {
     notifyListeners('invoices', list);
   } catch {}
 }
+export const saveInvoiceToFirestore = saveInvoiceToStore;
 
-export async function deleteInvoiceFromFirestore(id: string) {
+export async function deleteInvoiceFromStore(id: string) {
   try {
     const raw = localStorage.getItem('kinimmo_invoices');
     if (raw) {
@@ -551,8 +563,9 @@ export async function deleteInvoiceFromFirestore(id: string) {
     }
   } catch {}
 }
+export const deleteInvoiceFromFirestore = deleteInvoiceFromStore;
 
-export async function saveAgentToFirestore(agent: Agent) {
+export async function saveAgentToStore(agent: Agent) {
   try {
     const raw = localStorage.getItem('kinimmo_agents');
     let list: Agent[] = raw ? JSON.parse(raw) : [...initialAgents];
@@ -566,8 +579,9 @@ export async function saveAgentToFirestore(agent: Agent) {
     notifyListeners('agents', list);
   } catch {}
 }
+export const saveAgentToFirestore = saveAgentToStore;
 
-export async function deleteAgentFromFirestore(id: string) {
+export async function deleteAgentFromStore(id: string) {
   try {
     const raw = localStorage.getItem('kinimmo_agents');
     if (raw) {
@@ -578,8 +592,9 @@ export async function deleteAgentFromFirestore(id: string) {
     }
   } catch {}
 }
+export const deleteAgentFromFirestore = deleteAgentFromStore;
 
-export async function saveAgencyToFirestore(agency: Agency) {
+export async function saveAgencyToStore(agency: Agency) {
   try {
     const raw = localStorage.getItem('kinimmo_agencies');
     let list: Agency[] = raw ? JSON.parse(raw) : [...initialAgencies];
@@ -593,8 +608,9 @@ export async function saveAgencyToFirestore(agency: Agency) {
     notifyListeners('agencies', list);
   } catch {}
 }
+export const saveAgencyToFirestore = saveAgencyToStore;
 
-export async function deleteAgencyFromFirestore(id: string) {
+export async function deleteAgencyFromStore(id: string) {
   try {
     const raw = localStorage.getItem('kinimmo_agencies');
     if (raw) {
@@ -605,8 +621,9 @@ export async function deleteAgencyFromFirestore(id: string) {
     }
   } catch {}
 }
+export const deleteAgencyFromFirestore = deleteAgencyFromStore;
 
-export async function savePricingConfigToFirestore(config: {
+export async function savePricingConfigToStore(config: {
   pricingPlans?: any[];
   subscriptionPlans?: SubscriptionPlan[];
   cdfExchangeRate?: number;
@@ -620,9 +637,10 @@ export async function savePricingConfigToFirestore(config: {
     notifyListeners('pricingConfig', updated);
   } catch {}
 }
+export const savePricingConfigToFirestore = savePricingConfigToStore;
 
 // -------------------------------------------------------------
-// Authentication Methods (Zero Firebase SDK Dependency)
+// Authentication Methods (MySQL & Secure Local Auth)
 // -------------------------------------------------------------
 
 export async function signInWithGoogleAuth(roleOverride?: string, agencyNameOverride?: string): Promise<User> {
@@ -632,7 +650,7 @@ export async function signInWithGoogleAuth(roleOverride?: string, agencyNameOver
   return account;
 }
 
-export async function registerWithFirebaseEmailPassword(params: {
+export async function registerWithEmailPassword(params: {
   email: string;
   password: string;
   name: string;
@@ -670,11 +688,12 @@ export async function registerWithFirebaseEmailPassword(params: {
   };
 
   registerUserAccount(userProfile, password);
-  saveUserToFirestore(userProfile);
+  saveUserToStore(userProfile);
   return userProfile;
 }
+export const registerWithFirebaseEmailPassword = registerWithEmailPassword;
 
-export async function loginWithFirebaseEmailPassword(
+export async function loginWithEmailPassword(
   email: string,
   password: string,
   expectedRole?: UserRole,
@@ -709,7 +728,7 @@ export async function loginWithFirebaseEmailPassword(
       lastLoginLocation: 'Kinshasa (Gombe), RDC',
       createdAt: new Date().toISOString(),
     };
-    saveUserToFirestore(adminUser);
+    saveUserToStore(adminUser);
     return adminUser;
   }
 
@@ -721,12 +740,14 @@ export async function loginWithFirebaseEmailPassword(
 
   throw new Error(authenticated.error || "Identifiants incorrects. Veuillez vérifier votre adresse e-mail et mot de passe.");
 }
+export const loginWithFirebaseEmailPassword = loginWithEmailPassword;
 
-export async function logOutFromFirebase(): Promise<void> {
+export async function logOutFromStore(): Promise<void> {
   try {
     localStorage.removeItem('kinimmo_session_user');
   } catch {}
 }
+export const logOutFromFirebase = logOutFromStore;
 
 export function listenToAuthChanges(callback: (user: User | null) => void): () => void {
   const handler = () => {

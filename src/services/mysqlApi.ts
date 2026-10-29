@@ -2,7 +2,7 @@ import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings
 
 /**
  * Service Client API MySQL REST pour Kinimmo
- * Permet de consommer le backend Node.js / Express sans supprimer le code Firebase existant.
+ * Connecteur direct au backend Node.js / Express et MySQL.
  */
 
 // Bannières et pancartes publicitaires par défaut (Partenaires certifiés Immobilier & Habitat Kinshasa RDC)

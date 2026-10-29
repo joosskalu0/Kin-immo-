@@ -16,7 +16,6 @@ window.addEventListener('unhandledrejection', (event) => {
     msg.includes('@vite/client') ||
     msg.includes('WebSocket') ||
     msg.includes('database connection') ||
-    msg.includes('Could not reach Cloud Firestore') ||
     msg.includes('offline mode') ||
     msg.includes('backend didn\'t respond')
   ) {
@@ -33,10 +32,8 @@ console.error = (...args: unknown[]) => {
     msg.includes('[vite]') ||
     msg.includes('_openDb') ||
     msg.includes('indexedDB') ||
-    msg.includes('Could not reach Cloud Firestore') ||
     msg.includes('Backend didn\'t respond within 10 seconds') ||
-    msg.includes('client will operate in offline mode') ||
-    msg.includes('Error seeding Firestore database')
+    msg.includes('client will operate in offline mode')
   ) {
     return;
   }

@@ -195,8 +195,8 @@
     "trust_status": "property_verified",
     "trust_level": "Bien Vérifié & Titre Foncier Contrôlé",
     "trust_score": 98,
-    "trust_verified_at": "2026-10-24T05:34:27.392Z",
-    "trust_expires_at": "2027-10-24T05:34:27.392Z",
+    "trust_verified_at": "2026-10-28T05:43:36.193Z",
+    "trust_expires_at": "2027-10-28T05:43:36.193Z",
     "lastViewedAt": "2026-10-22T08:22:56.122Z"
   },
   {
@@ -328,8 +328,8 @@
     "agencyId": "agency_immo_kinshasa",
     "agencyName": "Immo Kin Gombe SARL",
     "createdAt": "2026-07-15T10:00:00Z",
-    "updatedAt": "2026-10-22T08:23:10.903Z",
-    "viewsCount": 382,
+    "updatedAt": "2026-10-28T05:38:11.080Z",
+    "viewsCount": 381,
     "featured": true,
     "published": true,
     "listingStatus": "PUBLISHED",
@@ -345,7 +345,7 @@
         "note": "Création et mise en ligne initiale de l'annonce"
       }
     ],
-    "lastViewedAt": "2026-10-22T08:23:10.320Z"
+    "lastViewedAt": "2026-10-28T05:38:10.609Z"
   },
   {
     "id": "prop_5",

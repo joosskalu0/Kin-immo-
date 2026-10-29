@@ -79,7 +79,7 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
   const [showSubmitVerificationModal, setShowSubmitVerificationModal] = useState(false);
   const [showAgencyRegistrationModal, setShowAgencyRegistrationModal] = useState(false);
 
-  // Combine explicitly saved agents with all registered users from Firestore who are agents/owners (strictly excluding administrators)
+  // Combiner les agents enregistrés avec les profils certifiés de la base de données (hors administrateurs)
   const combinedAgentsList = React.useMemo(() => {
     const map = new Map<string, Agent>();
 
@@ -227,7 +227,7 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
   const combinedAgenciesList = React.useMemo(() => {
     const map = new Map<string, Agency>();
 
-    // 1. Add all agencies from Firestore collection
+    // 1. Ajouter toutes les agences de la base de données
     agencies.forEach((ag) => {
       if (ag && ag.name) {
         map.set(ag.id, ag);

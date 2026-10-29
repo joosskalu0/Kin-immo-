@@ -70,7 +70,7 @@ export const AgentInviteManager: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Partagez votre lien d'invitation personnalisé. Toute nouvelle inscription est directement gérée par Google & Firebase Authentication.
+              Partagez votre lien d'invitation personnalisé. Toute nouvelle inscription est directement gérée par le système d'authentification sécurisé Kinimmo.
             </p>
           </div>
         </div>
