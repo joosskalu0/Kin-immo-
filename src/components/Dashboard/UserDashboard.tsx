@@ -22,6 +22,7 @@ import { AdminAgentsAgenciesControl } from '../Admin/AdminAgentsAgenciesControl'
 import { AdminAllListingsManager } from '../Admin/AdminAllListingsManager';
 import { AdminHeroShowcaseManager } from '../Admin/AdminHeroShowcaseManager';
 import { AdminMonetizationManager } from '../Admin/AdminMonetizationManager';
+import { VisibilityBoostModal } from '../Monetization/VisibilityBoostModal';
 import { AdminFraudModerationManager } from '../Admin/AdminFraudModerationManager';
 import { AdminVideosModerationManager } from '../Admin/AdminVideosModerationManager';
 import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
@@ -295,6 +296,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
   const [csvTextInput, setCsvTextInput] = useState('');
   const [selectedPlanSuccess, setSelectedPlanSuccess] = useState<string | null>(null);
   const [isTagManagerModalOpen, setIsTagManagerModalOpen] = useState(false);
+  const [boostingProperty, setBoostingProperty] = useState<Property | null>(null);
 
   // Invoices belonging to this logged-in user or agent
   const myInvoices = invoices.filter(
@@ -570,6 +572,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
     (a) => !a.isVerified && a.verificationStatus === 'pending'
   ).length;
 
+  const pendingBoostsCount = (invoices || []).filter(
+    (inv) => ((inv as any).invoice_type === 'boost' || (inv as any).invoiceType === 'boost' || (inv as any).property_id || inv.propertyId) && inv.status === 'pending'
+  ).length;
+
   return (
     <div className="space-y-8">
       {/* Payment Reminder Banner for Expired Subscriptions */}
@@ -677,12 +683,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
                 onClick={() => setActiveTab('admin_monetization')}
                 className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-2 shadow-sm ${
                   activeTab === 'admin_monetization'
-                    ? 'bg-purple-500 text-white border-purple-400 font-extrabold shadow-purple-500/20'
-                    : 'bg-slate-800 hover:bg-slate-700 text-purple-400 border-slate-700'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-extrabold shadow-amber-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border-slate-700'
                 }`}
               >
-                <Zap className="w-4 h-4 text-purple-400" />
-                <span>🚀 Boostages & Tarifs</span>
+                <Zap className="w-4 h-4 text-amber-400" />
+                <span>Validation Boosts</span>
+                {pendingBoostsCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black animate-pulse">
+                    {pendingBoostsCount}
+                  </span>
+                )}
               </button>
 
               <button
@@ -916,7 +927,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
             ? [{ id: 'admin_hero_showcase', label: `⭐ Vitrine Hero (${heroSlides.length})`, icon: Sparkles }]
             : []),
           ...(isAdmin
-            ? [{ id: 'admin_monetization', label: '🚀 Boostages & Options Payantes', icon: Zap }]
+            ? [{
+                id: 'admin_monetization',
+                label: pendingBoostsCount > 0 ? `⚡ Validation Boosts (${pendingBoostsCount} en attente)` : '⚡ Boostages & Validation Paiements',
+                icon: Zap
+              }]
             : []),
           ...(isAdmin
             ? [{ id: 'admin_fraud', label: '🚨 Bouclier Anti-Fraude & Signalements', icon: ShieldAlert }]
@@ -1219,95 +1234,129 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       {activeTab === 'listings' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4">
-            {myProperties.map((prop) => (
-              <div
-                key={prop.id}
-                className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4"
-              >
-                <div className="flex items-center gap-4 w-full sm:w-auto">
-                  <img
-                    src={prop.images[0]}
-                    alt={prop.title}
-                    className="w-20 h-16 rounded-xl object-cover shrink-0"
-                  />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <div className="font-bold text-white text-sm line-clamp-1">{prop.title}</div>
-                      {prop.status === 'sold' && (
-                        <span className="px-2 py-0.5 rounded-md bg-red-600 text-white font-black text-[10px] uppercase tracking-wider shrink-0">
-                          Vendu
-                        </span>
-                      )}
+            {myProperties.map((prop) => {
+              const isBoostActive = Boolean(prop.boostExpiresAt && new Date(prop.boostExpiresAt).getTime() > Date.now());
+              const pendingBoostInvoice = invoices.find(
+                (inv) => ((inv as any).property_id === prop.id || inv.propertyId === prop.id || inv.targetId === prop.id) && inv.status === 'pending'
+              );
+
+              return (
+                <div
+                  key={prop.id}
+                  className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4"
+                >
+                  <div className="flex items-center gap-4 w-full sm:w-auto">
+                    <img
+                      src={prop.images[0]}
+                      alt={prop.title}
+                      className="w-20 h-16 rounded-xl object-cover shrink-0"
+                    />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <div className="font-bold text-white text-sm line-clamp-1">{prop.title}</div>
+                        {prop.status === 'sold' && (
+                          <span className="px-2 py-0.5 rounded-md bg-red-600 text-white font-black text-[10px] uppercase tracking-wider shrink-0">
+                            Vendu
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-emerald-400 font-semibold">{prop.price} {prop.currency}</div>
+                      <div className="text-[11px] text-slate-400">📍 {prop.city} • Views: {prop.viewsCount}</div>
+
+                      {/* Badges de Boostage & Validation */}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        {isBoostActive && (
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-black text-[10px] flex items-center gap-1">
+                            <Zap className="w-3 h-3 fill-amber-400" />
+                            <span>Boost Actif (jusqu'au {new Date(prop.boostExpiresAt!).toLocaleDateString('fr-FR')})</span>
+                          </span>
+                        )}
+                        {pendingBoostInvoice && !isBoostActive && (
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] flex items-center gap-1 animate-pulse">
+                            <Clock className="w-3 h-3 text-amber-400" />
+                            <span>Boost en attente validation admin</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-xs text-emerald-400 font-semibold">{prop.price} {prop.currency}</div>
-                    <div className="text-[11px] text-slate-400">📍 {prop.city} • Views: {prop.viewsCount}</div>
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                    {/* Bouton Booster l'annonce */}
+                    <button
+                      type="button"
+                      onClick={() => setBoostingProperty(prop)}
+                      className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all"
+                      title="Propulser l'annonce en tête des résultats avec un boost"
+                    >
+                      <Zap className="w-3.5 h-3.5 fill-slate-950" />
+                      <span>{isBoostActive ? 'Prolonger Boost' : 'Booster'}</span>
+                    </button>
+
+                    {/* Bouton Vendu Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newStatus = prop.status === 'sold' ? 'for-sale' : 'sold';
+                        const actionLabel = prop.status === 'sold'
+                          ? `remettre en vente le bien "${prop.title}"`
+                          : `déclarer le bien "${prop.title}" comme VENDU / TRANSACTION CONCLUE`;
+
+                        requestConfirm({
+                          title: prop.status === 'sold' ? "Remettre en vente" : "Confirmation de Vente",
+                          message: `Voulez-vous vraiment ${actionLabel} ?`,
+                          confirmText: prop.status === 'sold' ? "Oui, remettre en vente" : "Oui, déclarer Vendu",
+                          onConfirm: () => {
+                            updateProperty({ ...prop, status: newStatus });
+                          }
+                        });
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
+                        prop.status === 'sold'
+                          ? 'bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border-red-500/40'
+                          : 'bg-slate-800 hover:bg-red-600/20 text-slate-300 hover:text-red-400 border-slate-700 hover:border-red-500/40'
+                      }`}
+                      title={prop.status === 'sold' ? 'Cliquer pour remettre en vente' : 'Cliquer pour marquer comme vendu'}
+                    >
+                      <CheckCircle2 className={`w-3.5 h-3.5 ${prop.status === 'sold' ? 'text-red-400' : 'text-slate-400'}`} />
+                      <span>{prop.status === 'sold' ? 'Vendu ✓' : 'Marquer Vendu'}</span>
+                    </button>
+                    <button
+                      onClick={() => setActivePropertyModalId(prop.id)}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
+                      title="Voir Fiche"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setEditingProperty(prop);
+                        setIsSubmitPropertyOpen(true);
+                      }}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400"
+                      title="Modifier"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        requestConfirm({
+                          title: "Suppression de l'annonce",
+                          message: `Voulez-vous vraiment supprimer l'annonce "${prop.title}" ?`,
+                          onConfirm: () => deleteProperty(prop.id)
+                        });
+                      }}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-rose-400"
+                      title="Supprimer l'annonce"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                  {/* Bouton Vendu Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newStatus = prop.status === 'sold' ? 'for-sale' : 'sold';
-                      const actionLabel = prop.status === 'sold'
-                        ? `remettre en vente le bien "${prop.title}"`
-                        : `déclarer le bien "${prop.title}" comme VENDU / TRANSACTION CONCLUE`;
-
-                      requestConfirm({
-                        title: prop.status === 'sold' ? "Remettre en vente" : "Confirmation de Vente",
-                        message: `Voulez-vous vraiment ${actionLabel} ?`,
-                        confirmText: prop.status === 'sold' ? "Oui, remettre en vente" : "Oui, déclarer Vendu",
-                        onConfirm: () => {
-                          updateProperty({ ...prop, status: newStatus });
-                        }
-                      });
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
-                      prop.status === 'sold'
-                        ? 'bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border-red-500/40'
-                        : 'bg-slate-800 hover:bg-red-600/20 text-slate-300 hover:text-red-400 border-slate-700 hover:border-red-500/40'
-                    }`}
-                    title={prop.status === 'sold' ? 'Cliquer pour remettre en vente' : 'Cliquer pour marquer comme vendu'}
-                  >
-                    <CheckCircle2 className={`w-3.5 h-3.5 ${prop.status === 'sold' ? 'text-red-400' : 'text-slate-400'}`} />
-                    <span>{prop.status === 'sold' ? 'Vendu ✓' : 'Marquer Vendu'}</span>
-                  </button>
-                  <button
-                    onClick={() => setActivePropertyModalId(prop.id)}
-                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
-                    title="Voir Fiche"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setEditingProperty(prop);
-                      setIsSubmitPropertyOpen(true);
-                    }}
-                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400"
-                    title="Modifier"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      requestConfirm({
-                        title: "Suppression de l'annonce",
-                        message: `Voulez-vous vraiment supprimer l'annonce "${prop.title}" ?`,
-                        onConfirm: () => deleteProperty(prop.id)
-                      });
-                    }}
-                    className="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-rose-400"
-                    title="Supprimer l'annonce"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1717,6 +1766,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
           onClose={() => setIsTagManagerModalOpen(false)}
         />
       )}
+
+      {/* Visibility Boost Modal */}
+      <VisibilityBoostModal
+        isOpen={Boolean(boostingProperty)}
+        onClose={() => setBoostingProperty(null)}
+        property={boostingProperty}
+      />
     </div>
   );
 };

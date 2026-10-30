@@ -2112,7 +2112,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (inv.targetEmail) {
               updateUserSubscriptionStatus(inv.targetEmail, 'Active', nextExpiry);
             }
-          } else if (status === 'overdue') {
+
+            // Activation automatique du boost sur la propriété après validation du paiement par l'administrateur
+            const anyInv = inv as any;
+            const targetPropId = anyInv.propertyId || anyInv.property_id || (String(anyInv.targetType) === 'property' ? inv.targetId : null);
+            if (targetPropId) {
+              const optionId = String(anyInv.optionId || anyInv.option_id || '').toLowerCase();
+              let durationDays = 7;
+              if (optionId.includes('30')) durationDays = 30;
+              else if (optionId.includes('14')) durationDays = 14;
+              else if (optionId.includes('7')) durationDays = 7;
+
+              const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+
+              setProperties((curr) => {
+                const updatedProps = curr.map((p) => {
+                  if (p.id === targetPropId) {
+                    const isPrem = optionId.includes('premium');
+                    const isFeat = optionId.includes('featured') || isPrem;
+                    const isUrg = optionId.includes('urgent');
+                    return {
+                      ...p,
+                      boostExpiresAt: expiresAt,
+                      featured: isFeat || p.featured,
+                      isPremium: isPrem || p.isPremium,
+                      isUrgent: isUrg || p.isUrgent,
+                      listingTier: isPrem ? 'premium' : (isFeat ? 'featured' : p.listingTier),
+                      refreshBumpAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString()
+                    };
+                  }
+                  return p;
+                });
+                saveDurableLocalProperties(updatedProps);
+                return updatedProps;
+              });
+            }
+          } else if (status === 'overdue' || status === 'cancelled') {
             if (inv.targetType === 'agency' || inv.targetId.startsWith('agency_')) {
               updateAgencySubscriptionStatus(inv.targetId, 'Expired');
             }

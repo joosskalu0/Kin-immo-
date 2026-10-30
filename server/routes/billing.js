@@ -20,6 +20,7 @@ router.put('/invoices/:id/pay', authenticateToken, billingController.submitPayme
 
 // Routes d'administration de la monétisation et validation
 router.put('/invoices/:id/approve', authenticateToken, requireAdmin, billingController.approveInvoice);
+router.put('/invoices/:id/reject', authenticateToken, requireAdmin, billingController.rejectInvoice);
 router.get('/admin/monetization-stats', authenticateToken, requireAdmin, billingController.getAdminMonetizationStats);
 router.get('/admin/advertisements', authenticateToken, requireAdmin, billingController.getAdminAdvertisements);
 router.post('/admin/advertisements', authenticateToken, requireAdmin, billingController.createAdvertisement);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { mysqlApi } from '../../services/mysqlApi';
 import { MonetizationStats, VisibilityOption } from '../../types';
+import { useApp } from '../../context/AppContext';
 import {
   DollarSign,
   TrendingUp,
@@ -17,7 +18,12 @@ import {
   AlertCircle,
   Loader2,
   ShieldCheck,
-  Filter
+  Filter,
+  XCircle,
+  MessageSquare,
+  Phone,
+  Eye,
+  ArrowUpRight
 } from 'lucide-react';
 
 interface AdminMonetizationManagerProps {
@@ -27,7 +33,9 @@ interface AdminMonetizationManagerProps {
 export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> = ({
   onRefreshStats
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'invoices' | 'plans' | 'options'>('invoices');
+  const { properties, updateInvoiceStatus, setActivePropertyModalId } = useApp();
+  const [activeSubTab, setActiveSubTab] = useState<'boosts' | 'invoices' | 'plans' | 'options'>('boosts');
+  const [boostStatusFilter, setBoostStatusFilter] = useState<'pending' | 'all' | 'paid' | 'failed'>('pending');
   const [stats, setStats] = useState<MonetizationStats | null>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
@@ -113,16 +121,38 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
   };
 
   const handleApproveInvoice = async (invoiceId: string) => {
-    if (!confirm('Confirmez-vous la réception du paiement et l\'activation immédiate ?')) return;
+    if (!confirm('Confirmez-vous la vérification manuelle du paiement et l\'activation immédiate du boost ?')) return;
     setIsProcessing(invoiceId);
     try {
       const res = await mysqlApi.approveInvoice(invoiceId);
       if (res.success) {
-        showMsg('success', res.message || 'Facture approuvée avec succès.');
+        updateInvoiceStatus(invoiceId, 'paid');
+        showMsg('success', res.message || 'Paiement validé avec succès ! Le boost est désormais actif sur l\'annonce.');
         loadData();
         if (onRefreshStats) onRefreshStats();
       } else {
         showMsg('error', res.message || 'Échec de l\'approbation');
+      }
+    } catch (err: any) {
+      showMsg('error', err.message || 'Erreur serveur');
+    } finally {
+      setIsProcessing(null);
+    }
+  };
+
+  const handleRejectInvoice = async (invoiceId: string) => {
+    const reason = prompt('Motif du rejet du paiement (ex: Référence introuvable, montant non reçu) :', 'Paiement non confirmé');
+    if (reason === null) return;
+    setIsProcessing(invoiceId);
+    try {
+      const res = await mysqlApi.rejectInvoice(invoiceId, reason);
+      if (res.success) {
+        updateInvoiceStatus(invoiceId, 'cancelled', undefined, reason);
+        showMsg('success', res.message || 'Demande de boost rejetée. Le paiement n\'a pas été validé.');
+        loadData();
+        if (onRefreshStats) onRefreshStats();
+      } else {
+        showMsg('error', res.message || 'Échec du rejet');
       }
     } catch (err: any) {
       showMsg('error', err.message || 'Erreur serveur');
@@ -350,75 +380,419 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
         </div>
       )}
 
-      {/* Top Monetization KPI Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-1">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-400">
-            <span>Chiffre d'Affaires Réel</span>
-            <DollarSign className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="text-2xl font-black text-emerald-400">
-            {Number(stats?.invoices?.total_revenue_usd || 0).toLocaleString()} USD
-          </div>
-          <span className="text-[11px] text-slate-500 block">
-            ~{Number(stats?.invoices?.total_revenue_cdf || 0).toLocaleString()} CDF encaissés
-          </span>
-        </div>
+      {/* Calculs spécifiques des demandes de boost */}
+      {(() => {
+        const boostInvoices = invoices.filter(
+          (inv) => inv.invoice_type === 'boost' || inv.invoiceType === 'boost' || inv.property_id || inv.propertyId || inv.option_id
+        );
+        const pendingBoosts = boostInvoices.filter((inv) => inv.status === 'pending');
+        const activeBoosts = boostInvoices.filter((inv) => inv.status === 'paid');
+        const rejectedBoosts = boostInvoices.filter((inv) => inv.status === 'failed' || inv.status === 'cancelled');
 
-        <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-1">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-400">
-            <span>Factures Réglées</span>
-            <CheckCircle2 className="w-4 h-4 text-sky-400" />
-          </div>
-          <div className="text-2xl font-black text-white">
-            {stats?.invoices?.paid_invoices || 0}{' '}
-            <span className="text-xs text-slate-400 font-normal">
-              / {stats?.invoices?.total_invoices || 0} émises
-            </span>
-          </div>
-          <span className="text-[11px] text-amber-400 block font-semibold">
-            {stats?.invoices?.pending_invoices || 0} en attente de vérification
-          </span>
-        </div>
+        const filteredBoosts = boostInvoices.filter((inv) => {
+          if (boostStatusFilter === 'pending') return inv.status === 'pending';
+          if (boostStatusFilter === 'paid') return inv.status === 'paid';
+          if (boostStatusFilter === 'failed') return inv.status === 'failed' || inv.status === 'cancelled';
+          return true;
+        });
 
-        <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-1">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-400">
-            <span>Boosts & Visibilité Actifs</span>
-            <Zap className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="text-2xl font-black text-amber-400">
-            {stats?.activeBoosts || 0}
-          </div>
-          <span className="text-[11px] text-slate-500 block">
-            Annonces propulsées (Premium / Urgent)
-          </span>
-        </div>
-      </div>
+        return (
+          <>
+            {/* Top Monetization KPI Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span>Chiffre d'Affaires Réel</span>
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-2xl font-black text-emerald-400">
+                  {Number(stats?.invoices?.total_revenue_usd || 0).toLocaleString()} USD
+                </div>
+                <span className="text-[11px] text-slate-500 block">
+                  ~{Number(stats?.invoices?.total_revenue_cdf || 0).toLocaleString()} CDF encaissés
+                </span>
+              </div>
 
-      {/* Sub navigation buttons */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
-        {[
-          { id: 'invoices', label: `Factures & Règlements (${invoices.length})`, icon: DollarSign },
-          { id: 'plans', label: `Formules & Abonnements (${plans.length})`, icon: Building2 },
-          { id: 'options', label: `Options de Visibilité (${options.length})`, icon: Zap }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as any)}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
-                activeSubTab === tab.id
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
+              <div
+                onClick={() => {
+                  setActiveSubTab('boosts');
+                  setBoostStatusFilter('pending');
+                }}
+                className={`p-5 rounded-2xl bg-slate-900 border transition-all cursor-pointer space-y-1 ${
+                  pendingBoosts.length > 0
+                    ? 'border-amber-500/50 shadow-lg shadow-amber-500/10 hover:border-amber-400'
+                    : 'border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span>Boosts en Attente Paiement</span>
+                  <Clock className={`w-4 h-4 ${pendingBoosts.length > 0 ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`text-2xl font-black ${pendingBoosts.length > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                    {pendingBoosts.length}
+                  </div>
+                  {pendingBoosts.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase">
+                      Action requise
+                    </span>
+                  )}
+                </div>
+                <span className="text-[11px] text-slate-400 block font-semibold">
+                  Validation manuelle admin requise
+                </span>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span>Factures Réglées</span>
+                  <CheckCircle2 className="w-4 h-4 text-sky-400" />
+                </div>
+                <div className="text-2xl font-black text-white">
+                  {stats?.invoices?.paid_invoices || 0}{' '}
+                  <span className="text-xs text-slate-400 font-normal">
+                    / {stats?.invoices?.total_invoices || 0} émises
+                  </span>
+                </div>
+                <span className="text-[11px] text-sky-400 block font-semibold">
+                  Tous paiements confondus
+                </span>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span>Boosts & Visibilité Actifs</span>
+                  <Zap className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-2xl font-black text-emerald-400">
+                  {activeBoosts.length || stats?.activeBoosts || 0}
+                </div>
+                <span className="text-[11px] text-slate-500 block">
+                  Annonces propulsées (En vedette & Urgentes)
+                </span>
+              </div>
+            </div>
+
+            {/* Sub navigation buttons */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+              {[
+                {
+                  id: 'boosts',
+                  label: `⚡ Demandes de Boost (${pendingBoosts.length} en attente)`,
+                  icon: Zap,
+                  badge: pendingBoosts.length
+                },
+                { id: 'invoices', label: `Factures & Règlements (${invoices.length})`, icon: DollarSign },
+                { id: 'plans', label: `Formules & Abonnements (${plans.length})`, icon: Building2 },
+                { id: 'options', label: `Options de Visibilité (${options.length})`, icon: Sparkles }
+              ].map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveSubTab(tab.id as any)}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+                      activeSubTab === tab.id
+                        ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                        : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{tab.label}</span>
+                    {tab.badge !== undefined && tab.badge > 0 && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                        activeSubTab === tab.id
+                          ? 'bg-slate-950 text-amber-300'
+                          : 'bg-amber-400 text-slate-950 animate-pulse'
+                      }`}>
+                        {tab.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Sub-Tab 0: Demandes de Boost & Validation manuelle des paiements */}
+            {activeSubTab === 'boosts' && (
+              <div className="space-y-5">
+                {/* Notice de gouvernance */}
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-black text-amber-300 text-sm">
+                        Règle de Contrôle Strict : Autorisation & Validation Manuelle des Boosts
+                      </div>
+                      <p className="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
+                        Aucun boost ne s'active automatiquement. L'administrateur doit vérifier la réception effective des fonds sur les comptes Mobile Money (M-Pesa, Airtel Money, Orange Money) ou Banque (Rawbank), puis cliquer sur <strong>« Valider le Paiement & Activer »</strong>. Le calcul de la durée d'expiration prend effet immédiatement après validation.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={loadData}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shrink-0 flex items-center gap-1.5 transition-all"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Rafraîchir les flux</span>
+                  </button>
+                </div>
+
+                {/* Filtres de statut des boosts */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[
+                      { id: 'pending', label: 'En attente de validation', count: pendingBoosts.length, color: 'amber' },
+                      { id: 'paid', label: 'Boosts Actifs & Validés', count: activeBoosts.length, color: 'emerald' },
+                      { id: 'failed', label: 'Paiements Rejetés', count: rejectedBoosts.length, color: 'rose' },
+                      { id: 'all', label: 'Toutes les demandes', count: boostInvoices.length, color: 'slate' }
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        onClick={() => setBoostStatusFilter(f.id as any)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          boostStatusFilter === f.id
+                            ? 'bg-slate-800 text-white border border-emerald-500 shadow-sm'
+                            : 'bg-slate-900/60 text-slate-400 hover:text-white border border-slate-800'
+                        }`}
+                      >
+                        <span>{f.label}</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                          f.id === 'pending' && f.count > 0
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-slate-800 text-slate-300'
+                        }`}>
+                          {f.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <span className="text-xs text-slate-400">
+                    {filteredBoosts.length} demande{filteredBoosts.length > 1 ? 's' : ''} affichée{filteredBoosts.length > 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                {/* Liste des demandes de boost */}
+                {filteredBoosts.length === 0 ? (
+                  <div className="p-12 text-center rounded-2xl bg-slate-900 border border-slate-800 text-slate-400 space-y-3">
+                    <Zap className="w-10 h-10 text-slate-600 mx-auto" />
+                    <div className="text-sm font-bold text-slate-300">
+                      {boostStatusFilter === 'pending'
+                        ? 'Aucune demande de boost en attente de validation pour le moment.'
+                        : 'Aucune demande trouvée avec ce filtre.'}
+                    </div>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto">
+                      Dès qu'un courtier, agent ou propriétaire sollicite un boost de visibilité pour son annonce, la demande apparaîtra ici avec son code de transaction SMS.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredBoosts.map((inv) => {
+                      const propId = inv.property_id || inv.propertyId;
+                      const targetProp = properties.find((p) => p.id === propId);
+                      const propTitle = inv.property_title || targetProp?.title || 'Bien immobilier';
+                      const propCommune = targetProp?.commune || 'Kinshasa';
+                      const propImg = targetProp?.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=300&q=80';
+                      const applicantName = inv.user_name || inv.target_name || 'Annonceur Partenaire';
+                      const applicantEmail = inv.user_email || inv.target_email || 'contact@kinimmo.cd';
+                      const applicantPhone = targetProp?.assignedAgentName || targetProp?.agencyName ? '+243 81 000 0000' : '+243 84 529 4616';
+                      const cleanPhone = applicantPhone.replace(/[^0-9]/g, '');
+
+                      const durationDays = Number(inv.duration_days) || 7;
+                      const amountUsd = Number(inv.amount || inv.amount_usd || inv.total_amount || 0);
+                      const amountCdf = Number(inv.amount_cdf || inv.total_amount_cdf || (amountUsd * 2850));
+                      const isPending = inv.status === 'pending';
+                      const isPaid = inv.status === 'paid';
+                      const isFailed = inv.status === 'failed' || inv.status === 'cancelled';
+
+                      return (
+                        <div
+                          key={inv.id}
+                          className={`rounded-2xl border p-5 transition-all bg-slate-900 ${
+                            isPending
+                              ? 'border-amber-500/40 shadow-lg shadow-amber-500/5'
+                              : isPaid
+                              ? 'border-emerald-500/30'
+                              : 'border-slate-800 opacity-80'
+                          }`}
+                        >
+                          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                            {/* Colonne 1: Bien Immobilier Ciblé */}
+                            <div className="flex items-start gap-4 min-w-[280px] max-w-sm">
+                              <img
+                                src={propImg}
+                                alt={propTitle}
+                                className="w-20 h-16 rounded-xl object-cover border border-slate-800 shrink-0"
+                              />
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-[10px] text-slate-400">
+                                    {inv.invoice_number || inv.id}
+                                  </span>
+                                  {isPending && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-black uppercase">
+                                      En attente
+                                    </span>
+                                  )}
+                                  {isPaid && (
+                                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-black uppercase">
+                                      Boost Actif
+                                    </span>
+                                  )}
+                                  {isFailed && (
+                                    <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 text-[9px] font-black uppercase">
+                                      Rejeté
+                                    </span>
+                                  )}
+                                </div>
+                                <h4 className="font-bold text-white text-sm line-clamp-1">
+                                  {propTitle}
+                                </h4>
+                                <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                                  <span>📍 {propCommune}</span>
+                                  {targetProp && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setActivePropertyModalId(targetProp.id)}
+                                      className="text-emerald-400 hover:underline font-bold flex items-center gap-0.5"
+                                    >
+                                      <span>Voir fiche</span>
+                                      <ArrowUpRight className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Colonne 2: Demandeur & Contact WhatsApp */}
+                            <div className="min-w-[200px] space-y-1 text-xs">
+                              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                                Annonceur / Demandeur
+                              </span>
+                              <div className="font-bold text-white">{applicantName}</div>
+                              <div className="text-[11px] text-slate-400 truncate max-w-[200px]">
+                                {applicantEmail}
+                              </div>
+                              <a
+                                href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(
+                                  `Bonjour ${applicantName}, nous traitons votre demande de boost Kinimmo pour l'annonce "${propTitle}".`
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 font-bold mt-1"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>Contacter sur WhatsApp</span>
+                              </a>
+                            </div>
+
+                            {/* Colonne 3: Formule choisie & Tarif */}
+                            <div className="min-w-[180px] space-y-1 text-xs">
+                              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                                Formule de Visibilité
+                              </span>
+                              <div className="font-black text-amber-300 flex items-center gap-1">
+                                <Zap className="w-3.5 h-3.5 fill-amber-400" />
+                                <span>{inv.option_name || 'Boost Vedette'}</span>
+                              </div>
+                              <div className="text-[11px] text-slate-300 font-semibold">
+                                Durée : <span className="text-white font-bold">{durationDays} jours</span>
+                              </div>
+                              <div className="font-black text-white text-sm">
+                                {amountUsd} USD{' '}
+                                <span className="text-[11px] text-slate-400 font-normal">
+                                  (~{amountCdf.toLocaleString()} CDF)
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Colonne 4: Moyen de Paiement & Code Transaction */}
+                            <div className="min-w-[210px] space-y-1.5 text-xs">
+                              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                                Modalité & Référence Reçue
+                              </span>
+                              <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+                                <Landmark className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                <span>{inv.payment_method_provider || 'Mobile Money RDC'}</span>
+                              </div>
+                              {inv.transaction_reference ? (
+                                <div className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono">
+                                  <span className="text-slate-400 block text-[9px] uppercase">Code Transaction SMS :</span>
+                                  <strong className="text-emerald-400 font-black tracking-wide">
+                                    {inv.transaction_reference}
+                                  </strong>
+                                </div>
+                              ) : (
+                                <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[10px] font-semibold">
+                                  En attente de code SMS
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Colonne 5: Décision Administrateur (Boutons Valider / Rejeter) */}
+                            <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 w-full sm:w-auto lg:w-44">
+                              {isPending ? (
+                                <>
+                                  <button
+                                    onClick={() => handleApproveInvoice(inv.id)}
+                                    disabled={isProcessing === inv.id}
+                                    className="w-full px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    title="Confirmer la réception des fonds et activer immédiatement le boost"
+                                  >
+                                    {isProcessing === inv.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Valider & Activer</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleRejectInvoice(inv.id)}
+                                    disabled={isProcessing === inv.id}
+                                    className="w-full px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-rose-300 hover:text-rose-200 border border-rose-500/30 font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                    title="Rejeter la demande de boost"
+                                  >
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    <span>Refuser Paiement</span>
+                                  </button>
+                                </>
+                              ) : isPaid ? (
+                                <div className="text-center p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold space-y-0.5">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                    <span>Paiement Validé ✓</span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 font-normal block">
+                                    Boost actif sur l'annonce
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="text-center p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-bold space-y-0.5">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <XCircle className="w-4 h-4 text-rose-400" />
+                                    <span>Paiement Rejeté</span>
+                                  </div>
+                                  {inv.notes && (
+                                    <span className="text-[10px] text-slate-400 font-normal block truncate max-w-[170px]" title={inv.notes}>
+                                      {inv.notes}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Sub-Tab 1: Factures & Approbation des paiements */}
       {activeSubTab === 'invoices' && (

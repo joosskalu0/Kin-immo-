@@ -27,10 +27,11 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Property, PropertyStatus, ListingLifecycleStatus } from '../../types';
+import { mysqlApi } from '../../services/mysqlApi';
 
 interface AdminAllListingsManagerProps {
   onOpenSubmitProperty: () => void;
-  onOpenEditProperty?: (property: Property) => void;
+  onOpenEditProperty?: (property) => void;
   onOpenDetailModal?: (propertyId: string) => void;
 }
 
@@ -49,19 +50,36 @@ export const AdminAllListingsManager: React.FC<AdminAllListingsManagerProps> = (
     requestConfirm,
     agents,
     agencies,
+    invoices,
+    updateInvoiceStatus,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [communeFilter, setCommuneFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [boostFilter, setBoostFilter] = useState<'all' | 'boosted' | 'hero' | 'featured' | 'urgent'>('all');
+  const [boostFilter, setBoostFilter] = useState<'all' | 'boosted' | 'pending_boost' | 'hero' | 'featured' | 'urgent'>('all');
 
   // Modal de Boostage rapide
   const [boostingProperty, setBoostingProperty] = useState<Property | null>(null);
   const [boostDays, setBoostDays] = useState<number>(7);
   const [boostTier, setBoostTier] = useState<'standard' | 'premium' | 'featured'>('featured');
   const [isUrgentBadge, setIsUrgentBadge] = useState<boolean>(false);
+
+  const handleApprovePendingBoost = async (invoiceId: string) => {
+    if (!confirm('Confirmez-vous la vérification manuelle du paiement et l\'activation immédiate du boost pour cette annonce ?')) return;
+    try {
+      const res = await mysqlApi.approveInvoice(invoiceId);
+      if (res.success) {
+        updateInvoiceStatus(invoiceId, 'paid');
+        alert('Paiement validé avec succès ! Le boost est actif sur l\'annonce.');
+      } else {
+        alert(res.message || 'Erreur lors de la validation');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Erreur serveur');
+    }
+  };
 
   // Filtrage des propriétés de toute la base de données
   const filteredProperties = useMemo(() => {
@@ -103,11 +121,16 @@ export const AdminAllListingsManager: React.FC<AdminAllListingsManagerProps> = (
       } else if (boostFilter === 'boosted') {
         const hasActiveBoost = prop.boostExpiresAt && new Date(prop.boostExpiresAt) > new Date();
         if (!hasActiveBoost && !prop.isPremium && !prop.featured) return false;
+      } else if (boostFilter === 'pending_boost') {
+        const hasPending = invoices.some(
+          (inv) => ((inv as any).property_id === prop.id || inv.propertyId === prop.id || inv.targetId === prop.id) && inv.status === 'pending'
+        );
+        if (!hasPending) return false;
       }
 
       return true;
     });
-  }, [properties, searchQuery, communeFilter, typeFilter, statusFilter, boostFilter, heroSlides]);
+  }, [properties, searchQuery, communeFilter, typeFilter, statusFilter, boostFilter, heroSlides, invoices]);
 
   // Statistiques de la base de données
   const stats = useMemo(() => {
@@ -119,9 +142,14 @@ export const AdminAllListingsManager: React.FC<AdminAllListingsManagerProps> = (
     const activeBoosted = properties.filter(
       (p) => p.boostExpiresAt && new Date(p.boostExpiresAt) > new Date()
     ).length;
+    const pendingBoostCount = properties.filter((p) =>
+      invoices.some(
+        (inv) => ((inv as any).property_id === p.id || inv.propertyId === p.id || inv.targetId === p.id) && inv.status === 'pending'
+      )
+    ).length;
 
-    return { total, published, hidden, inHero, featured, activeBoosted };
-  }, [properties, heroSlides]);
+    return { total, published, hidden, inHero, featured, activeBoosted, pendingBoostCount };
+  }, [properties, heroSlides, invoices]);
 
   // Action : Basculer publication (En ligne / Masqué)
   const handleTogglePublish = (prop: Property) => {
@@ -211,7 +239,7 @@ export const AdminAllListingsManager: React.FC<AdminAllListingsManagerProps> = (
         </div>
 
         {/* Cartes KPI Base de Données */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 pt-2">
           <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 text-slate-300">
             <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Total Biens BDD</span>
             <div className="text-2xl font-black text-white mt-1">{stats.total}</div>
@@ -234,6 +262,24 @@ export const AdminAllListingsManager: React.FC<AdminAllListingsManagerProps> = (
             <span className="text-[10px] font-bold uppercase text-rose-400 tracking-wider">🔴 Masquées</span>
             <div className="text-2xl font-black text-white mt-1">{stats.hidden}</div>
             <span className="text-[10px] text-rose-400/80 font-semibold">Hors ligne / En attente</span>
+          </div>
+
+          <div
+            onClick={() => setBoostFilter('pending_boost')}
+            className={`p-4 rounded-2xl bg-slate-950/70 border transition-all cursor-pointer ${
+              stats.pendingBoostCount > 0
+                ? 'border-amber-500/50 shadow-md shadow-amber-500/10 hover:border-amber-400'
+                : 'border-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-amber-300 tracking-wider">⏳ Boost en Attente</span>
+              {stats.pendingBoostCount > 0 && <Clock className="w-3.5 h-3.5 text-amber-400 animate-pulse" />}
+            </div>
+            <div className={`text-2xl font-black mt-1 ${stats.pendingBoostCount > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+              {stats.pendingBoostCount}
+            </div>
+            <span className="text-[10px] text-amber-400/80 font-semibold">Action validation requise</span>
           </div>
 
           <div
@@ -336,6 +382,7 @@ export const AdminAllListingsManager: React.FC<AdminAllListingsManagerProps> = (
             className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 font-semibold focus:outline-none focus:border-emerald-500"
           >
             <option value="all">Toutes les Annonces</option>
+            <option value="pending_boost">⏳ En Attente Validation Boost ({stats.pendingBoostCount})</option>
             <option value="hero">✨ En Vitrine Hero</option>
             <option value="featured">⭐ En Vedette</option>
             <option value="boosted">🚀 Avec Boost Actif</option>
@@ -503,31 +550,59 @@ export const AdminAllListingsManager: React.FC<AdminAllListingsManagerProps> = (
 
                       {/* 7. Boostages */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => {
-                              setBoostingProperty(prop);
-                              setBoostDays(7);
-                              setBoostTier('featured');
-                              setIsUrgentBadge(Boolean(prop.isUrgent));
-                            }}
-                            title="Ouvrir la console de boostage"
-                            className={`px-2 py-1 rounded-lg border text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer ${
-                              isBoostActive
-                                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
-                                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-cyan-300'
-                            }`}
-                          >
-                            <Zap className="w-3 h-3 text-cyan-400" />
-                            <span>{isBoostActive ? 'Boosté' : 'Booster'}</span>
-                          </button>
+                        {(() => {
+                          const pendingBoostInv = invoices.find(
+                            (inv) => ((inv as any).property_id === prop.id || inv.propertyId === prop.id || inv.targetId === prop.id) && inv.status === 'pending'
+                          );
 
-                          {prop.isUrgent && (
-                            <span className="px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[9px] font-bold">
-                              Urgent
-                            </span>
-                          )}
-                        </div>
+                          if (pendingBoostInv) {
+                            return (
+                              <div className="flex flex-col gap-1 items-start">
+                                <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black flex items-center gap-1 animate-pulse">
+                                  <Clock className="w-3 h-3 text-amber-400" />
+                                  <span>Paiement en attente ({pendingBoostInv.totalAmount || pendingBoostInv.amount || 10}$)</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleApprovePendingBoost(pendingBoostInv.id)}
+                                  className="px-2 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[9px] flex items-center gap-1 shadow transition-all cursor-pointer"
+                                  title="Valider manuellement la réception du paiement Mobile Money et activer le boost"
+                                >
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  <span>Valider Paiement</span>
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setBoostingProperty(prop);
+                                  setBoostDays(7);
+                                  setBoostTier('featured');
+                                  setIsUrgentBadge(Boolean(prop.isUrgent));
+                                }}
+                                title="Ouvrir la console de boostage"
+                                className={`px-2 py-1 rounded-lg border text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer ${
+                                  isBoostActive
+                                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-cyan-300'
+                                }`}
+                              >
+                                <Zap className="w-3 h-3 text-cyan-400" />
+                                <span>{isBoostActive ? 'Boosté' : 'Booster'}</span>
+                              </button>
+
+                              {prop.isUrgent && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[9px] font-bold">
+                                  Urgent
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* 8. Actions */}

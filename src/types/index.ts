@@ -521,27 +521,52 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   invoiceNumber: string; // e.g. 'KIN-2026-001'
-  targetType: 'agent' | 'agency' | 'user' | 'custom';
+  invoice_number?: string;
+  targetType: 'agent' | 'agency' | 'user' | 'custom' | 'property';
   targetId: string;
   targetName: string;
   targetEmail: string;
   targetPhone?: string;
   targetNifRccm?: string;
   planId?: string; // 'pro' | 'agency' | 'custom'
+  propertyId?: string;
+  property_id?: string;
+  propertyTitle?: string;
+  property_title?: string;
+  optionId?: string;
+  option_id?: string;
+  optionName?: string;
+  option_name?: string;
+  duration_days?: number;
+  durationDays?: number;
   items: InvoiceItem[];
-  subtotalAmount: number;
-  taxAmount: number; // e.g. TVA DGI RDC 16% or 0%
+  subtotalAmount?: number;
+  taxAmount?: number; // e.g. TVA DGI RDC 16% or 0%
   totalAmount: number;
   amount?: number; // convenience alias
+  amount_usd?: number;
+  amount_cdf?: number;
+  total_amount?: number;
+  total_amount_cdf?: number;
   currency: 'USD' | 'CDF';
-  status: 'paid' | 'pending' | 'overdue' | 'cancelled';
-  paymentMethod?: 'mpesa' | 'orange_money' | 'airtel_money' | 'card' | 'bank_transfer' | 'cash';
+  status: 'paid' | 'pending' | 'overdue' | 'cancelled' | 'failed';
+  paymentMethod?: 'mpesa' | 'orange_money' | 'airtel_money' | 'card' | 'bank_transfer' | 'cash' | string;
+  payment_method_provider?: string;
+  transactionReference?: string;
+  transaction_reference?: string;
   dueDate: string;
+  due_date?: string;
+  issuedDate?: string;
   paidAt?: string;
-  createdAt: string;
+  paid_at?: string;
+  createdAt?: string;
+  created_at?: string;
+  updated_at?: string;
   notes?: string;
   periodStart?: string;
   periodEnd?: string;
+  invoice_type?: 'subscription' | 'boost' | 'advertisement';
+  invoiceType?: 'subscription' | 'boost' | 'advertisement';
 }
 
 export interface TrackingConfig {

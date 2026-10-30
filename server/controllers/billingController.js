@@ -656,6 +656,48 @@ async function approveInvoice(req, res, next) {
 }
 
 /**
+ * Rejeter une facture ou une demande de boost (Admin)
+ * PUT /api/billing/invoices/:id/reject
+ */
+async function rejectInvoice(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { reason = 'Paiement non reçu ou référence invalide' } = req.body;
+
+    const [invs] = await pool.execute('SELECT * FROM invoices WHERE id = ? LIMIT 1', [id]);
+    if (invs.length === 0) {
+      return res.status(404).json({ success: false, message: 'Facture introuvable.' });
+    }
+    const inv = invs[0];
+
+    // Marquer la facture comme rejetée/échouée
+    await pool.execute(
+      `UPDATE invoices
+       SET status = 'failed'
+       WHERE id = ?`,
+      [id]
+    );
+
+    // Annuler le boost si c'était un boost
+    if (inv.property_id && inv.option_id) {
+      await pool.execute(
+        `UPDATE listing_boosts
+         SET status = 'canceled'
+         WHERE invoice_id = ? OR (property_id = ? AND option_id = ? AND status = 'pending')`,
+        [id, inv.property_id, inv.option_id]
+      );
+    }
+
+    res.json({
+      success: true,
+      message: `Facture ${inv.invoice_number} rejetée. Le boost n'a pas été activé. Raison : ${reason}`
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
  * Récupérer les bannières publicitaires actives pour le frontend
  * GET /api/billing/advertisements
  */
@@ -1091,6 +1133,7 @@ module.exports = {
   getMyInvoices,
   getMyBoosts,
   approveInvoice,
+  rejectInvoice,
   getAdvertisements,
   trackAdClick,
   getAdminMonetizationStats,

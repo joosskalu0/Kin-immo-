@@ -17,7 +17,8 @@ import {
   Loader2,
   ExternalLink,
   AlertTriangle,
-  Ban
+  Ban,
+  Clock
 } from 'lucide-react';
 import { canBoostProperty, getListingLifecycleStatus, LISTING_STATUS_CONFIG } from '../../utils/propertyStatusHelpers';
 
@@ -34,7 +35,7 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
   property,
   onSuccess
 }) => {
-  const { user } = useApp();
+  const { user, addInvoice, updateInvoiceStatus } = useApp();
   const [options, setOptions] = useState<VisibilityOption[]>([]);
   const [selectedOptionId, setSelectedOptionId] = useState<string>('opt_featured_7d');
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
@@ -99,6 +100,38 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
 
       if (res.success && res.invoice) {
         setOrderSuccess(res.invoice);
+        // Sync to AppContext invoices for immediate admin and user visibility
+        const appInvoice = {
+          id: res.invoice.id || `inv_${Date.now()}`,
+          invoiceNumber: res.invoice.invoice_number || res.invoice.invoiceNumber || `INV-${Date.now()}`,
+          targetType: 'property' as const,
+          targetId: property.id,
+          targetName: user?.name || 'Annonceur Kinshasa',
+          targetEmail: user?.email || 'contact@kinimmo.cd',
+          propertyId: property.id,
+          propertyTitle: property.title,
+          optionId: selectedOption.id,
+          amount: Number(selectedOption.price_usd || (selectedOption as any).price || 10),
+          subtotalAmount: Number(selectedOption.price_usd || (selectedOption as any).price || 10),
+          taxAmount: 0,
+          totalAmount: Number(selectedOption.price_usd || (selectedOption as any).price || 10),
+          currency: 'USD' as const,
+          status: 'pending' as const,
+          paymentMethod: selectedPaymentMethodId as any,
+          transactionReference: transactionRef || undefined,
+          issuedDate: new Date().toISOString().split('T')[0],
+          dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+          createdAt: new Date().toISOString(),
+          items: [
+            {
+              id: `item_${Date.now()}`,
+              description: `Boost visibilité : ${selectedOption.name} (${property.title})`,
+              quantity: 1,
+              amount: Number(selectedOption.price_usd || (selectedOption as any).price || 10),
+            }
+          ]
+        };
+        addInvoice(appInvoice);
         if (onSuccess) onSuccess();
       } else {
         setErrorMsg(res.message || 'Impossible de créer la commande de boost.');
@@ -119,7 +152,8 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
         transactionReference: transactionRef
       });
       if (res.success) {
-        alert('Référence de paiement enregistrée avec succès ! Le boost sera activé dans les prochaines minutes.');
+        updateInvoiceStatus(orderSuccess.id, 'pending', selectedPaymentMethodId as any, `Réf SMS: ${transactionRef}`);
+        alert('Référence de paiement enregistrée ! L\'administrateur va vérifier votre versement pour activer le boost.');
         onClose();
       }
     } catch (err: any) {
@@ -315,14 +349,15 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                 )}
               </div>
 
-              {/* Architecture future de paiement immédiat */}
-              <div className="p-3 rounded-xl bg-emerald-50/50 border border-emerald-200/60 flex items-center justify-between text-xs text-emerald-900">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="text-[11px]">
-                    Architecture sécurisée prête pour passerelle bancaire (Stripe, CinetPay, MaxiCash, Mobile Money direct).
-                  </span>
+              {/* Procédure de validation manuelle par l'administrateur */}
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+                <div className="flex items-center gap-2 font-bold text-amber-950">
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Validation Manuelle par l'Administrateur</span>
                 </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  Votre demande de boost sera soumise à l'administration Kinimmo. Dès vérification manuelle de votre paiement (M-Pesa, Airtel Money, Orange Money ou Rawbank), le boost sera activé sur votre annonce pour la durée sélectionnée.
+                </p>
               </div>
 
               {/* Total et Bouton de validation */}
@@ -349,17 +384,17 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                     type="button"
                     onClick={handleOrderBoost}
                     disabled={isSubmitting || !canBoostProperty(property).allowed}
-                    className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-lg shadow-emerald-600/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
                   >
                     {isSubmitting ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Création de commande...</span>
+                        <span>Transmission demande...</span>
                       </>
                     ) : (
                       <>
-                        <Sparkles className="w-4 h-4" />
-                        <span>Activer la visibilité</span>
+                        <Zap className="w-4 h-4 fill-slate-950" />
+                        <span>Soumettre la Demande de Boost</span>
                       </>
                     )}
                   </button>
@@ -369,16 +404,30 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
           ) : (
             /* Confirmation & Facture générée */
             <div className="space-y-5 text-center py-4">
-              <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-10 h-10" />
+              <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+                <Clock className="w-9 h-9 text-amber-600 animate-pulse" />
               </div>
 
               <div className="space-y-1">
-                <h3 className="text-lg font-black text-slate-900">
-                  Commande de Boost enregistrée avec succès !
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-black uppercase">
+                  <span>En attente de validation admin</span>
+                </div>
+                <h3 className="text-lg font-black text-slate-900 mt-2">
+                  Demande de Boost transmise avec succès !
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Numéro de facture : <strong className="text-slate-900">{orderSuccess.invoiceNumber}</strong>
+                  Numéro de facture : <strong className="text-slate-900 font-mono">{orderSuccess.invoiceNumber}</strong>
+                </p>
+              </div>
+
+              {/* Notice explicative de validation manuelle */}
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-left text-xs text-amber-950 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Activation après contrôle de paiement</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  L'administrateur Kinimmo contrôle manuellement les versements. Dès confirmation de votre paiement, votre annonce sera propulsée en tête de liste et portera son badge de visibilité.
                 </p>
               </div>
 
@@ -389,7 +438,7 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Option choisie :</span>
-                  <span className="font-bold text-emerald-700">{orderSuccess.optionName}</span>
+                  <span className="font-bold text-amber-700">{orderSuccess.optionName}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Montant :</span>
@@ -409,7 +458,7 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                     value={transactionRef}
                     onChange={(e) => setTransactionRef(e.target.value)}
                     placeholder="Ex: MPESA-98745214 ou BORDEREAU-123"
-                    className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-emerald-600"
+                    className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-amber-500 font-mono"
                   />
                   <button
                     onClick={handleSubmitProof}
@@ -419,17 +468,29 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                     Valider le code
                   </button>
                 </div>
-                <span className="text-[11px] text-slate-400">
-                  Vous pouvez aussi envoyer la référence plus tard depuis votre tableau de bord ou par WhatsApp.
+                <span className="text-[11px] text-slate-500">
+                  Le code SMS aide l'administrateur à identifier et valider plus rapidement votre versement.
                 </span>
               </div>
 
-              <div className="pt-4 border-t border-slate-200 flex justify-center">
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <a
+                  href={`https://wa.me/243845294616?text=${encodeURIComponent(
+                    `Bonjour Kinimmo, je viens de soumettre la demande de boost facture ${orderSuccess.invoiceNumber} pour l'annonce "${orderSuccess.propertyTitle}". Montant: ${orderSuccess.amount} USD.`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow"
+                >
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>Envoyer preuve sur WhatsApp (+243 84 529 4616)</span>
+                </a>
+
                 <button
                   onClick={onClose}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs"
                 >
-                  Terminer & Retourner aux annonces
+                  Fermer
                 </button>
               </div>
             </div>

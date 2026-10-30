@@ -1130,6 +1130,13 @@ export const mysqlApi = {
     });
   },
 
+  async rejectInvoice(invoiceId: string, reason?: string) {
+    return apiRequest(`/billing/invoices/${invoiceId}/reject`, {
+      method: 'PUT',
+      body: JSON.stringify({ reason })
+    });
+  },
+
   // 8. Régie Publicitaire, Bannières & Partenaires (Monétisation & AdSense)
   getAdSenseConfig(): AdSenseConfig {
     try {

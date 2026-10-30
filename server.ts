@@ -425,10 +425,33 @@ function saveLocalOptions(list: any[]) {
   }
 }
 
+const LOCAL_INVOICES_FILE = path.join(__dirname, 'invoices_store.json');
+
+function loadLocalInvoices(): any[] {
+  try {
+    if (fs.existsSync(LOCAL_INVOICES_FILE)) {
+      const content = fs.readFileSync(LOCAL_INVOICES_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.error('Erreur lecture invoices_store.json', e);
+  }
+  return INITIAL_INVOICES;
+}
+
+function saveLocalInvoices(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_INVOICES_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erreur écriture invoices_store.json', e);
+  }
+}
+
 let inMemoryPlans: any[] = loadLocalPlans();
 let inMemoryOptions: any[] = loadLocalOptions();
 let inMemoryPaymentMethods: any[] = INITIAL_PAYMENT_METHODS;
-let inMemoryInvoices: any[] = INITIAL_INVOICES;
+let inMemoryInvoices: any[] = loadLocalInvoices();
 
 // Store des propriétés avec statuts stricts et cycle de vie
 let inMemoryProperties: any[] = (() => {
@@ -2046,7 +2069,7 @@ app.put('/api/billing/invoices/:id/pay', (req: Request, res: Response) => {
   }
 });
 
-// 5i. Validation et approbation d'une facture par l'administrateur (PUT /api/billing/invoices/:id/approve)
+// 5i. Validation et approbation manuelle d'une facture / boost par l'administrateur (PUT /api/billing/invoices/:id/approve)
 app.put('/api/billing/invoices/:id/approve', (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -2055,8 +2078,70 @@ app.put('/api/billing/invoices/:id/approve', (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Facture non trouvée' });
     }
     inv.status = 'paid';
+    inv.paid_at = new Date().toISOString();
     inv.updated_at = new Date().toISOString();
-    return res.json({ success: true, message: 'Facture validée et service activé.', invoice: inv });
+
+    // Activation du boost sur la propriété si la facture est un boost
+    if (inv.invoice_type === 'boost' || inv.property_id) {
+      const propIdx = inMemoryProperties.findIndex((p) => p.id === inv.property_id);
+      if (propIdx !== -1) {
+        const optionId = String(inv.option_id || '').toLowerCase();
+        let durationDays = Number(inv.duration_days) || 7;
+        if (optionId.includes('30')) durationDays = 30;
+        else if (optionId.includes('14')) durationDays = 14;
+        else if (optionId.includes('7')) durationDays = 7;
+
+        const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+        inMemoryProperties[propIdx].boostExpiresAt = expiresAt;
+
+        if (optionId.includes('premium')) {
+          inMemoryProperties[propIdx].isPremium = true;
+          inMemoryProperties[propIdx].featured = true;
+          inMemoryProperties[propIdx].listingTier = 'premium';
+        } else if (optionId.includes('featured')) {
+          inMemoryProperties[propIdx].featured = true;
+          inMemoryProperties[propIdx].listingTier = 'featured';
+        } else if (optionId.includes('urgent')) {
+          inMemoryProperties[propIdx].isUrgent = true;
+        }
+
+        inMemoryProperties[propIdx].refreshBumpAt = new Date().toISOString();
+        inMemoryProperties[propIdx].updatedAt = new Date().toISOString();
+        saveLocalProperties(inMemoryProperties);
+      }
+    }
+
+    saveLocalInvoices(inMemoryInvoices);
+    return res.json({
+      success: true,
+      message: `Facture ${inv.invoice_number} validée avec succès. Le boost a été activé sur l'annonce.`,
+      invoice: inv
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 5i-bis. Rejet manuel d'une facture / demande de boost par l'administrateur (PUT /api/billing/invoices/:id/reject)
+app.put('/api/billing/invoices/:id/reject', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason = 'Paiement non reçu ou référence de transaction non confirmée.' } = req.body;
+    const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id);
+    if (!inv) {
+      return res.status(404).json({ success: false, error: 'Facture non trouvée' });
+    }
+
+    inv.status = 'failed';
+    inv.notes = `Paiement rejeté par l'administrateur : ${reason}`;
+    inv.updated_at = new Date().toISOString();
+
+    saveLocalInvoices(inMemoryInvoices);
+    return res.json({
+      success: true,
+      message: `Paiement rejeté pour la facture ${inv.invoice_number}. Le boost n'a pas été activé.`,
+      invoice: inv
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
