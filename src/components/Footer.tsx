@@ -1,9 +1,9 @@
 import React from 'react';
-import { Heart, ShieldCheck, Mail, Phone, MapPin, SlidersHorizontal } from 'lucide-react';
+import { Heart, ShieldCheck, Mail, Phone, MapPin, SlidersHorizontal, Sparkles, Building, Key, Award } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export const Footer: React.FC = () => {
-  const { setIsFieldsBuilderOpen, contactSettings } = useApp();
+  const { setIsFieldsBuilderOpen, contactSettings, setFilters } = useApp();
 
   const officeAddress = contactSettings?.officeAddress || 'Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC';
   const supportPhone = contactSettings?.supportPhone || '+243 84 529 4616';
@@ -110,6 +110,144 @@ export const Footer: React.FC = () => {
             <button className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold px-3 py-2 rounded-lg text-xs transition-colors shrink-0">
               S'inscrire
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* SEO KEYWORDS HUB - Mots-clés stratégiques pour le référencement naturel Kinshasa & RDC */}
+      <div className="border-t border-slate-900 bg-slate-950/60 py-8 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900 pb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-white font-extrabold text-xs uppercase tracking-wider">
+                Index Immobilier Kinshasa & Recherches Populaires (RDC)
+              </h3>
+            </div>
+            <span className="text-[11px] text-slate-500">
+              Mots-clés certifiés pour le cadastre, la vente et la location à Kinshasa
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs text-slate-400">
+            {/* Colonne 1: Vente Kinshasa */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                <Building className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Vente Immobilière Kinshasa</span>
+              </div>
+              <ul className="space-y-1.5 text-[11px]">
+                {[
+                  { text: 'Maison à vendre Kinshasa Gombe', q: 'Gombe', s: 'for-sale' },
+                  { text: 'Villa avec piscine Ngaliema Macampagne', q: 'piscine Macampagne', s: 'for-sale' },
+                  { text: 'Appartement standing Boulevard 30 Juin', q: '30 Juin', s: 'for-sale' },
+                  { text: 'Duplex moderne Limete Résidentiel', q: 'Duplex Limete', s: 'for-sale' },
+                  { text: 'Vente villa Binza Pigeon & Météo', q: 'Binza', s: 'for-sale' },
+                  { text: 'Maison basse Bandalungwa & Kintambo', q: 'Bandalungwa', s: 'for-sale' },
+                ].map((item, i) => (
+                  <li key={i}>
+                    <button
+                      onClick={() => {
+                        setFilters((prev) => ({ ...prev, searchQuery: item.q, status: item.s as any }));
+                        const el = document.getElementById('properties');
+                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="hover:text-emerald-400 hover:underline text-left transition-colors"
+                    >
+                      {item.text}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Colonne 2: Location Kinshasa */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                <Key className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Location Immobilière Kinshasa</span>
+              </div>
+              <ul className="space-y-1.5 text-[11px]">
+                {[
+                  { text: 'Location appartement Kinshasa Gombe', q: 'appartement Gombe', s: 'for-rent' },
+                  { text: 'Appartement meublé court séjour Kinshasa', q: 'meublé', s: 'for-rent' },
+                  { text: 'Villa de luxe à louer Ngaliema', q: 'villa Ngaliema', s: 'for-rent' },
+                  { text: 'Bureaux et espaces pro Boulevard du 30 Juin', q: 'bureau 30 Juin', s: 'for-rent' },
+                  { text: 'Studio moderne à louer Kinshasa', q: 'studio', s: 'for-rent' },
+                  { text: 'Hangar et entrepôt commercial Limete', q: 'Limete', s: 'for-rent' },
+                ].map((item, i) => (
+                  <li key={i}>
+                    <button
+                      onClick={() => {
+                        setFilters((prev) => ({ ...prev, searchQuery: item.q, status: item.s as any }));
+                        const el = document.getElementById('properties');
+                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="hover:text-emerald-400 hover:underline text-left transition-colors"
+                    >
+                      {item.text}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Colonne 3: Terrains & Cadastre */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Terrains & Sécurité Foncière RDC</span>
+              </div>
+              <ul className="space-y-1.5 text-[11px]">
+                {[
+                  { text: 'Terrain avec Certificat d\'Enregistrement', q: 'certificat' },
+                  { text: 'Parcelle titrée Mont-Ngafula', q: 'Mont-Ngafula', t: 'land' },
+                  { text: 'Concession foncière titrée Maluku & Nsele', q: 'concession' },
+                  { text: 'Achat terrain sécurisé cadastre RDC', q: 'cadastre' },
+                  { text: 'Vente terrain résidentiel Ma Campagne', q: 'Macampagne', t: 'land' },
+                  { text: 'Parcelle avec plan cadastral certifié', q: 'cadastre' },
+                ].map((item, i) => (
+                  <li key={i}>
+                    <button
+                      onClick={() => {
+                        setFilters((prev) => ({
+                          ...prev,
+                          searchQuery: item.q,
+                          type: (item.t as any) || prev.type,
+                        }));
+                        const el = document.getElementById('properties');
+                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="hover:text-emerald-400 hover:underline text-left transition-colors"
+                    >
+                      {item.text}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Colonne 4: Services & Confiance */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                <Award className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Services Agréés & Confiance</span>
+              </div>
+              <ul className="space-y-1.5 text-[11px]">
+                {[
+                  { text: 'Agences immobilières agréées Kinshasa' },
+                  { text: 'Courtiers et agents immobiliers certifiés' },
+                  { text: 'Conciergerie immobilière VIP Kinshasa' },
+                  { text: 'Estimation prix au m² à Kinshasa' },
+                  { text: 'Visites immersives vidéos 30s Kinimmo' },
+                  { text: 'Conseils investissement diaspora RDC' },
+                ].map((item, i) => (
+                  <li key={i} className="text-slate-400">
+                    {item.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </div>

@@ -286,21 +286,55 @@ const AppContent: React.FC = () => {
     if (ogDescMeta) ogDescMeta.setAttribute('content', metaDescription);
     const twDescMeta = document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]');
     if (twDescMeta) twDescMeta.setAttribute('content', metaDescription);
+
+    // Mise à jour dynamique des mots-clés SEO (meta name="keywords")
+    let dynamicKeywords = 'immobilier kinshasa, kinshasa immobilier, kinimmo, vente maison kinshasa, location appartement kinshasa, terrain avec certificat enregistrement kinshasa, villa ngaliema macampagne, gombe kinshasa, limete, mont ngafula';
+    if (activePropertyModalId) {
+      const activeProp = properties.find((p) => p.id === activePropertyModalId);
+      if (activeProp) {
+        const propTypeLabel = activeProp.type === 'apartment' ? 'appartement' : activeProp.type === 'house' ? 'maison villa' : activeProp.type === 'land' ? 'terrain parcelle concession' : activeProp.type === 'office' ? 'bureau espace commercial' : 'penthouse duplex';
+        dynamicKeywords = `${propTypeLabel} kinshasa, ${activeProp.commune || 'kinshasa'} immobilier, ${activeProp.quartier || ''} kinshasa, ${activeProp.title}, ${activeProp.status === 'for-sale' ? 'vente achat' : 'location louer'}, cadastre titres fonciers rdc, certificat enregistrement kinshasa, ${dynamicKeywords}`;
+      }
+    }
+    let kwMeta = document.querySelector<HTMLMetaElement>('meta[name="keywords"]');
+    if (!kwMeta) {
+      kwMeta = document.createElement('meta');
+      kwMeta.setAttribute('name', 'keywords');
+      document.head.appendChild(kwMeta);
+    }
+    kwMeta.setAttribute('content', dynamicKeywords);
   }, [currentTab, activePropertyModalId, properties]);
 
-  // Filter Properties Logic
+  // Filter Properties Logic - Recherche multi-termes ultra-performante par mots-clés
   const filteredProperties = properties.filter((p) => {
-    // Search Query (includes title, address, city, commune, quartier, avenue, reference point)
+    // Multi-token search matching across title, description, commune, quartier, avenue, amenities, trust_level & cadastre
     if (filters.searchQuery) {
-      const q = filters.searchQuery.toLowerCase();
-      const matchTitle = p.title.toLowerCase().includes(q);
-      const matchCity = p.city?.toLowerCase().includes(q);
-      const matchAddress = p.address?.toLowerCase().includes(q);
-      const matchCommune = p.commune?.toLowerCase().includes(q);
-      const matchQuartier = p.quartier?.toLowerCase().includes(q);
-      const matchAvenue = p.avenue?.toLowerCase().includes(q);
-      const matchRef = p.referencePoint?.toLowerCase().includes(q);
-      if (!matchTitle && !matchCity && !matchAddress && !matchCommune && !matchQuartier && !matchAvenue && !matchRef) {
+      const query = filters.searchQuery.trim().toLowerCase();
+      const tokens = query.split(/\s+/).filter(Boolean);
+
+      // Concatenate all property searchable data
+      const amenitiesText = Array.isArray(p.amenities) ? p.amenities.join(' ').toLowerCase() : '';
+      const customFieldsText = p.customFields ? Object.values(p.customFields).filter(v => typeof v === 'string' || typeof v === 'number').join(' ').toLowerCase() : '';
+      const cadastreText = (p as any).cadastre_data ? Object.values((p as any).cadastre_data).join(' ').toLowerCase() : '';
+      const searchableCorpus = [
+        p.title,
+        p.description || '',
+        p.type || '',
+        p.city || '',
+        p.address || '',
+        p.commune || '',
+        p.quartier || '',
+        p.avenue || '',
+        p.referencePoint || '',
+        p.trust_level || '',
+        amenitiesText,
+        customFieldsText,
+        cadastreText
+      ].join(' ').toLowerCase();
+
+      // Every search token must match somewhere in the property's data (AND matching)
+      const allTokensMatch = tokens.every(token => searchableCorpus.includes(token));
+      if (!allTokensMatch) {
         return false;
       }
     }

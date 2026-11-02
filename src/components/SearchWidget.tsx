@@ -18,6 +18,7 @@ import {
   Compass,
   Navigation,
   Building2,
+  Flame,
 } from 'lucide-react';
 
 export const SearchWidget: React.FC = () => {
@@ -59,6 +60,16 @@ export const SearchWidget: React.FC = () => {
     { id: 'Kintambo', label: 'Kintambo' },
     { id: 'Lemba', label: 'Lemba' },
     { id: 'Bandalungwa', label: 'Bandalungwa' },
+  ];
+
+  const trendingHighIntentKeywords = [
+    { label: 'Appartement meublé Gombe', query: 'appartement meublé', commune: 'Gombe' },
+    { label: 'Villa avec piscine Macampagne', query: 'piscine Macampagne', commune: 'Ngaliema' },
+    { label: 'Terrain titré Certificat d\'enregistrement', query: 'certificat' },
+    { label: 'Bureaux Boulevard 30 Juin', query: '30 Juin', commune: 'Gombe' },
+    { label: 'Penthouse vue fleuve', query: 'fleuve' },
+    { label: 'Duplex moderne Limete', query: 'duplex', commune: 'Limete' },
+    { label: 'Parcelle titrée Mont-Ngafula', query: 'parcelle', commune: 'Mont-Ngafula' },
   ];
 
   return (
@@ -195,6 +206,35 @@ export const SearchWidget: React.FC = () => {
               }`}
             >
               {qc.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Trending High-Intent SEO Keywords Chips */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar bg-amber-50/60 p-2 rounded-2xl border border-amber-200/70">
+        <span className="text-[11px] text-amber-900 font-black shrink-0 flex items-center gap-1">
+          <Flame className="w-3.5 h-3.5 text-amber-600 fill-amber-500" /> Mots-clés recherchés :
+        </span>
+        {trendingHighIntentKeywords.map((item, idx) => {
+          const isActive = filters.searchQuery?.toLowerCase() === item.query.toLowerCase();
+          return (
+            <button
+              key={idx}
+              onClick={() => {
+                setFilters((prev) => ({
+                  ...prev,
+                  searchQuery: item.query,
+                  commune: item.commune || prev.commune,
+                }));
+              }}
+              className={`shrink-0 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
+                isActive
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'bg-white text-amber-950 hover:bg-amber-100/80 border border-amber-200'
+              }`}
+            >
+              {item.label}
             </button>
           );
         })}

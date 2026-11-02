@@ -345,7 +345,7 @@ export const TagManagerSettingsModal: React.FC<TagManagerSettingsModalProps> = (
           {activeTab === 'config' && (
             <form onSubmit={handleSaveConfig} className="space-y-6">
               {/* Quick Status Cards Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-1">
                   <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold">
                     <span>GTM</span>
@@ -362,6 +362,15 @@ export const TagManagerSettingsModal: React.FC<TagManagerSettingsModalProps> = (
                   </div>
                   <div className="text-xs font-black text-white truncate">{config.googleAnalyticsId || 'G-3FYYBC6QQG'}</div>
                   <div className="text-[10px] text-emerald-400">GA4 Connecté</div>
+                </div>
+
+                <div className="p-3 bg-slate-950/70 border border-emerald-500/30 rounded-2xl space-y-1 bg-emerald-950/20">
+                  <div className="flex items-center justify-between text-[10px] text-emerald-400 font-bold">
+                    <span>Google AdSense</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  </div>
+                  <div className="text-xs font-black text-white truncate">ca-pub-2107140737970807</div>
+                  <div className="text-[10px] text-emerald-400 font-bold">Intégré dans &lt;head&gt;</div>
                 </div>
 
                 <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-1">
@@ -382,7 +391,7 @@ export const TagManagerSettingsModal: React.FC<TagManagerSettingsModalProps> = (
                   <div className="text-[10px] text-pink-400">TikTok Ads</div>
                 </div>
 
-                <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-1 col-span-2 sm:col-span-1">
+                <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-1">
                   <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold">
                     <span>Google Ads</span>
                     <span className="w-2 h-2 rounded-full bg-amber-400"></span>
@@ -531,6 +540,40 @@ export const TagManagerSettingsModal: React.FC<TagManagerSettingsModalProps> = (
                         className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-amber-500"
                       />
                     </div>
+                  </div>
+                </div>
+
+                {/* Google AdSense Configuration Card */}
+                <div className="p-4 bg-slate-950 rounded-2xl border border-emerald-500/30 space-y-3 bg-emerald-950/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-bold text-white">Google AdSense (Monétisation Publicitaire)</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider border border-emerald-500/30">
+                      Actif dans &lt;head&gt;
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1.5 font-mono text-[11px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Identifiant Éditeur Google (client) :</span>
+                      <strong className="text-emerald-400 font-bold">ca-pub-2107140737970807</strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Mode d'affichage :</span>
+                      <span className="text-slate-300">Annonces automatiques (Auto Ads) &amp; Emplacements réactifs</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-300 leading-relaxed bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <p className="font-semibold text-emerald-400">✓ Script officiel inséré avec succès dans le fichier index.html du site :</p>
+                    <code className="block p-2 bg-slate-950 rounded-lg text-slate-300 text-[10px] break-all border border-slate-800">
+                      &lt;script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2107140737970807" crossorigin="anonymous"&gt;&lt;/script&gt;
+                    </code>
+                    <p className="text-slate-400 text-[10px] pt-1">
+                      Une fois votre site validé dans votre console Google AdSense (<a href="https://www.google.com/adsense/" target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline font-bold">google.com/adsense</a>), Google commencera automatiquement à diffuser des annonces pertinentes sur vos pages.
+                    </p>
                   </div>
                 </div>
               </div>
