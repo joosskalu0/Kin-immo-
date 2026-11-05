@@ -37,23 +37,41 @@ const PORT = process.env.PORT || 5000;
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'https://kinimmo.com',
+  'http://kinimmo.com',
   'https://www.kinimmo.com',
+  'http://www.kinimmo.com',
   'http://localhost:3000',
   'http://localhost:5173'
 ].filter(Boolean);
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Autoriser les requêtes sans origine (comme Postman ou curl) ou les domaines autorisés
-    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+    // Autoriser les requêtes sans origine (comme Postman, curl ou requêtes internes)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    const cleanOrigin = origin.replace(/\/+$/, '').toLowerCase();
+    
+    const isAllowed = 
+      allowedOrigins.some(o => o && cleanOrigin === o.replace(/\/+$/, '').toLowerCase()) ||
+      cleanOrigin.includes('kinimmo.com') ||
+      cleanOrigin.includes('hostingerpreview.com') ||
+      cleanOrigin.includes('preview-domain') ||
+      cleanOrigin.includes('localhost') ||
+      cleanOrigin.includes('127.0.0.1') ||
+      process.env.NODE_ENV !== 'production';
+
+    if (isAllowed) {
       callback(null, true);
     } else {
-      callback(new Error('CORS : Origine non autorisée par Kinimmo API.'));
+      // Rejeter poliment sans lancer d'exception qui pollue les journaux
+      callback(null, false);
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 
 // Middlewares pour parser le JSON et les formulaires URL-encoded
