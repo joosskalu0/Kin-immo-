@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const pool = require('./config/database');
@@ -106,7 +108,38 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/videos', videosRoutes);
 app.use('/api/trust', trustRoutes);
 
-// Gestion des routes inexistantes (404)
+// Détection et service automatique du frontend compilé React (dist/)
+const candidateDistPaths = [
+  path.join(__dirname, '..', 'dist'),
+  path.join(__dirname, 'dist'),
+  path.join(process.cwd(), 'dist')
+];
+const distDir = candidateDistPaths.find(p => fs.existsSync(path.join(p, 'index.html')));
+
+if (distDir) {
+  app.use(express.static(distDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+} else {
+  // Page d'accueil informative si dist/ n'est pas dans le dossier backend
+  app.get('/', (_req, res) => {
+    res.json({
+      status: 'ok',
+      service: 'Kinimmo REST API',
+      message: 'Le serveur backend Kinimmo est opérationnel.',
+      endpoints: {
+        health: '/api/health',
+        api: '/api'
+      }
+    });
+  });
+}
+
+// Gestion des routes API inexistantes (404)
 app.use((req, res) => {
   res.status(404).json({
     success: false,
