@@ -14,7 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const PORT = process.env.PORT ? (isNaN(Number(process.env.PORT)) ? process.env.PORT : Number(process.env.PORT)) : 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
 // Parser JSON & URL-encoded
@@ -4289,27 +4289,54 @@ Sitemap: ${baseUrl}/sitemap.xml
 
 // Initialisation Serveur Vite (Dev) ou Fichiers Statiques (Prod)
 async function startServer() {
-  if (!isProd) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa'
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(__dirname, 'dist');
+  const distPath = path.join(__dirname, 'dist');
+  const hasDist = fs.existsSync(distPath) && fs.existsSync(path.join(distPath, 'index.html'));
+
+  // Si on est en production ou que le dossier dist compilé existe, on sert les fichiers statiques
+  if (isProd || hasDist) {
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(200).send('Kinimmo API Server is running');
+      }
     });
+  } else {
+    // Mode Développement local : essai de chargement du middleware Vite
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa'
+      });
+      app.use(vite.middlewares);
+    } catch (viteError) {
+      console.warn('Vite non disponible en environnement d hébergement, bascule en mode statique :', (viteError as Error).message);
+      if (fs.existsSync(distPath)) {
+        app.use(express.static(distPath));
+      }
+      app.get('*', (_req, res) => {
+        const indexPath = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.json({
+            status: 'ok',
+            service: 'Kinimmo API Server',
+            message: 'Serveur actif.'
+          });
+        }
+      });
+    }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Kinimmo Full-Stack Server running on http://0.0.0.0:${PORT} (${isProd ? 'Production' : 'Development'})`);
+  app.listen(Number(PORT) || 3000, '0.0.0.0', () => {
+    console.log(`Kinimmo Full-Stack Server running on http://0.0.0.0:${PORT} (${isProd ? 'Production' : (hasDist ? 'Production (dist)' : 'Development')})`);
   });
 }
 
 startServer().catch((err) => {
   console.error('Fatal server boot error:', err);
-  process.exit(1);
 });
