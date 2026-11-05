@@ -5,7 +5,7 @@
  * de manière centralisée, découplée et testable.
  */
 
-const pool = require('../config/database');
+const pool = require('../../config/database');
 
 // Repositories & Adapters
 const MySqlUserRepository = require('./database/mysql/repositories/MySqlUserRepository');

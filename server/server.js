@@ -118,10 +118,10 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // Démarrage du serveur Node.js
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log('====================================================');
   console.log(`🚀 Serveur Kinimmo API démarré sur le port : ${PORT}`);
-  console.log(`📡 URL API : http://localhost:${PORT}/api`);
-  console.log(`🏥 Santé : http://localhost:${PORT}/api/health`);
+  console.log(`📡 URL API : http://0.0.0.0:${PORT}/api`);
+  console.log(`🏥 Santé : http://0.0.0.0:${PORT}/api/health`);
   console.log('====================================================');
 });
