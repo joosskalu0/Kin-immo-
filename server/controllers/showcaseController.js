@@ -4,6 +4,115 @@ const pool = require('../config/database');
  * Contrôleur des Projets d'Exception & Mises en Avant (Hero Showcase Safricode Style)
  */
 
+// Slides de repli par défaut pour la vitrine de la page d'accueil
+const DEFAULT_SHOWCASE_SLIDES = [
+  {
+    id: 'slide_tour_iconique',
+    badgeCategory: 'RÉSIDENTIEL & COMMERCIAL',
+    badgeLocation: 'LA GOMBE, KINSHASA',
+    title: "L'ADRESSE : L'EXCELLENCE ARCHITECTURALE AU SERVICE DE VOTRE CONFORT",
+    subTitle: 'LA TOUR ICONIQUE QUI TUTOIE LE SOMMET À KINSHASA',
+    description: '23 étages, 120 appartements de grand luxe, 3 penthouses exclusifs avec terrasses panoramiques, 8 commerces au rez-de-chaussée, 5 niveaux de parking sécurisé.',
+    image: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=1600&auto=format&fit=crop&q=85',
+    propertyType: 'Appartement de Prestige',
+    commune: 'Gombe',
+    propertyId: null,
+    isActive: true,
+    order: 1,
+    contactName: 'Service Commercial - Tour Iconique',
+    contactPhone: '+243 81 000 0001',
+    contactWhatsapp: '+243 81 000 0001',
+    contactEmail: null,
+    contactRole: 'Promoteur Officiel',
+    legalStatus: null,
+    stats: {
+      floors: '23 Étages',
+      units: '120 Unités',
+      parking: '5 Niveaux',
+      surface: '110 à 480 m²'
+    },
+    details: {
+      amenities: [
+        'Vue panoramique sur le Fleuve Congo',
+        'Piscine suspendue au 15ème étage',
+        'Autonomie énergétique H24'
+      ],
+      priceInfo: 'À partir de $280,000 ou $3,500/mois',
+      deliveryDate: 'Clés en mains disponibles'
+    }
+  },
+  {
+    id: 'slide_residence_dina',
+    badgeCategory: 'RÉSIDENTIEL DE PRESTIGE',
+    badgeLocation: 'LA GOMBE',
+    title: 'RÉSIDENCE DINA : VOS EXIGENCES, NOTRE PRIORITÉ ABSOLUE',
+    subTitle: "LA RÉSIDENCE CONTEMPORAINE SYNONYME D'ÉLÉGANCE ET DE SÉRÉNITÉ",
+    description: 'Appartements premium de 2, 3 et 4 chambres, 3 niveaux de parking intégrés, ascenseurs panoramiques et vaste terrasse paysagère.',
+    image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1600&auto=format&fit=crop&q=85',
+    propertyType: 'Résidence Contemporaine',
+    commune: 'Gombe',
+    propertyId: null,
+    isActive: true,
+    order: 2,
+    contactName: 'Agence Immo Kin Gombe SARL',
+    contactPhone: '+243 82 123 4567',
+    contactWhatsapp: '+243 82 123 4567',
+    contactEmail: null,
+    contactRole: 'Agence Mandataire Exclusif',
+    legalStatus: null,
+    stats: {
+      floors: '12 Étages',
+      units: '36 Appartements',
+      parking: '3 Niveaux',
+      surface: '140 à 320 m²'
+    },
+    details: {
+      amenities: [
+        'Marbre italien et boiseries nobles',
+        'Cuisines équipées haut de gamme',
+        'Groupe insonorisé et forage purifié'
+      ],
+      priceInfo: 'À partir de $320,000',
+      deliveryDate: 'Livraison immédiate'
+    }
+  },
+  {
+    id: 'slide_villas_fleuve',
+    badgeCategory: 'VILLAS DIPLOMATIQUES',
+    badgeLocation: 'NGALIEMA, MACAMPAGNE',
+    title: "VILLAS DU FLEUVE : L'ART DE VIVRE DANS UN ÉCRIN DE VERDURE",
+    subTitle: 'PROPRIÉTÉS PRIVÉES EXCLUSIVES AVEC VUE IMPRENABLE',
+    description: "Ensemble de villas d'architecte de 450 à 750 m² sur parcelles titrées, piscines privées à débordement, jardins tropicaux et sécurité 24/7.",
+    image: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=1600&auto=format&fit=crop&q=85',
+    propertyType: 'Villa Contemporaine',
+    commune: 'Ngaliema',
+    propertyId: null,
+    isActive: true,
+    order: 3,
+    contactName: 'Cabinet Fleuve Habitat & Prestige',
+    contactPhone: '+243 99 876 5432',
+    contactWhatsapp: '+243 99 876 5432',
+    contactEmail: null,
+    contactRole: 'Courtier Conseil Agréé',
+    legalStatus: null,
+    stats: {
+      floors: '2 Niveaux',
+      units: '8 Villas Uniques',
+      parking: '4 Véhicules/Villa',
+      surface: '550 m² habitables'
+    },
+    details: {
+      amenities: [
+        'Piscine miroir avec pool house',
+        'Périmètre diplomatique sécurisé',
+        'Titre foncier et certificat notarié'
+      ],
+      priceInfo: 'Sur demande ($850,000 - $1,600,000)',
+      deliveryDate: 'Disponible immédiatement'
+    }
+  }
+];
+
 // 1. Obtenir les diapositives actives pour le carrousel public d'accueil
 async function getPublicSlides(req, res, next) {
   try {
@@ -86,7 +195,9 @@ async function getPublicSlides(req, res, next) {
 
     res.json({ success: true, slides: formattedSlides });
   } catch (error) {
-    next(error);
+    // Si la table n'a pas encore été importée dans MySQL, renvoyer les diapositives par défaut sans erreur 500
+    console.warn('[Showcase] Table MySQL manquante ou non initialisée, repli sécurisé sur les diapositives par défaut :', error.message);
+    res.json({ success: true, slides: DEFAULT_SHOWCASE_SLIDES, fallback: true });
   }
 }
 
@@ -173,7 +284,8 @@ async function getAllSlidesForAdmin(req, res, next) {
 
     res.json({ success: true, slides: formattedSlides });
   } catch (error) {
-    next(error);
+    console.warn('[Showcase Admin] Table manquante, repli sur les diapositives par défaut :', error.message);
+    res.json({ success: true, slides: DEFAULT_SHOWCASE_SLIDES, fallback: true });
   }
 }
 
