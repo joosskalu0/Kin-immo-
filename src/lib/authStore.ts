@@ -53,32 +53,7 @@ export const isDemoAccount = (email?: string, id?: string, name?: string): boole
  * Pre-seed standard admin account
  */
 const getInitialSeedAccounts = (): StoredUserAccount[] => {
-  const adminCreds = getAdminCredentials();
-
-  const seedAccounts: StoredUserAccount[] = [
-    // 1. Admin System
-    {
-      id: 'usr_admin_001',
-      name: adminCreds.name,
-      email: adminCreds.email.toLowerCase(),
-      phone: adminCreds.phone,
-      role: 'admin',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      agencyName: adminCreds.agencyName,
-      rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-      planId: 'pro',
-      password: adminCreds.pin || 'kalu2002jooss',
-      isVerified: true,
-      emailVerified: true,
-      phoneVerified: true,
-      twoFactorEnabled: false,
-      kinshasaBadgeVerified: true,
-      lastLoginLocation: 'Kinshasa (Gombe), RDC',
-      createdAt: '2026-01-01T00:00:00Z',
-    },
-  ];
-
-  return seedAccounts;
+  return [];
 };
 
 const LOCAL_STORAGE_ACCOUNTS_KEY = 'estatik_local_registered_accounts';
@@ -273,46 +248,7 @@ export const authenticateUser = (
     };
   }
 
-  // 1. Check if user is logging in as System Admin
-  const isAdminEmail =
-    trimmedId === adminCreds.email.toLowerCase() ||
-    trimmedId === 'admin@estatik.cd' ||
-    trimmedId === 'admin@kin-immobilier.cd' ||
-    trimmedId === 'mukamba@kin-immobilier.cd';
-
-  if (isAdminEmail) {
-    const isPinMatch = verifyAdminPin(trimmedPwd);
-    const isPassMatch = trimmedPwd === 'kalu2002jooss' || trimmedPwd === adminCreds.pin;
-
-    if (isPinMatch || isPassMatch) {
-      const adminObj: StoredUserAccount = {
-        id: 'usr_admin_001',
-        name: adminCreds.name,
-        email: adminCreds.email.toLowerCase(),
-        phone: adminCreds.phone,
-        role: 'admin',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-        agencyName: adminCreds.agencyName,
-        rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-        planId: 'pro',
-        isVerified: true,
-        emailVerified: true,
-        phoneVerified: true,
-        twoFactorEnabled: false,
-        kinshasaBadgeVerified: true,
-        lastLoginLocation: 'Kinshasa (Gombe), RDC',
-        createdAt: new Date().toISOString(),
-      };
-      return { success: true, user: adminObj };
-    } else {
-      return {
-        success: false,
-        error: 'Mot de passe ou Code PIN Administrateur incorrect. Veuillez vérifier vos accès.',
-      };
-    }
-  }
-
-  // 2. Check registered accounts for Agent, Agency, or User
+  // Vérification stricte des comptes enregistrés
   const accounts = getRegisteredAccounts();
   const matchedAccount = accounts.find((acc) => {
     if (method === 'email') {

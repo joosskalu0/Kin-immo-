@@ -31,6 +31,7 @@ import {
   authenticateOrRegisterGoogleUser,
   getRegisteredAccounts
 } from './authStore';
+import { mysqlApi } from '../services/mysqlApi';
 
 // Database & Auth Mock/Proxy Objects to maintain full interface compatibility
 export const db = null as any;
@@ -58,26 +59,7 @@ export function sanitizeForStore<T>(data: T): T {
 }
 export const sanitizeForFirestore = sanitizeForStore;
 
-export const initialUsersSeed: User[] = [
-  {
-    id: 'usr_admin_001',
-    name: 'Jean-Luc Mukamba',
-    email: 'joosskalu72@gmail.com',
-    phone: '+243 84 529 4616',
-    role: 'admin',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    agencyName: 'Kin Immobilier RDC',
-    rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-    planId: 'pro',
-    isVerified: true,
-    emailVerified: true,
-    phoneVerified: true,
-    twoFactorEnabled: true,
-    twoFactorMethod: 'authenticator',
-    kinshasaBadgeVerified: true,
-    createdAt: '2026-01-01T00:00:00Z'
-  }
-];
+export const initialUsersSeed: User[] = [];
 
 export async function syncUsersOnlyToStore() {
   return;
@@ -125,22 +107,22 @@ export function subscribeToProperties(callback: (properties: Property[]) => void
     const raw = localStorage.getItem('kinimmo_properties');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         callback(parsed);
       } else {
-        callback(initialProperties);
+        callback([]);
       }
     } else {
-      callback(initialProperties);
+      callback([]);
     }
   } catch {
-    callback(initialProperties);
+    callback([]);
   }
 
   fetch('/api/properties')
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
-      if (json?.success && Array.isArray(json.data) && json.data.length > 0) {
+      if (json?.success && Array.isArray(json.data)) {
         localStorage.setItem('kinimmo_properties', JSON.stringify(json.data));
         callback(json.data);
       }
@@ -181,10 +163,10 @@ export function subscribeToLeads(callback: (leads: LeadRequest[]) => void): () =
     if (raw) {
       callback(JSON.parse(raw));
     } else {
-      callback(initialLeads);
+      callback([]);
     }
   } catch {
-    callback(initialLeads);
+    callback([]);
   }
 
   fetch('/api/leads')
@@ -206,16 +188,16 @@ export function subscribeToAgents(callback: (agents: Agent[]) => void): () => vo
     if (raw) {
       callback(JSON.parse(raw));
     } else {
-      callback(initialAgents);
+      callback([]);
     }
   } catch {
-    callback(initialAgents);
+    callback([]);
   }
 
   fetch('/api/agents')
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
-      if (json?.success && Array.isArray(json.data) && json.data.length > 0) {
+      if (json?.success && Array.isArray(json.data)) {
         localStorage.setItem('kinimmo_agents', JSON.stringify(json.data));
         callback(json.data);
       }
@@ -231,16 +213,16 @@ export function subscribeToAgencies(callback: (agencies: Agency[]) => void): () 
     if (raw) {
       callback(JSON.parse(raw));
     } else {
-      callback(initialAgencies);
+      callback([]);
     }
   } catch {
-    callback(initialAgencies);
+    callback([]);
   }
 
   fetch('/api/agencies')
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
-      if (json?.success && Array.isArray(json.data) && json.data.length > 0) {
+      if (json?.success && Array.isArray(json.data)) {
         localStorage.setItem('kinimmo_agencies', JSON.stringify(json.data));
         callback(json.data);
       }
@@ -256,10 +238,10 @@ export function subscribeToInvoices(callback: (invoices: Invoice[]) => void): ()
     if (raw) {
       callback(JSON.parse(raw));
     } else {
-      callback(initialInvoices);
+      callback([]);
     }
   } catch {
-    callback(initialInvoices);
+    callback([]);
   }
 
   fetch('/api/invoices')
@@ -281,10 +263,10 @@ export function subscribeToUsers(callback: (users: User[]) => void): () => void 
     if (raw) {
       callback(JSON.parse(raw));
     } else {
-      callback(initialUsersSeed);
+      callback([]);
     }
   } catch {
-    callback(initialUsersSeed);
+    callback([]);
   }
 
   fetch('/api/users')
@@ -655,41 +637,51 @@ export async function registerWithEmailPassword(params: {
   password: string;
   name: string;
   phone?: string;
+  whatsapp?: string;
   role?: string;
   agencyName?: string;
   avatarUrl?: string;
   rccmOrNif?: string;
 }): Promise<User> {
-  const { email, password, name, phone, role, agencyName, avatarUrl, rccmOrNif } = params;
+  const { email, password, name, phone, whatsapp, role, agencyName, avatarUrl, rccmOrNif } = params;
   const cleanEmail = email.trim().toLowerCase();
-  const isAdmin = cleanEmail === 'joosskalu72@gmail.com' || cleanEmail === 'admin@kin-immobilier.cd';
-  const effectiveRole = isAdmin ? 'admin' : (role || 'user');
-  const uid = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-  const userProfile: User = {
-    id: uid,
+  // Inscription DIRECTE dans la base de données MySQL
+  const res = await mysqlApi.register({
     name: name || cleanEmail.split('@')[0],
     email: cleanEmail,
+    password: password.trim(),
     phone: phone || '',
-    whatsapp: phone || '',
-    role: effectiveRole as any,
-    agencyName: (effectiveRole === 'agent' || effectiveRole === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
-    rccmOrNif: rccmOrNif,
-    avatar: avatarUrl || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
-    agentId: (effectiveRole === 'agent' || effectiveRole === 'agency') ? uid : undefined,
-    planId: effectiveRole === 'agency' ? 'agency' : effectiveRole === 'agent' ? 'pro' : 'starter',
-    provider: 'email',
-    isVerified: isAdmin,
-    emailVerified: false,
-    phoneVerified: Boolean(phone),
-    twoFactorEnabled: false,
-    kinshasaBadgeVerified: effectiveRole === 'agent' || effectiveRole === 'agency' || isAdmin,
-    createdAt: new Date().toISOString(),
-  };
+    role: role || 'user',
+    agencyName: (role === 'agent' || role === 'agency') ? agencyName : undefined
+  });
 
-  registerUserAccount(userProfile, password);
-  saveUserToStore(userProfile);
-  return userProfile;
+  if (res.success && (res.user || res.data?.user)) {
+    const rawUser = res.user || res.data?.user;
+    const user: User = {
+      id: rawUser.id,
+      name: rawUser.name,
+      email: rawUser.email,
+      phone: rawUser.phone || phone || '',
+      whatsapp: rawUser.whatsapp || whatsapp || phone || '',
+      role: rawUser.role || role || 'user',
+      agencyName: rawUser.agency_name || rawUser.agencyName || agencyName,
+      rccmOrNif: rawUser.rccm_nif || rawUser.rccmOrNif || rccmOrNif,
+      avatar: avatarUrl || rawUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      planId: rawUser.plan_id || (role === 'agency' ? 'agency' : role === 'agent' ? 'pro' : 'starter'),
+      isVerified: Boolean(rawUser.is_verified ?? rawUser.isVerified ?? false),
+      emailVerified: true,
+      phoneVerified: Boolean(phone),
+      twoFactorEnabled: false,
+      kinshasaBadgeVerified: Boolean(rawUser.kinshasa_badge_verified ?? false),
+      lastLoginLocation: 'Kinshasa, RDC',
+      createdAt: rawUser.created_at || new Date().toISOString()
+    };
+    saveUserToStore(user);
+    return user;
+  }
+
+  throw new Error(res.message || "Échec de l'inscription dans la base de données MySQL.");
 }
 export const registerWithFirebaseEmailPassword = registerWithEmailPassword;
 
@@ -702,48 +694,45 @@ export async function loginWithEmailPassword(
   const cleanEmail = email.trim().toLowerCase();
   const trimmedPassword = password.trim();
 
-  // 1. Strict Administrator Authentication
-  const isAdmin = cleanEmail === 'joosskalu72@gmail.com' || cleanEmail === 'admin@kin-immobilier.cd';
-  if (isAdmin) {
-    const isPinValid = verifyAdminPin(trimmedPassword);
-    if (!isPinValid) {
-      throw new Error("Mot de passe ou Code PIN Administrateur incorrect. Veuillez vérifier vos accès sécurisés.");
-    }
-    const adminCreds = getAdminCredentials();
-    const adminUser: User = {
-      id: 'usr_admin_001',
-      name: adminCreds.name,
-      email: cleanEmail,
-      phone: adminCreds.phone,
-      role: 'admin',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      agencyName: adminCreds.agencyName,
-      rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-      planId: 'pro',
-      isVerified: true,
-      emailVerified: true,
-      phoneVerified: true,
+  // Connexion DIRECTE et EXCLUSIVE via la base de données MySQL
+  const res = await mysqlApi.login({
+    email: cleanEmail,
+    password: trimmedPassword
+  });
+
+  if (res.success && (res.user || res.data?.user)) {
+    const rawUser = res.user || res.data?.user;
+    const user: User = {
+      id: rawUser.id,
+      name: rawUser.name,
+      email: rawUser.email,
+      phone: rawUser.phone || '',
+      whatsapp: rawUser.whatsapp || rawUser.phone || '',
+      role: rawUser.role || 'user',
+      avatar: rawUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      agencyName: rawUser.agency_name || rawUser.agencyName,
+      rccmOrNif: rawUser.rccm_nif || rawUser.rccmOrNif,
+      planId: rawUser.plan_id || 'starter',
+      isVerified: Boolean(rawUser.is_verified ?? rawUser.isVerified ?? false),
+      emailVerified: Boolean(rawUser.email_verified ?? rawUser.emailVerified ?? true),
+      phoneVerified: Boolean(rawUser.phone_verified ?? rawUser.phoneVerified ?? false),
       twoFactorEnabled: false,
-      kinshasaBadgeVerified: true,
-      lastLoginLocation: 'Kinshasa (Gombe), RDC',
-      createdAt: new Date().toISOString(),
+      kinshasaBadgeVerified: Boolean(rawUser.kinshasa_badge_verified ?? false),
+      lastLoginLocation: 'Kinshasa, RDC',
+      createdAt: rawUser.created_at || new Date().toISOString()
     };
-    saveUserToStore(adminUser);
-    return adminUser;
+    saveUserToStore(user);
+    return user;
   }
 
-  // 2. Local registered accounts and demo accounts
-  const authenticated = authenticateUser(cleanEmail, trimmedPassword, 'email');
-  if (authenticated.success && authenticated.user) {
-    return authenticated.user;
-  }
-
-  throw new Error(authenticated.error || "Identifiants incorrects. Veuillez vérifier votre adresse e-mail et mot de passe.");
+  throw new Error(res.message || "Identifiants incorrects. Veuillez vérifier votre adresse e-mail et mot de passe.");
 }
 export const loginWithFirebaseEmailPassword = loginWithEmailPassword;
 
 export async function logOutFromStore(): Promise<void> {
   try {
+    localStorage.removeItem('kinimmo_user');
+    localStorage.removeItem('kinimmo_jwt_token');
     localStorage.removeItem('kinimmo_session_user');
   } catch {}
 }

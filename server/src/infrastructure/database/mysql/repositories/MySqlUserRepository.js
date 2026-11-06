@@ -68,24 +68,39 @@ class MySqlUserRepository extends IUserRepository {
   }
 
   /**
-   * Trouve un utilisateur par son e-mail
-   * @param {string} email
+   * Trouve un utilisateur par son e-mail ou son numéro de téléphone
+   * @param {string} identifier
    * @returns {Promise<User|null>}
    */
-  async findByEmail(email) {
+  async findByEmailOrPhone(identifier) {
+    const clean = String(identifier).trim();
+    const cleanDigits = clean.replace(/[^\d+]/g, '');
     const query = `
       SELECT id, name, email, password_hash, phone, whatsapp, role,
              agency_id, agency_name, avatar, is_verified, kinshasa_badge_verified,
              rccm_or_nif, plan_id, subscription_status, created_at, updated_at
       FROM users
-      WHERE email = ?
+      WHERE LOWER(email) = LOWER(?) 
+         OR phone = ? 
+         OR phone = ?
+         OR whatsapp = ?
+         OR whatsapp = ?
       LIMIT 1
     `;
-    const [rows] = await this.pool.execute(query, [email]);
+    const [rows] = await this.pool.execute(query, [clean, clean, cleanDigits, clean, cleanDigits]);
     if (!rows || rows.length === 0) {
       return null;
     }
     return MySqlUserRepository.toDomain(rows[0]);
+  }
+
+  /**
+   * Trouve un utilisateur par son e-mail
+   * @param {string} email
+   * @returns {Promise<User|null>}
+   */
+  async findByEmail(email) {
+    return this.findByEmailOrPhone(email);
   }
 
   /**

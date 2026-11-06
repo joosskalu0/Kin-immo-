@@ -130,11 +130,18 @@ app.use('/api/trust', trustRoutes);
 const candidateDistPaths = [
   path.join(__dirname, '..', 'dist'),
   path.join(__dirname, 'dist'),
-  path.join(process.cwd(), 'dist')
+  path.join(process.cwd(), 'dist'),
+  path.join(process.cwd(), '..', 'dist'),
+  path.join(process.cwd(), 'public_html'),
+  path.join(__dirname, '..', 'public_html'),
+  path.join(__dirname, '..', '..', 'public_html'),
+  '/home/u580134468/domains/kinimmo.com/public_html',
+  '/home/u580134468/public_html'
 ];
 const distDir = candidateDistPaths.find(p => fs.existsSync(path.join(p, 'index.html')));
 
 if (distDir) {
+  console.log(`[Frontend] Dossier de distribution React détecté et servi : ${distDir}`);
   app.use(express.static(distDir));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) {
@@ -143,17 +150,42 @@ if (distDir) {
     res.sendFile(path.join(distDir, 'index.html'));
   });
 } else {
-  // Page d'accueil informative si dist/ n'est pas dans le dossier backend
+  // Page d'accueil informative si dist/ n'a pas encore été déposé dans public_html ou nodejs/
   app.get('/', (_req, res) => {
-    res.json({
-      status: 'ok',
-      service: 'Kinimmo REST API',
-      message: 'Le serveur backend Kinimmo est opérationnel.',
-      endpoints: {
-        health: '/api/health',
-        api: '/api'
-      }
-    });
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Kinimmo - Serveur Opérationnel</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
+          .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; max-width: 580px; width: 100%; padding: 32px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+          .badge { display: inline-flex; align-items: center; background: #064e3b; color: #34d399; font-weight: 600; font-size: 13px; padding: 4px 12px; border-radius: 9999px; margin-bottom: 16px; }
+          h1 { font-size: 24px; font-weight: 700; margin: 0 0 12px 0; color: #fff; }
+          p { color: #94a3b8; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0; }
+          .steps { background: #0f172a; border-radius: 10px; padding: 16px; margin: 20px 0; border: 1px solid #334155; }
+          .step-title { font-weight: 600; color: #e2e8f0; margin-bottom: 8px; font-size: 14px; }
+          .step-text { font-size: 13px; color: #94a3b8; line-height: 1.5; margin: 0; }
+          .btn { display: inline-block; background: #2563eb; color: #fff; font-weight: 600; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; transition: background 0.2s; }
+          .btn:hover { background: #1d4ed8; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="badge">● Serveur Node.js & Base MySQL Connectés</div>
+          <h1>Kinimmo API & Plateforme Immobilière</h1>
+          <p>Le serveur backend Kinimmo est opérationnel et connecté à la base de données MySQL.</p>
+          <div class="steps">
+            <div class="step-title">Pour afficher le site web complet :</div>
+            <p class="step-text">Déposez les fichiers compilés du dossier <code>dist/</code> (notamment <code>index.html</code> et le dossier <code>assets/</code>) dans le dossier <code>public_html/</code> de votre domaine Hostinger.</p>
+          </div>
+          <a href="/api/health" class="btn">Vérifier l'état de l'API (/api/health)</a>
+        </div>
+      </body>
+      </html>
+    `);
   });
 }
 

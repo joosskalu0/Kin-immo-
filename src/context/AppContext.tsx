@@ -361,7 +361,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [invitedBy, setInvitedBy] = useState<string | null>(null);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
-  // Proactively clean up legacy temporary items
+  // Proactively clean up legacy temporary and demo items to ensure a virgin platform
   useEffect(() => {
     try {
       localStorage.removeItem('estatik_kinshasa_user');
@@ -369,9 +369,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.removeItem('immocraft_agents');
       localStorage.removeItem('immocraft_agencies');
       localStorage.removeItem('estatik_registered_users');
+      localStorage.removeItem('estatik_local_registered_accounts');
       localStorage.removeItem('immocraft_custom_fields');
       localStorage.removeItem('immocraft_saved_searches');
       localStorage.removeItem('kin_tracking_config');
+      localStorage.removeItem('immocraft_durable_published_properties');
+      localStorage.removeItem('estatik_durable_properties');
+      localStorage.removeItem('kinimmo_properties');
+      localStorage.removeItem('kinimmo_agents');
+      localStorage.removeItem('kinimmo_agencies');
+      localStorage.removeItem('kinimmo_users');
+      localStorage.removeItem('kinimmo_leads');
+      localStorage.removeItem('kinimmo_invoices');
+      localStorage.removeItem('kinimmo_property_videos_v1');
+      localStorage.removeItem('immocraft_property_user_reports');
     } catch {}
   }, []);
 
@@ -413,42 +424,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Magasin de données Kinimmo - synchronisé avec l'API MySQL et le stockage local
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>(initialCustomFields);
-  const [properties, setProperties] = useState<Property[]>(() => {
-    const durable = getDurableLocalProperties();
-    const deleted = getDeletedPropertiesIds();
-    const map = new Map<string, Property>();
-    initialProperties.forEach((p) => {
-      if (!deleted.has(p.id)) map.set(p.id, p);
-    });
-    durable.forEach((p) => {
-      if (!deleted.has(p.id)) map.set(p.id, p);
-    });
-    return Array.from(map.values());
-  });
-  const [allUsers, setAllUsers] = useState<User[]>(() => getRegisteredAccounts());
-  const [agents, setAgents] = useState<Agent[]>(initialAgents);
-  const [agencies, setAgencies] = useState<Agency[]>(initialAgencies);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
 
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(initialSubscriptionPlans);
 
   const [pricingDisplayCurrency, setPricingDisplayCurrency] = useState<'CDF' | 'USD' | 'BOTH'>('CDF');
   const [cdfExchangeRate, setCdfExchangeRate] = useState<number>(2800);
 
-  const [wishlist, setWishlist] = useState<string[]>(['prop_1', 'prop_2']);
+  const [wishlist, setWishlist] = useState<string[]>([]);
   const [compareList, setCompareList] = useState<string[]>([]);
-  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([
-    {
-      id: 'search_1',
-      userId: 'user_admin',
-      title: 'Penthouse Paris > 150m²',
-      filters: { city: 'Paris', type: 'penthouse', minArea: 150 },
-      notifyFrequency: 'instant',
-      createdAt: '2026-08-01T12:00:00Z',
-    }
-  ]);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
 
-  const [leads, setLeads] = useState<LeadRequest[]>(initialLeads);
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
+  const [leads, setLeads] = useState<LeadRequest[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
 
   // Signalements utilisateurs & Anti-Fraude
   const REPORTS_STORAGE_KEY = 'immocraft_property_user_reports';
@@ -457,37 +448,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const raw = localStorage.getItem(REPORTS_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
-    return [
-      {
-        id: 'rep_1',
-        propertyId: 'prop_mock_suspect_1',
-        propertyTitle: 'Villa Diplomatique Piscine Gombe',
-        agentId: 'agent_fake_1',
-        reporterName: 'Marc Kabamba',
-        reporterContact: '+243 81 200 3040',
-        reason: 'fake_price',
-        reasonLabel: 'Prix anormalement bas / Trompeur',
-        comment: 'Cette villa avec piscine à Gombe est affichée à 150$/mois. Le vendeur réclame un acompte préalable par M-Pesa avant la visite.',
-        createdAt: '2026-10-02T10:30:00.000Z',
-        status: 'pending'
-      },
-      {
-        id: 'rep_2',
-        propertyId: 'prop_mock_suspect_2',
-        propertyTitle: 'Appartement Moderne 3 Ch Limete',
-        agentId: 'agent_fake_2',
-        reporterName: 'Clarisse Tshala',
-        reporterContact: '+243 99 876 5432',
-        reason: 'stolen_photos',
-        reasonLabel: 'Photos volées ou non réelles',
-        comment: 'Photos copiées d\'un projet hôtelier étranger.',
-        createdAt: '2026-10-03T14:15:00.000Z',
-        status: 'pending'
-      }
-    ];
+    return [];
   });
 
   const saveReportsLocally = (newList: PropertyUserReport[]) => {
@@ -554,114 +518,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return JSON.parse(saved);
       }
     } catch {}
-
-    // Vidéos initiales approuvées reliées aux annonces réelles de Kinshasa
-    return [
-      {
-        id: 'vid_demo_1',
-        propertyId: 'prop_1',
-        userId: 'agent_1',
-        videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-modern-luxury-house-patio-and-pool-walkthrough-40541-large.mp4',
-        thumbnailUrl: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&auto=format&fit=crop&q=80',
-        description: 'Visite guidée immersive de la villa d\'exception avec piscine à Ngaliema Macampagne.',
-        status: 'approved',
-        viewsCount: 1420,
-        createdAt: '2026-10-01T10:00:00Z',
-        updatedAt: '2026-10-01T10:00:00Z',
-        propertyTitle: 'Villa Diplomatique Haute Sécurité avec Piscine',
-        propertyPrice: 1250000,
-        propertyCurrency: 'USD',
-        propertyCommune: 'Ngaliema',
-        propertyQuartier: 'Macampagne',
-        propertyType: 'villa',
-        propertyStatus: 'for-sale',
-        propertyBedrooms: 5,
-        propertyBathrooms: 4,
-        agentName: 'Dieudonné Mwamba',
-        agencyName: 'Congo Luxury Homes',
-        agentPhone: '+243 81 000 0001',
-        agentWhatsapp: '+243 81 000 0001',
-        agentVerified: true
-      },
-      {
-        id: 'vid_demo_2',
-        propertyId: 'prop_2',
-        userId: 'agent_1',
-        videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-interior-of-a-modern-living-room-with-large-windows-41584-large.mp4',
-        thumbnailUrl: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&auto=format&fit=crop&q=80',
-        description: 'Magnifique duplex avec vue imprenable sur le Fleuve Congo à Gombe.',
-        status: 'approved',
-        viewsCount: 890,
-        createdAt: '2026-10-03T11:20:00Z',
-        updatedAt: '2026-10-03T11:20:00Z',
-        propertyTitle: 'Appartement Haut Standing Vue Fleuve',
-        propertyPrice: 3500,
-        propertyCurrency: 'USD',
-        propertyCommune: 'Gombe',
-        propertyQuartier: 'Centre des Affaires',
-        propertyType: 'apartment',
-        propertyStatus: 'for-rent',
-        propertyBedrooms: 3,
-        propertyBathrooms: 2,
-        agentName: 'Patrick Kalombo',
-        agencyName: 'Immo Kin Gombe SARL',
-        agentPhone: '+243 82 123 4567',
-        agentWhatsapp: '+243 82 123 4567',
-        agentVerified: true
-      },
-      {
-        id: 'vid_demo_3',
-        propertyId: 'prop_3',
-        userId: 'agent_2',
-        videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-luxury-home-interior-with-modern-furniture-41589-large.mp4',
-        thumbnailUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&auto=format&fit=crop&q=80',
-        description: 'Résidence moderne et lumineuse à Mont Fleuri avec autonomie solaire intégrale.',
-        status: 'approved',
-        viewsCount: 654,
-        createdAt: '2026-10-05T09:15:00Z',
-        updatedAt: '2026-10-05T09:15:00Z',
-        propertyTitle: 'Résidence Contemporaine Mont Fleuri',
-        propertyPrice: 780000,
-        propertyCurrency: 'USD',
-        propertyCommune: 'Ngaliema',
-        propertyQuartier: 'Mont Fleuri',
-        propertyType: 'villa',
-        propertyStatus: 'for-sale',
-        propertyBedrooms: 4,
-        propertyBathrooms: 3,
-        agentName: 'Dieudonné Mwamba',
-        agencyName: 'Congo Luxury Homes',
-        agentPhone: '+243 81 000 0001',
-        agentWhatsapp: '+243 81 000 0001',
-        agentVerified: true
-      },
-      {
-        id: 'vid_demo_4',
-        propertyId: 'prop_4',
-        userId: 'agent_2',
-        videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-moving-through-a-corridor-in-a-modern-house-41586-large.mp4',
-        thumbnailUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&auto=format&fit=crop&q=80',
-        description: 'Maison familiale sécurisée avec grand jardin et forage à Limete Résidentiel.',
-        status: 'approved',
-        viewsCount: 420,
-        createdAt: '2026-10-07T14:40:00Z',
-        updatedAt: '2026-10-07T14:40:00Z',
-        propertyTitle: 'Maison Familiale Jardin & Forage',
-        propertyPrice: 2200,
-        propertyCurrency: 'USD',
-        propertyCommune: 'Limete',
-        propertyQuartier: 'Résidentiel',
-        propertyType: 'house',
-        propertyStatus: 'for-rent',
-        propertyBedrooms: 4,
-        propertyBathrooms: 3,
-        agentName: 'Patrick Kalombo',
-        agencyName: 'Immo Kin Gombe SARL',
-        agentPhone: '+243 82 123 4567',
-        agentWhatsapp: '+243 82 123 4567',
-        agentVerified: true
-      }
-    ];
+    return [];
   });
 
   const saveVideosLocally = (videos: PropertyVideo[]) => {
@@ -1069,34 +926,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubAgents = subscribeToAgents((firestoreAgents) => {
-      if (Array.isArray(firestoreAgents) && firestoreAgents.length > 0) {
+      if (Array.isArray(firestoreAgents)) {
         setAgents(firestoreAgents);
-        try {
-          syncFirestoreAgentsToAuthStore(firestoreAgents);
-        } catch (e) {
-          console.error('Error syncing firestore agents to auth store:', e);
-        }
-      } else {
-        setAgents((prev) => (prev && prev.length > 0 ? prev : initialAgents));
       }
     });
 
     const unsubAgencies = subscribeToAgencies((firestoreAgencies) => {
-      if (Array.isArray(firestoreAgencies) && firestoreAgencies.length > 0) {
+      if (Array.isArray(firestoreAgencies)) {
         setAgencies(firestoreAgencies);
-      } else {
-        setAgencies((prev) => (prev && prev.length > 0 ? prev : initialAgencies));
       }
     });
 
     const unsubUsers = subscribeToUsers((firestoreUsers) => {
-      if (Array.isArray(firestoreUsers) && firestoreUsers.length > 0) {
+      if (Array.isArray(firestoreUsers)) {
         setAllUsers(firestoreUsers);
-        try {
-          syncFirestoreUsersToAuthStore(firestoreUsers);
-        } catch (e) {
-          console.error('Error syncing firestore users to auth store:', e);
-        }
       }
     });
 

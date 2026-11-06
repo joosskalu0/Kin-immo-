@@ -522,93 +522,22 @@ export const AuthModal: React.FC = () => {
         }, 500);
       }
     } else {
-      // STRICT LOGIN MODE
-      if (method === 'email') {
-        try {
-          const authedFbUser = await loginWithFirebaseEmailPassword(
-            email.trim(),
-            password.trim(),
-            role,
-            agencyName
-          );
-          setIsLoading(false);
-          completeAuthentication(authedFbUser, `Connexion réussie ! Bienvenue ${authedFbUser.name}`);
-          return;
-        } catch (loginErr: any) {
-          console.warn('Login fallback check:', loginErr?.code, loginErr?.message);
-
-          const code = loginErr?.code || '';
-          const msg = loginErr?.message || '';
-
-          // If password was wrong or admin PIN was invalid, stop immediately with explicit error
-          if (
-            code === 'auth/wrong-password' ||
-            code === 'auth/invalid-credential' ||
-            msg.includes('incorrect') ||
-            msg.includes('Code PIN')
-          ) {
-            setIsLoading(false);
-            setError(formatAuthErrorMessage(loginErr, 'login'));
-            return;
-          }
-
-          // Too many failed attempts
-          if (code === 'auth/too-many-requests' || msg.includes('too-many-requests')) {
-            setIsLoading(false);
-            setError(formatAuthErrorMessage(loginErr, 'login'));
-            return;
-          }
-
-          // Check in-memory store for admin PIN or pre-seeded credentials
-          const identifier = email.trim();
-          const authResult = authenticateUser(identifier, password, method);
-          if (authResult.success && authResult.user) {
-            setIsLoading(false);
-            const targetUser = authResult.user;
-            if (targetUser.twoFactorEnabled) {
-              setPendingUser(targetUser);
-              setStep('2fa_challenge');
-            } else {
-              completeAuthentication(targetUser, 'Connexion réussie !');
-            }
-            return;
-          }
-
-          setIsLoading(false);
-          // Explicit error message display on failure
-          const explicitMsg = formatAuthErrorMessage(
-            authResult.error || loginErr,
-            'login'
-          );
-          setError(explicitMsg);
-          return;
-        }
-      } else {
-        // Phone login
-        setTimeout(() => {
-          setIsLoading(false);
-          const identifier = phone.trim();
-          const authResult = authenticateUser(identifier, password, method);
-
-          if (!authResult.success) {
-            setError(
-              formatAuthErrorMessage(
-                authResult.error || 'Numéro de téléphone ou mot de passe incorrect.',
-                'login'
-              )
-            );
-            return;
-          }
-
-          const targetUser = authResult.user!;
-          setPendingUser(targetUser);
-
-          if (targetUser.twoFactorEnabled) {
-            setStep('2fa_challenge');
-          } else {
-            completeAuthentication(targetUser, 'Connexion réussie !');
-          }
-        }, 500);
+      // STRICT LOGIN MODE (100% BASE DE DONNÉES MYSQL)
+      const identifier = method === 'email' ? email.trim() : phone.trim();
+      try {
+        const authedUser = await loginWithFirebaseEmailPassword(
+          identifier,
+          password.trim(),
+          role,
+          agencyName
+        );
+        setIsLoading(false);
+        completeAuthentication(authedUser, `Connexion réussie ! Bienvenue ${authedUser.name}`);
+        return;
+      } catch (loginErr: any) {
+        setIsLoading(false);
+        setError(loginErr?.message || 'Identifiants incorrects. Veuillez vérifier votre adresse e-mail ou numéro et votre mot de passe.');
+        return;
       }
     }
   };
