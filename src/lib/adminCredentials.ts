@@ -7,11 +7,11 @@ export interface AdminCredentials {
 }
 
 export const DEFAULT_ADMIN_CREDENTIALS: AdminCredentials = {
-  name: 'Administrateur Système',
-  email: 'joosskalu72@gmail.com',
-  phone: '+243 84 529 4616',
-  agencyName: 'Kin Immobilier RDC (Admin)',
-  pin: 'kalu2002jooss',
+  name: 'Direction Kinimmo',
+  email: '',
+  phone: '',
+  agencyName: 'Kinimmo RDC',
+  pin: '',
 };
 
 let inMemoryAdminCredentials: AdminCredentials = { ...DEFAULT_ADMIN_CREDENTIALS };
@@ -31,6 +31,6 @@ export const saveAdminCredentials = (creds: Partial<AdminCredentials>): AdminCre
 export const verifyAdminPin = (inputPin: string): boolean => {
   const currentCreds = getAdminCredentials();
   const trimmed = inputPin.trim();
-  // Strictly match current configured PIN or kalu2002jooss
-  return trimmed === currentCreds.pin || trimmed === 'kalu2002jooss';
+  if (!currentCreds.pin) return false;
+  return trimmed === currentCreds.pin;
 };

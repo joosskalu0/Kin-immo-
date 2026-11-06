@@ -104,22 +104,8 @@ export const AdminBillingManager: React.FC = () => {
 
   // Combined targets: registered users (nouveaux venus) + demo agents (excluding administrators)
   const isAdministrator = (email?: string, name?: string, role?: string, id?: string) => {
-    const emailLower = (email || '').toLowerCase();
-    const nameLower = (name || '').toLowerCase();
     const roleLower = (role || '').toLowerCase();
-    const idLower = (id || '').toLowerCase();
-    return (
-      roleLower === 'admin' ||
-      emailLower === 'joosskalu72@gmail.com' ||
-      emailLower === 'admin@immocraft.cd' ||
-      emailLower === 'admin@estatik.com' ||
-      idLower === 'usr_admin_001' ||
-      idLower === 'user_admin' ||
-      idLower === 'admin' ||
-      nameLower.includes('administrateur') ||
-      nameLower === 'admin' ||
-      nameLower === 'admin immocraft'
-    );
+    return roleLower === 'admin';
   };
 
   const combinedAgentTargets = [
@@ -1379,7 +1365,7 @@ export const AdminBillingManager: React.FC = () => {
                   <p className="text-[11px] text-slate-500 mt-2 leading-tight">
                     Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC<br />
                     RCCM: CD/KIN/RCCM/20-B-04921 • ID.NAT: 01-93-N39201F<br />
-                    Tél: +243 84 529 4616 • joosskalu72@gmail.com
+                    Tél: +243 81 000 0000 • contact@kinimmo.com
                   </p>
                 </div>
 

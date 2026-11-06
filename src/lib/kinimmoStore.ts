@@ -15,7 +15,6 @@ import {
   Invoice,
   SubscriptionPlan
 } from '../types';
-import { getAdminCredentials, verifyAdminPin } from './adminCredentials';
 import {
   initialProperties,
   initialCustomFields,
@@ -494,14 +493,7 @@ export async function verifyUserAdminInStore(
     };
   }
 
-  const cleanEmail = user.email.trim().toLowerCase();
-  const adminCreds = getAdminCredentials();
-  const isAdminEmail =
-    cleanEmail === adminCreds.email.toLowerCase() ||
-    cleanEmail === 'joosskalu72@gmail.com' ||
-    cleanEmail === 'admin@kin-immobilier.cd';
-
-  if (user.role === 'admin' || isAdminEmail) {
+  if (user.role === 'admin') {
     return {
       isAdmin: true,
       source: 'database_user_doc',

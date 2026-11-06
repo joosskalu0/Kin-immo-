@@ -110,8 +110,8 @@ export const AdminUserPasswordsManager: React.FC = () => {
   };
 
   const generateWhatsappMessage = (targetUser: User): string => {
-    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://immocraft-kinshasa.com';
-    const pwd = targetUser.password || targetUser.accessPin || 'kalu2002jooss';
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://kinimmo.com';
+    const pwd = targetUser.password || targetUser.accessPin || '********';
     return `Bonjour ${targetUser.name},\n\nVoici vos identifiants pour vous connecter à votre compte Immocraft Kinshasa :\n\n📧 Adresse E-mail : ${targetUser.email}\n🔑 Mot de passe : ${pwd}\n🌐 Accès Direct : ${currentOrigin}\n\nEn cas de besoin, l'assistance technique reste à votre entière disposition !`;
   };
 
@@ -382,7 +382,7 @@ export const AdminUserPasswordsManager: React.FC = () => {
               ) : (
                 filteredUsers.map((u) => {
                   const isVisible = visiblePasswords[u.id] || false;
-                  const passwordToDisplay = u.password || u.accessPin || (u.role === 'admin' ? 'kalu2002jooss' : 'Kinshasa@2026');
+                  const passwordToDisplay = u.password || u.accessPin || '••••••••';
                   const isCopied = copiedId === u.id;
                   const isWhatsappCopied = copiedWhatsappId === u.id;
 

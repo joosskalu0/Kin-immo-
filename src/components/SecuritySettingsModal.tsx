@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { verifyAdminPin } from '../lib/adminCredentials';
 import { updateAccountPassword } from '../lib/authStore';
 import {
   X,
@@ -135,23 +134,13 @@ export const SecuritySettingsModal: React.FC = () => {
 
     setPwdSubmitting(true);
     try {
-      if (user.role === 'admin') {
-        if (!verifyAdminPin(cClean)) {
-          setErrorMsg('Le mot de passe administrateur actuel est incorrect.');
-          setPwdSubmitting(false);
-          return;
-        }
-        await updateAdminPin(nClean);
-        setSuccessMsg('Nouveau mot de passe secret administrateur enregistré avec succès !');
-      } else {
-        const updateResult = updateAccountPassword(user.email || user.id, cClean, nClean);
-        if (!updateResult.success) {
-          setErrorMsg(updateResult.error || 'Le mot de passe actuel est incorrect.');
-          setPwdSubmitting(false);
-          return;
-        }
-        setSuccessMsg('Votre mot de passe a été mis à jour avec succès !');
+      const updateResult = updateAccountPassword(user.email || user.id, cClean, nClean);
+      if (!updateResult.success) {
+        setErrorMsg(updateResult.error || 'Le mot de passe actuel est incorrect.');
+        setPwdSubmitting(false);
+        return;
       }
+      setSuccessMsg('Votre mot de passe a été mis à jour avec succès !');
 
       setCurrPwd('');
       setNewPwd('');

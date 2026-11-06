@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { getAdminCredentials, verifyAdminPin } from '../lib/adminCredentials';
 import {
   X,
   Mail,
@@ -137,21 +136,13 @@ export const formatAuthErrorMessage = (
     return "Le fournisseur d'authentification e-mail / mot de passe est momentanément indisponible. Vous pouvez utiliser le bouton 'Continuer avec Google'.";
   }
 
-  // 10. Admin PIN and custom explicit messages (with sensitive keyword scrub)
-  if (rawMsg.includes('PIN') || rawMsg.includes('Administrateur')) {
-    if (rawMsg.includes('kalu2002jooss') || rawMsg.includes('code PIN configuré')) {
-      return "Mot de passe ou Code PIN Administrateur incorrect. Veuillez vérifier vos accès sécurisés.";
-    }
-    return rawMsg.replace(/kalu2002jooss/gi, '******');
-  }
-
   if (
     rawMsg.includes('Mot de passe') ||
     rawMsg.includes('incorrect') ||
     rawMsg.includes('introuvable') ||
     rawMsg.includes('téléphone')
   ) {
-    return rawMsg.replace(/kalu2002jooss/gi, '******');
+    return 'Identifiant ou mot de passe incorrect. Veuillez vérifier vos accès.';
   }
 
   // Nettoyer les préfixes d'erreurs éventuels
@@ -187,9 +178,8 @@ export const AuthModal: React.FC = () => {
   const [method, setMethod] = useState<'email' | 'phone'>('email');
   
   // Steps in Auth Modal
-  // 'form' -> 'email_verify' or 'phone_verify' -> '2fa_challenge' -> '2fa_setup' -> 'admin_pin' -> 'google_prompt'
-  const [step, setStep] = useState<'form' | 'email_verify' | 'phone_verify' | '2fa_challenge' | '2fa_setup' | 'admin_pin' | 'google_prompt'>('form');
-  const [adminPinInput, setAdminPinInput] = useState('');
+  // 'form' -> 'email_verify' or 'phone_verify' -> '2fa_challenge' -> '2fa_setup' -> 'google_prompt'
+  const [step, setStep] = useState<'form' | 'email_verify' | 'phone_verify' | '2fa_challenge' | '2fa_setup' | 'google_prompt'>('form');
   
   // Form fields
   const [email, setEmail] = useState('');
@@ -383,42 +373,6 @@ export const AuthModal: React.FC = () => {
     }, 600);
   };
 
-  // Direct Admin Login Helper
-  const handleAdminLogin = () => {
-    if (isLoading) return; // Prevent duplicate clicks
-    setIsLoading(true);
-    setError(null);
-    setTimeout(() => {
-      const creds = getAdminCredentials();
-      const adminUserObj: User = {
-        id: 'usr_admin_001',
-        name: creds.name,
-        email: creds.email,
-        phone: creds.phone,
-        role: 'admin',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-        agencyName: creds.agencyName,
-        rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-        planId: 'pro',
-        isVerified: true,
-        emailVerified: true,
-        phoneVerified: true,
-        twoFactorEnabled: false,
-        kinshasaBadgeVerified: true,
-        lastLoginLocation: 'Kinshasa (Gombe), RDC',
-        createdAt: new Date().toISOString(),
-      };
-
-      setUser(adminUserObj);
-      setIsLoading(false);
-      setSuccessMessage('Connexion réussie en tant qu\'Administrateur Système !');
-      setTimeout(() => {
-        setIsAuthModalOpen(false);
-        setSuccessMessage(null);
-        resetState();
-      }, 1000);
-    }, 500);
-  };
 
   const resetState = () => {
     setStep('form');
@@ -775,7 +729,6 @@ export const AuthModal: React.FC = () => {
             {step === 'phone_verify' && 'Vérification Téléphone +243'}
             {step === '2fa_challenge' && 'Double Authentification (2FA)'}
             {step === '2fa_setup' && 'Activer la Double Authentification'}
-            {step === 'admin_pin' && 'Zone Administrateur Protégée'}
           </h3>
           <p className="text-xs text-slate-400 mt-1">
             {step === 'form' && (mode === 'login'
@@ -785,7 +738,6 @@ export const AuthModal: React.FC = () => {
             {step === 'phone_verify' && `SMS/WhatsApp de confirmation envoyé au ${phone}`}
             {step === '2fa_challenge' && 'Entrez le code de sécurité pour déverrouiller votre session'}
             {step === '2fa_setup' && 'Scannez le QR code avec Google Authenticator ou Authy'}
-            {step === 'admin_pin' && 'Entrez votre code PIN secret d\'administration'}
           </p>
         </div>
 
@@ -1610,117 +1562,11 @@ export const AuthModal: React.FC = () => {
                 <span>← Retourner à l'Accueil du Site</span>
               </button>
 
-              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                <span>ESTATIK ® Kinshasa</span>
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={() => {
-                    setStep('admin_pin');
-                    setError(null);
-                    setAdminPinInput('');
-                  }}
-                  className="flex items-center gap-1.5 text-slate-500 hover:text-amber-400 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Lock className="w-3 h-3 text-slate-500 hover:text-amber-400" />
-                  <span>Accès Protégé (PIN)</span>
-                </button>
+              <div className="flex items-center justify-center text-[11px] text-slate-500 pt-1">
+                <span>KINIMMO ® Kinshasa Immobilier</span>
               </div>
             </div>
           </>
-        )}
-
-        {/* ADMIN PIN UNLOCK STEP */}
-        {step === 'admin_pin' && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (isLoading) return;
-              if (verifyAdminPin(adminPinInput)) {
-                handleAdminLogin();
-              } else {
-                setError('Code PIN Administrateur incorrect. Accès refusé.');
-              }
-            }}
-            autoComplete="off"
-            className="space-y-4 py-2"
-          >
-            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-3">
-              <Lock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold text-amber-200 text-sm">Zone Administrateur Sécurisée</p>
-                <p className="text-[11px] text-amber-300/80 mt-0.5">
-                  Saisissez votre code PIN secret d'administration pour déverrouiller la session système.
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Code PIN Secret Administrateur
-              </label>
-              <input
-                type="password"
-                maxLength={20}
-                required
-                disabled={isLoading}
-                autoComplete="new-password"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                data-lpignore="true"
-                value={adminPinInput}
-                onChange={(e) => {
-                  setAdminPinInput(e.target.value);
-                  if (error) setError(null);
-                }}
-                placeholder="••••"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-center text-xl font-mono text-emerald-400 tracking-[0.5em] focus:outline-none focus:border-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                autoFocus
-              />
-            </div>
-
-            <div className="flex gap-2.5 pt-2">
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => {
-                  setStep('form');
-                  setError(null);
-                }}
-                className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Retour
-              </button>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:opacity-90 text-slate-950 text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
-                    <span>Déverrouillage...</span>
-                  </span>
-                ) : (
-                  <>
-                    <ShieldCheck className="w-4 h-4 text-slate-950" />
-                    <span>Déverrouiller Admin</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            <button
-              type="button"
-              disabled={isLoading}
-              onClick={handleReturnHome}
-              className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 pt-2 flex items-center justify-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
-            >
-              <Home className="w-3.5 h-3.5" />
-              <span>← Retourner à l'Accueil</span>
-            </button>
-          </form>
         )}
 
         {/* GOOGLE DIRECT AUTHENTICATION STEP */}

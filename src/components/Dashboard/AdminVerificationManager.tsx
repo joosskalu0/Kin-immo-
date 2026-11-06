@@ -70,18 +70,8 @@ export const AdminVerificationManager: React.FC = () => {
     const map = new Map<string, Agent>();
 
     const isAdministrator = (email?: string, name?: string, role?: string, id?: string) => {
-      const emailLower = (email || '').toLowerCase();
-      const nameLower = (name || '').toLowerCase();
       const roleLower = (role || '').toLowerCase();
-      const idLower = (id || '').toLowerCase();
-      // Only filter out dedicated system admin accounts, never real user or agent accounts
-      return (
-        idLower === 'usr_admin_001' ||
-        idLower === 'user_admin' ||
-        emailLower === 'admin@immocraft.cd' ||
-        emailLower === 'admin@estatik.com' ||
-        (nameLower.includes('administrateur système') && roleLower === 'admin')
-      );
+      return roleLower === 'admin';
     };
 
     // Add agents from state (excluding any admin)

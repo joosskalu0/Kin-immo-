@@ -61,7 +61,7 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
     setIsInviteModalOpen,
   } = useApp();
 
-  const isAdmin = user?.role === 'admin' || user?.email === 'joosskalu72@gmail.com' || (user as any)?.isAdmin;
+  const isAdmin = user?.role === 'admin' || (user as any)?.isAdmin;
 
   const [activeTab, setActiveTab] = useState<'agents' | 'agencies'>(initialTab);
 
@@ -84,18 +84,8 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
     const map = new Map<string, Agent>();
 
     const isAdministrator = (email?: string, name?: string, role?: string, id?: string) => {
-      const emailLower = (email || '').toLowerCase();
-      const nameLower = (name || '').toLowerCase();
       const roleLower = (role || '').toLowerCase();
-      const idLower = (id || '').toLowerCase();
-      // Only filter out the dedicated system admin accounts, never real user or agent accounts
-      return (
-        idLower === 'usr_admin_001' ||
-        idLower === 'user_admin' ||
-        emailLower === 'admin@immocraft.cd' ||
-        emailLower === 'admin@estatik.com' ||
-        (nameLower.includes('administrateur système') && roleLower === 'admin')
-      );
+      return roleLower === 'admin';
     };
 
     // 1. Add explicitly created agents (excluding any admin)

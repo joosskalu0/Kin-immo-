@@ -865,7 +865,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [adminPin, setAdminPinState] = useState<string>(() => {
     const creds = getAdminCredentials();
-    return creds.pin || 'kalu2002jooss';
+    return creds.pin || '';
   });
 
   const updateAdminPin = async (newPin: string) => {

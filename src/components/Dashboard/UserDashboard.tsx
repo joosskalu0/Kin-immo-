@@ -25,7 +25,6 @@ import { AdminMonetizationManager } from '../Admin/AdminMonetizationManager';
 import { VisibilityBoostModal } from '../Monetization/VisibilityBoostModal';
 import { AdminFraudModerationManager } from '../Admin/AdminFraudModerationManager';
 import { AdminVideosModerationManager } from '../Admin/AdminVideosModerationManager';
-import { getAdminCredentials, verifyAdminPin } from '../../lib/adminCredentials';
 import {
   saveUserToFirestore,
   verifyUserAdminInFirestore,
@@ -307,12 +306,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       (user?.phone && inv.targetPhone && inv.targetPhone.replace(/\s+/g, '').includes(user.phone.replace(/\s+/g, '')))
   );
 
-  // Admin PIN Protection State
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState<string | null>(null);
-  const [isPinVerifying, setIsPinVerifying] = useState(false);
-
   // Profile photo upload from gallery
   const profilePhotoInputRef = useRef<HTMLInputElement>(null);
   const [photoUploadSuccess, setPhotoUploadSuccess] = useState(false);
@@ -345,62 +338,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
       }
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleVerifyAdminPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verifyAdminPin(pinInput)) {
-      setPinError('Code PIN Administrateur incorrect. Accès refusé.');
-      return;
-    }
-
-    setIsPinVerifying(true);
-    setPinError(null);
-    try {
-      await handleSwitchToAdmin();
-      setShowPinModal(false);
-      setPinInput('');
-    } catch (err: any) {
-      setPinError(err?.message || "Erreur de validation du compte administrateur dans la base de données.");
-    } finally {
-      setIsPinVerifying(false);
-    }
-  };
-
-  const handleSwitchToAdmin = async () => {
-    const creds = getAdminCredentials();
-    const adminProfile: User = {
-      id: 'usr_admin_001',
-      name: creds.name,
-      email: creds.email,
-      phone: creds.phone,
-      role: 'admin',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      agencyName: creds.agencyName,
-      rccmOrNif: 'CD/KIN/RCCM/20-B-04921',
-      planId: 'pro',
-      isVerified: true,
-      emailVerified: true,
-      phoneVerified: true,
-      twoFactorEnabled: false,
-      kinshasaBadgeVerified: true,
-      lastLoginLocation: 'Kinshasa (Gombe), RDC',
-      createdAt: new Date().toISOString(),
-    };
-
-    // 1. Persister dans la base de données
-    await saveUserToFirestore(adminProfile);
-
-    // 2. Vérifier le profil administrateur
-    const verification = await verifyUserAdminInFirestore(adminProfile);
-    if (!verification.isAdmin) {
-      throw new Error("Échec d'enregistrement ou de validation des droits administrateur.");
-    }
-
-    setUser(adminProfile);
-    setIsFirestoreAdminVerified(true);
-    setAdminVerificationDetails(verification);
-    setActiveTab('admin_settings');
   };
 
   // If not logged in at all
@@ -441,91 +378,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
             <span>Se Connecter / Formulaire Authentification</span>
           </button>
 
-          <button
-            onClick={() => {
-              setPinInput('');
-              setPinError(null);
-              setShowPinModal(true);
-            }}
-            className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all flex items-center justify-center gap-2"
-          >
-            <Lock className="w-4 h-4 text-amber-400" />
-            <span>Accès Administrateur Protégé (PIN)</span>
-          </button>
         </div>
-
-        {/* PIN PROMPT MODAL FOR UNLOGGED USER */}
-        {showPinModal && (
-          <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 relative shadow-2xl text-left space-y-4">
-              <button
-                onClick={() => setShowPinModal(false)}
-                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                  <Lock className="w-6 h-6" />
-                </div>
-                <div>
-                  <h4 className="text-base font-black text-white">Déverrouillage Administrateur</h4>
-                  <p className="text-xs text-slate-400">Saisissez votre code PIN d'administration secret</p>
-                </div>
-              </div>
-
-              {pinError && (
-                <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs">
-                  {pinError}
-                </div>
-              )}
-
-              <form onSubmit={handleVerifyAdminPin} autoComplete="off" className="space-y-4 pt-2">
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                    Code PIN Secret Administrateur
-                  </label>
-                  <input
-                    type="password"
-                    maxLength={20}
-                    required
-                    autoComplete="new-password"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    data-lpignore="true"
-                    value={pinInput}
-                    onChange={(e) => {
-                      setPinInput(e.target.value);
-                      if (pinError) setPinError(null);
-                    }}
-                    placeholder="••••"
-                    className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-center text-2xl font-mono text-emerald-400 tracking-[0.5em] focus:outline-none focus:border-emerald-500"
-                    autoFocus
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowPinModal(false)}
-                    className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
-                  >
-                    Annuler
-                  </button>
-                  <button
-                    type="submit"
-                    className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-black text-xs hover:opacity-90 flex items-center justify-center gap-2 shadow-lg"
-                  >
-                    <ShieldCheck className="w-4 h-4 text-slate-950" />
-                    <span>Valider Code PIN</span>
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -813,17 +666,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
 
           {!isAdmin && (
             <>
-              <button
-                onClick={() => {
-                  setPinInput('');
-                  setPinError(null);
-                  setShowPinModal(true);
-                }}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 shadow-md flex items-center gap-2 transition-all"
-              >
-                <Lock className="w-4 h-4 text-amber-400" />
-                <span>Passer Administrateur (PIN)</span>
-              </button>
 
               {/* Strict Role Segregation: Agent sees ONLY Agent space, Agency sees ONLY Agency space */}
               {user?.role === 'agent' && (

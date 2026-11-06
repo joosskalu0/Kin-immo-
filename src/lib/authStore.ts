@@ -1,5 +1,4 @@
 import { User, Agent, Agency } from '../types';
-import { getAdminCredentials, verifyAdminPin } from './adminCredentials';
 import { initialAgents, initialAgencies } from '../data/mockData';
 
 export interface StoredUserAccount extends User {
@@ -232,7 +231,6 @@ export const authenticateUser = (
 ): { success: boolean; user?: StoredUserAccount; error?: string } => {
   const trimmedId = identifier.trim().toLowerCase();
   const trimmedPwd = inputPassword.trim();
-  const adminCreds = getAdminCredentials();
 
   if (!trimmedId) {
     return {
