@@ -373,8 +373,33 @@ export const PropertyFormModal: React.FC = () => {
     );
   };
 
+  const handleNextStep = () => {
+    setSubmitError(null);
+    if (step === 1) {
+      if (!title || !title.trim()) {
+        setSubmitError("Veuillez renseigner le titre de l'annonce avant de passer à l'étape suivante.");
+        return;
+      }
+      if (!price || Number(price) <= 0) {
+        setSubmitError("Veuillez indiquer un prix valide supérieur à 0 USD.");
+        return;
+      }
+      if (!description || !description.trim()) {
+        setSubmitError("Veuillez rédiger une brève description du bien.");
+        return;
+      }
+    } else if (step === 2) {
+      if (!commune || !commune.trim()) {
+        setSubmitError("Veuillez sélectionner la commune à Kinshasa.");
+        return;
+      }
+    }
+    setStep((s) => Math.min(5, s + 1));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
 
     // Règle métier : la publication d'un bien est strictement réservée aux utilisateurs connectés
     if (!user) {
@@ -382,6 +407,32 @@ export const PropertyFormModal: React.FC = () => {
       setIsAuthModalOpen(true);
       return;
     }
+
+    if (!title || !title.trim()) {
+      setSubmitError("Le titre de l'annonce est obligatoire.");
+      setStep(1);
+      return;
+    }
+
+    if (!price || Number(price) <= 0) {
+      setSubmitError("Le prix de l'annonce doit être supérieur à zéro.");
+      setStep(1);
+      return;
+    }
+
+    if (!description || !description.trim()) {
+      setSubmitError("La description de l'annonce est obligatoire.");
+      setStep(1);
+      return;
+    }
+
+    if (!commune || !commune.trim()) {
+      setSubmitError("Veuillez sélectionner la commune de localisation.");
+      setStep(2);
+      return;
+    }
+
+    setIsSubmitting(true);
 
     const propertyData: Property = {
       id: editingProperty ? editingProperty.id : `prop_${Date.now()}`,
@@ -551,7 +602,7 @@ export const PropertyFormModal: React.FC = () => {
         </div>
 
         {/* Body Form */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1 space-y-6 text-xs">
+        <form onSubmit={handleSubmit} noValidate className="p-6 overflow-y-auto flex-1 space-y-6 text-xs">
           {/* STEP 1: General Info */}
           {step === 1 && (
             <div className="space-y-4">
@@ -561,10 +612,9 @@ export const PropertyFormModal: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="ex: Penthouse d'Exception avec Vue Tour Eiffel"
+                  placeholder="ex: Penthouse d'Exception avec Vue Fleuve Congo"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -575,7 +625,6 @@ export const PropertyFormModal: React.FC = () => {
                 </label>
                 <textarea
                   rows={4}
-                  required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Rédigez une description attrayante décrivant la propriété, son exposition et ses finitions..."
@@ -586,11 +635,10 @@ export const PropertyFormModal: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block font-semibold text-slate-300 mb-1">
-                    Prix *
+                    Prix (USD) *
                   </label>
                   <input
                     type="number"
-                    required
                     value={isNaN(price) ? '' : price}
                     onChange={(e) => {
                       const val = Number(e.target.value);
@@ -696,7 +744,6 @@ export const PropertyFormModal: React.FC = () => {
                   )}
                 </div>
                 <select
-                  required
                   value={commune}
                   onChange={(e) => {
                     const newCommune = e.target.value;
@@ -769,7 +816,6 @@ export const PropertyFormModal: React.FC = () => {
                     {(!getQuartiersForCommune(commune).includes(quartier) || quartier === '') && (
                       <input
                         type="text"
-                        required
                         value={quartier}
                         onChange={(e) => {
                           setQuartier(e.target.value);
@@ -791,7 +837,6 @@ export const PropertyFormModal: React.FC = () => {
                   <div className="space-y-2">
                     <input
                       type="text"
-                      required
                       list="kinshasa-avenues-list"
                       value={avenue}
                       onChange={(e) => {
@@ -855,7 +900,6 @@ export const PropertyFormModal: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  required
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="ex: Avenue des Écuries N° 12, Binza Macampagne, Ngaliema, Kinshasa"
@@ -869,7 +913,6 @@ export const PropertyFormModal: React.FC = () => {
                   <label className="block font-semibold text-slate-300 mb-1">Ville</label>
                   <input
                     type="text"
-                    required
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
@@ -1452,43 +1495,57 @@ export const PropertyFormModal: React.FC = () => {
           )}
 
           {/* Navigation Controls */}
-          <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
-            {step > 1 ? (
-              <button
-                type="button"
-                onClick={() => setStep((s) => Math.max(1, s - 1))}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
-              >
-                ← Précédent
-              </button>
-            ) : (
-              <div />
+          <div className="pt-4 border-t border-slate-800 space-y-3">
+            {submitError && (
+              <div className="p-3.5 bg-red-500/20 border border-red-500/40 rounded-xl text-red-200 text-xs flex items-start gap-2.5 shadow-lg animate-in fade-in duration-200">
+                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-bold text-red-100">Action impossible :</p>
+                  <p className="mt-0.5 text-red-200 font-medium">{submitError}</p>
+                </div>
+              </div>
             )}
 
-            {step < 5 ? (
-              <button
-                type="button"
-                onClick={() => setStep((s) => Math.min(5, s + 1))}
-                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold"
-              >
-                Suivant →
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={isSubmitting || isCompressingImages}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold hover:scale-[1.02] active:scale-95 transition-transform shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>{editingProperty ? 'Mise à jour en cours...' : 'Publication en cours...'}</span>
-                  </>
-                ) : (
-                  <span>{editingProperty ? "Mettre à Jour l'Annonce" : 'Publier la Propriété'}</span>
+            <div className="flex justify-between items-center gap-2">
+              {step > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => Math.max(1, s - 1))}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold cursor-pointer active:scale-95 transition-all text-xs"
+                >
+                  ← Précédent
+                </button>
+              ) : (
+                <div />
+              )}
+
+              <div className="flex items-center gap-2">
+                {step < 5 && (
+                  <button
+                    type="button"
+                    onClick={handleNextStep}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold cursor-pointer active:scale-95 transition-all text-xs"
+                  >
+                    Suivant (Étape {step + 1}/5) →
+                  </button>
                 )}
-              </button>
-            )}
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || isCompressingImages}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold hover:scale-[1.02] active:scale-95 transition-transform shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer text-xs"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{editingProperty ? 'Mise à jour en cours...' : 'Publication en cours...'}</span>
+                    </>
+                  ) : (
+                    <span>{editingProperty ? "Mettre à Jour l'Annonce" : (step < 5 ? 'Publier dès maintenant' : 'Publier la Propriété')}</span>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </form>
       </div>

@@ -26,8 +26,8 @@ function requireRoles(...allowedRoles) {
 // Raccourci pour exiger strictement le rôle Administrateur
 const requireAdmin = requireRoles('admin');
 
-// Raccourci pour les professionnels (Agents, Agences ou Admins)
-const requireProfessional = requireRoles('agent', 'agency', 'admin');
+// Raccourci pour la publication d'annonces (Agents, Agences, Administrateurs, Propriétaires et Particuliers connectés)
+const requireProfessional = requireRoles('agent', 'agency', 'admin', 'owner', 'user');
 
 module.exports = {
   requireRoles,

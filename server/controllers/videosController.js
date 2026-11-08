@@ -46,14 +46,29 @@ class VideosController {
       }
 
       // Requête de comptage total pour pagination
-      const [countResult] = await pool.query(
-        `SELECT COUNT(*) AS total 
-         FROM property_videos pv 
-         INNER JOIN properties p ON pv.property_id = p.id 
-         ${baseWhere}`,
-        countParams
-      );
-      const total = Number(countResult[0]?.total || 0);
+      let total = 0;
+      try {
+        const [countResult] = await pool.query(
+          `SELECT COUNT(*) AS total 
+           FROM property_videos pv 
+           INNER JOIN properties p ON pv.property_id = p.id 
+           ${baseWhere}`,
+          countParams
+        );
+        total = Number(countResult[0]?.total || 0);
+      } catch (tableErr) {
+        if (tableErr.code === 'ER_NO_SUCH_TABLE' || (tableErr.message && tableErr.message.includes("doesn't exist"))) {
+          console.warn('[VideosController] Table property_videos non existante, retour liste vide.');
+          return res.json({
+            success: true,
+            data: {
+              pagination: { page: 1, limit, total: 0, totalPages: 0 },
+              videos: []
+            }
+          });
+        }
+        throw tableErr;
+      }
 
       // Requête des données
       const query = `
@@ -138,6 +153,16 @@ class VideosController {
         }
       });
     } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE' || (error.message && (error.message.includes("doesn't exist") || error.message.includes("n'existe pas")))) {
+        console.warn('[VideosController getApprovedVideos] Table property_videos inexistante, repli liste vide.');
+        return res.json({
+          success: true,
+          data: {
+            pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+            videos: []
+          }
+        });
+      }
       next(error);
     }
   }
@@ -394,6 +419,10 @@ class VideosController {
         }
       });
     } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE' || (error.message && error.message.includes("doesn't exist"))) {
+        console.warn('[VideosController getMyVideos] Table property_videos inexistante, retour liste vide.');
+        return res.json({ success: true, data: { videos: [] } });
+      }
       next(error);
     }
   }
@@ -465,20 +494,59 @@ class VideosController {
 
       const videoId = `vid_${uuidv4()}`;
 
-      await pool.execute(
-        `INSERT INTO property_videos 
-          (id, property_id, user_id, video_url, thumbnail_url, description, status, views_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-        [
-          videoId,
-          propertyId,
-          req.user.id,
-          videoUrl.trim(),
-          thumbnailUrl ? thumbnailUrl.trim() : null,
-          description ? description.trim() : null,
-          targetStatus
-        ]
-      );
+      try {
+        await pool.execute(
+          `INSERT INTO property_videos 
+            (id, property_id, user_id, video_url, thumbnail_url, description, status, views_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+          [
+            videoId,
+            propertyId,
+            req.user.id,
+            videoUrl.trim(),
+            thumbnailUrl ? thumbnailUrl.trim() : null,
+            description ? description.trim() : null,
+            targetStatus
+          ]
+        );
+      } catch (insertErr) {
+        if (insertErr.code === 'ER_NO_SUCH_TABLE' || (insertErr.message && insertErr.message.includes("doesn't exist"))) {
+          console.log('[VideosController] Création automatique de la table property_videos...');
+          await pool.query(`
+            CREATE TABLE IF NOT EXISTS property_videos (
+              id VARCHAR(64) NOT NULL PRIMARY KEY,
+              property_id VARCHAR(64) NOT NULL,
+              user_id VARCHAR(64) NOT NULL,
+              video_url TEXT NOT NULL,
+              thumbnail_url TEXT DEFAULT NULL,
+              description TEXT DEFAULT NULL,
+              status ENUM('draft', 'pending', 'approved', 'rejected', 'hidden') NOT NULL DEFAULT 'pending',
+              views_count INT NOT NULL DEFAULT 0,
+              rejection_reason TEXT DEFAULT NULL,
+              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              INDEX idx_prop_vid_status (status),
+              INDEX idx_prop_vid_prop (property_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+          `);
+          await pool.execute(
+            `INSERT INTO property_videos 
+              (id, property_id, user_id, video_url, thumbnail_url, description, status, views_count)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+            [
+              videoId,
+              propertyId,
+              req.user.id,
+              videoUrl.trim(),
+              thumbnailUrl ? thumbnailUrl.trim() : null,
+              description ? description.trim() : null,
+              targetStatus
+            ]
+          );
+        } else {
+          throw insertErr;
+        }
+      }
 
       res.status(201).json({
         success: true,
@@ -698,6 +766,10 @@ class VideosController {
         }
       });
     } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE' || (error.message && error.message.includes("doesn't exist"))) {
+        console.warn('[VideosController adminGetVideos] Table property_videos inexistante, retour liste vide.');
+        return res.json({ success: true, data: { videos: [] } });
+      }
       next(error);
     }
   }
@@ -838,6 +910,10 @@ class VideosController {
         }
       });
     } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE' || (error.message && error.message.includes("doesn't exist"))) {
+        console.warn('[VideosController adminGetReports] Table property_reports inexistante, retour liste vide.');
+        return res.json({ success: true, data: { reports: [] } });
+      }
       next(error);
     }
   }

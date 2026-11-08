@@ -283,6 +283,40 @@ async function createProperty(req, res, next) {
       }
     }
 
+    // Vérification de sécurité des contraintes de clés étrangères (users & agencies)
+    let validAgentId = null;
+    let validAgencyId = null;
+
+    if (req.user && req.user.id) {
+      try {
+        const [u] = await connection.execute('SELECT id FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+        if (u.length > 0) {
+          validAgentId = req.user.id;
+        } else {
+          // Si l'utilisateur est authentifié par token valide mais manquant en base (ex: table vidée), on restaure son profil
+          const autoName = req.user.name || 'Agent Kinimmo';
+          const autoEmail = req.user.email || `${req.user.id}@kinimmo.com`;
+          const autoRole = req.user.role || 'agent';
+          await connection.execute(
+            'INSERT INTO users (id, name, email, password, role, is_verified) VALUES (?, ?, ?, ?, ?, TRUE)',
+            [req.user.id, autoName, autoEmail, '$2a$10$DUMMY_RESTORED_USER_HASH', autoRole]
+          );
+          validAgentId = req.user.id;
+        }
+      } catch (userCheckErr) {
+        validAgentId = null;
+      }
+    }
+
+    if (req.user && req.user.agency_id) {
+      try {
+        const [ag] = await connection.execute('SELECT id FROM agencies WHERE id = ? LIMIT 1', [req.user.agency_id]);
+        if (ag.length > 0) validAgencyId = req.user.agency_id;
+      } catch (agErr) {
+        validAgencyId = null;
+      }
+    }
+
     // Insertion principale
     await connection.execute(
       `INSERT INTO properties (
@@ -320,8 +354,8 @@ async function createProperty(req, res, next) {
         JSON.stringify(p.customFields || {}),
         p.videoUrl || null,
         p.virtualTourUrl || null,
-        req.user.id,
-        req.user.agency_id || null,
+        validAgentId,
+        validAgencyId,
         Boolean(p.featured)
       ]
     );

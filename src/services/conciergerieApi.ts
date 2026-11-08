@@ -113,7 +113,12 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
 
   // 4. Fallback Durable Local Storage
   try {
-    const sanitized = clientValidation.sanitized;
+    const sanitized = clientValidation.sanitized || {};
+    const client = sanitized.client || {};
+    const localisation = sanitized.localisation || {};
+    const budget = sanitized.budget || {};
+    const caracteristiques = sanitized.caracteristiques || {};
+
     const now = new Date();
     const id = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -123,33 +128,51 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
       id,
       reference,
       user_id: null,
-      full_name: sanitized.client.nom,
-      phone: sanitized.client.telephone,
-      email: sanitized.client.email || '',
-      whatsapp: sanitized.client.telephone,
-      project_type: sanitized.projet,
-      property_type: sanitized.typeBien,
-      commune: sanitized.localisation.communesSouhaitees[0] || 'Gombe',
-      quartier: null,
-      budget_min: sanitized.budget.min || null,
-      budget_max: sanitized.budget.max,
-      currency: sanitized.budget.devise,
-      bedrooms: sanitized.caracteristiques.chambresMin || null,
-      bathrooms: sanitized.caracteristiques.sallesDeBainMin || null,
-      parking: false,
-      furnished: false,
-      services: sanitized.caracteristiques.equipementsSouhaites || [],
-      description: sanitized.caracteristiques.cahierDesCharges || null,
+      full_name: sanitized.full_name || client.nomComplet || client.nom || formData?.full_name || 'Client Kinimmo',
+      phone: sanitized.phone || client.telephone || formData?.phone || '',
+      email: sanitized.email || client.email || formData?.email || '',
+      whatsapp: sanitized.whatsapp || client.whatsapp || formData?.whatsapp || '',
+      project_type: sanitized.project_type || sanitized.projet || formData?.project_type || 'Acheter',
+      property_type: sanitized.property_type || sanitized.typeBien || formData?.property_type || 'Appartement',
+      commune: sanitized.commune || localisation.commune || (Array.isArray(localisation.communesSouhaitees) ? localisation.communesSouhaitees[0] : null) || formData?.commune || 'Gombe',
+      quartier: sanitized.quartier || localisation.quartier || formData?.quartier || null,
+      budget_min: sanitized.budget_min ?? budget.min ?? null,
+      budget_max: sanitized.budget_max ?? budget.max ?? (Number(formData?.budget_max) || 0),
+      currency: sanitized.currency || budget.devise || formData?.currency || 'USD',
+      bedrooms: sanitized.bedrooms ?? caracteristiques.chambres ?? null,
+      bathrooms: sanitized.bathrooms ?? caracteristiques.sallesDeBain ?? null,
+      parking: Boolean(sanitized.parking ?? caracteristiques.parking),
+      furnished: Boolean(sanitized.furnished ?? caracteristiques.meuble),
+      services: sanitized.services || caracteristiques.equipementsSouhaites || [],
+      description: sanitized.description || client.message || caracteristiques.cahierDesCharges || null,
       status: matches.length > 0 && matches[0].score >= 60 ? 'properties_found' : 'new',
       matched_property_ids: matches.map((m) => m.property.id),
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
-      projet: sanitized.projet,
-      typeBien: sanitized.typeBien,
-      localisation: sanitized.localisation,
-      budget: sanitized.budget,
-      caracteristiques: sanitized.caracteristiques,
-      client: sanitized.client,
+      projet: sanitized.projet || sanitized.project_type || 'Acheter',
+      typeBien: sanitized.typeBien || sanitized.property_type || 'Appartement',
+      localisation: {
+        commune: sanitized.commune || localisation.commune || 'Gombe',
+        quartier: sanitized.quartier || localisation.quartier || undefined
+      },
+      budget: {
+        min: sanitized.budget_min ?? budget.min,
+        max: sanitized.budget_max ?? budget.max ?? 0,
+        devise: (sanitized.currency || budget.devise || 'USD') as 'USD' | 'CDF'
+      },
+      caracteristiques: {
+        chambres: sanitized.bedrooms ?? caracteristiques.chambres,
+        sallesDeBain: sanitized.bathrooms ?? caracteristiques.sallesDeBain,
+        parking: Boolean(sanitized.parking ?? caracteristiques.parking),
+        meuble: Boolean(sanitized.furnished ?? caracteristiques.meuble)
+      },
+      client: {
+        nomComplet: sanitized.full_name || client.nomComplet || 'Client Kinimmo',
+        telephone: sanitized.phone || client.telephone || '',
+        whatsapp: sanitized.whatsapp || client.whatsapp || undefined,
+        email: sanitized.email || client.email || '',
+        message: sanitized.description || client.message || undefined
+      },
       createdAt: now.toISOString(),
       updatedAt: now.toISOString()
     };
@@ -164,9 +187,10 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
       matched_properties: matches
     };
   } catch (err: any) {
+    console.error('Concierge fallback error:', err);
     return {
       success: false,
-      error: 'Impossible d\'enregistrer votre demande pour le moment. Veuillez réessayer.'
+      error: err?.message || 'Impossible d\'enregistrer votre demande pour le moment. Veuillez réessayer.'
     };
   }
 }

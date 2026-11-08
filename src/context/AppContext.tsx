@@ -1066,6 +1066,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveDurableLocalProperties(next);
       return next;
     });
+    // Enregistrement direct dans MySQL via l'API REST
+    try {
+      const res = await mysqlApi.createProperty(enrichedProperty);
+      if (!res.success && res.message && !res.message.includes('Impossible de joindre')) {
+        throw new Error(res.message);
+      }
+    } catch (apiErr: any) {
+      if (apiErr.message && !apiErr.message.includes('Impossible de joindre')) {
+        throw apiErr;
+      }
+    }
+
     try {
       await savePropertyToFirestore(enrichedProperty);
     } catch (err) {
@@ -1095,6 +1107,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveDurableLocalProperties(next);
       return next;
     });
+
+    try {
+      const res = await mysqlApi.updateProperty(enrichedProperty.id, enrichedProperty);
+      if (!res.success && res.message && !res.message.includes('Impossible de joindre')) {
+        throw new Error(res.message);
+      }
+    } catch (apiErr: any) {
+      if (apiErr.message && !apiErr.message.includes('Impossible de joindre')) {
+        throw apiErr;
+      }
+    }
+
     try {
       await savePropertyToFirestore(enrichedProperty);
     } catch (err) {

@@ -330,9 +330,14 @@ export async function savePropertyToStore(property: Property) {
 
   // Sync with Express backend
   try {
+    const token = localStorage.getItem('kinimmo_auth_token') || sessionStorage.getItem('kinimmo_auth_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     await fetch(`/api/properties/${property.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(property)
     });
   } catch {}

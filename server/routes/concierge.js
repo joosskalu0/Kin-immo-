@@ -46,10 +46,40 @@ function sanitizeForPublic(row) {
   return clone;
 }
 
+function normalizeConciergeData(data) {
+  if (!data || typeof data !== 'object') return {};
+  const client = data.client || {};
+  const localisation = data.localisation || {};
+  const budget = data.budget || {};
+  const caracteristiques = data.caracteristiques || {};
+
+  return {
+    ...data,
+    full_name: data.full_name || client.nomComplet || client.nom || client.fullName || '',
+    phone: data.phone || client.telephone || client.phone || '',
+    whatsapp: data.whatsapp || client.whatsapp || client.whatsApp || null,
+    email: data.email || client.email || client.adresseEmail || '',
+    project_type: data.project_type || data.projet || '',
+    property_type: data.property_type || data.typeBien || '',
+    commune: data.commune || localisation.commune || (Array.isArray(localisation.communesSouhaitees) ? localisation.communesSouhaitees[0] : '') || '',
+    quartier: data.quartier || localisation.quartier || null,
+    budget_min: data.budget_min !== undefined ? data.budget_min : (budget.min !== undefined ? budget.min : data.budgetMin),
+    budget_max: data.budget_max !== undefined ? data.budget_max : (budget.max !== undefined ? budget.max : data.budgetMax),
+    currency: data.currency || budget.devise || data.devise || 'USD',
+    bedrooms: data.bedrooms !== undefined ? data.bedrooms : (caracteristiques.chambres !== undefined ? caracteristiques.chambres : data.chambres),
+    bathrooms: data.bathrooms !== undefined ? data.bathrooms : (caracteristiques.sallesDeBain !== undefined ? caracteristiques.sallesDeBain : data.sallesDeBain),
+    parking: data.parking !== undefined ? data.parking : caracteristiques.parking,
+    furnished: data.furnished !== undefined ? data.furnished : caracteristiques.meuble,
+    services: data.services || caracteristiques.equipementsSouhaites || [],
+    description: data.description || client.message || client.messageSupplementaire || caracteristiques.cahierDesCharges || null
+  };
+}
+
 /**
  * Validation robuste des entrées de demande
  */
-function validateRequestInput(data) {
+function validateRequestInput(rawInput) {
+  const data = normalizeConciergeData(rawInput);
   const errors = [];
 
   if (!data.full_name || typeof data.full_name !== 'string' || data.full_name.trim().length < 2) {
@@ -81,11 +111,11 @@ function validateRequestInput(data) {
     errors.push('La commune de Kinshasa est obligatoire.');
   }
 
-  if (data.budget_min !== undefined && data.budget_min !== null && Number(data.budget_min) < 0) {
+  if (data.budget_min !== undefined && data.budget_min !== null && data.budget_min !== '' && Number(data.budget_min) < 0) {
     errors.push('Le budget minimum ne peut pas être négatif.');
   }
 
-  if (data.budget_max !== undefined && data.budget_max !== null && Number(data.budget_max) < 0) {
+  if (data.budget_max !== undefined && data.budget_max !== null && data.budget_max !== '' && Number(data.budget_max) < 0) {
     errors.push('Le budget maximum ne peut pas être négatif.');
   }
 
@@ -114,7 +144,10 @@ function validateRequestInput(data) {
  *   * Agent : accès strictement restreint aux demandes qui lui sont attribuées (assigned_agent_id = user.id)
  * - Requêtes SQL paramétrées (protection contre SQL injection)
  */
-router.get('/requests', authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
+/**
+ * GET /api/concierge-requests OU /api/concierge-requests/requests OU /api/concierge/requests
+ */
+router.get(['/', '/requests'], authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
   try {
     const user = req.user;
     const { status, commune, assigned_agent_id, limit = 50, offset = 0 } = req.query;
@@ -149,7 +182,17 @@ router.get('/requests', authenticateToken, requireRoles('admin', 'agent'), async
     params.push(sanitizedLimit, sanitizedOffset);
 
     // Requête préparée paramétrée
-    const [rows] = await pool.query(query, params);
+    let rows = [];
+    try {
+      const [result] = await pool.query(query, params);
+      rows = result;
+    } catch (err) {
+      if (err.code === 'ER_NO_SUCH_TABLE' || (err.message && err.message.includes("doesn't exist"))) {
+        console.warn('[Concierge GET] Table concierge_requests inexistante, retour vide.');
+        return res.json({ success: true, count: 0, data: [] });
+      }
+      throw err;
+    }
 
     res.json({
       success: true,
@@ -163,12 +206,9 @@ router.get('/requests', authenticateToken, requireRoles('admin', 'agent'), async
 });
 
 /**
- * GET /api/concierge-requests/requests/:id
- * SÉCURITÉ :
- * - Authentification obligatoire
- * - Vérification de propriété : l'agent ne peut consulter que les demandes qui lui sont attribuées
+ * GET /api/concierge-requests/:id OU /api/concierge-requests/requests/:id
  */
-router.get('/requests/:id', authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
+router.get(['/:id', '/requests/:id'], authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
   try {
     const { id } = req.params;
     const user = req.user;
@@ -188,10 +228,16 @@ router.get('/requests/:id', authenticateToken, requireRoles('admin', 'agent'), a
       });
     }
 
-    const [visits] = await pool.query(
-      'SELECT * FROM property_visits WHERE request_id = ? ORDER BY visit_date ASC, visit_time ASC',
-      [id]
-    );
+    let visits = [];
+    try {
+      const [visitRows] = await pool.query(
+        'SELECT * FROM property_visits WHERE request_id = ? ORDER BY visit_date ASC, visit_time ASC',
+        [id]
+      );
+      visits = visitRows;
+    } catch (vErr) {
+      // Ignorer si la table property_visits n'existe pas encore
+    }
 
     res.json({ success: true, data: { ...request, visits } });
   } catch (error) {
@@ -201,17 +247,48 @@ router.get('/requests/:id', authenticateToken, requireRoles('admin', 'agent'), a
 });
 
 /**
- * POST /api/concierge-requests/requests
- * Création d'une nouvelle demande (Formulaire public ou connecté)
- * SÉCURITÉ :
- * - Validation backend rigoureuse de tous les champs
- * - Requête préparée SQL paramétrée
- * - Aucune exposition de données administratives au public
- * - Déclenchement automatique de la confirmation de demande au client
+ * Helper SQL pour créer automatiquement la table concierge_requests si absente
  */
-router.post('/requests', optionalAuth, async (req, res) => {
+async function ensureConciergeTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS concierge_requests (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      user_id VARCHAR(64) DEFAULT NULL,
+      project_type VARCHAR(100) NOT NULL,
+      property_type VARCHAR(100) NOT NULL,
+      commune VARCHAR(100) NOT NULL,
+      quartier VARCHAR(150) DEFAULT NULL,
+      budget_min DECIMAL(12, 2) DEFAULT NULL,
+      budget_max DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+      bedrooms INT DEFAULT NULL,
+      bathrooms INT DEFAULT NULL,
+      parking BOOLEAN NOT NULL DEFAULT FALSE,
+      furnished BOOLEAN NOT NULL DEFAULT FALSE,
+      services JSON DEFAULT NULL,
+      description TEXT DEFAULT NULL,
+      full_name VARCHAR(255) NOT NULL,
+      phone VARCHAR(50) NOT NULL,
+      whatsapp VARCHAR(50) DEFAULT NULL,
+      email VARCHAR(255) NOT NULL,
+      status ENUM('new', 'searching', 'properties_found', 'visit_scheduled', 'negotiation', 'completed', 'cancelled') NOT NULL DEFAULT 'new',
+      assigned_agent_id VARCHAR(64) DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_concierge_status (status),
+      INDEX idx_concierge_commune (commune)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+}
+
+/**
+ * POST /api/concierge-requests OU /api/concierge-requests/requests OU /api/concierge/requests
+ * Création d'une nouvelle demande (Formulaire public ou connecté)
+ */
+router.post(['/', '/requests'], optionalAuth, async (req, res) => {
   try {
-    const validationErrors = validateRequestInput(req.body);
+    const normalized = normalizeConciergeData(req.body);
+    const validationErrors = validateRequestInput(normalized);
     if (validationErrors.length > 0) {
       return res.status(400).json({
         success: false,
@@ -238,18 +315,29 @@ router.post('/requests', optionalAuth, async (req, res) => {
       phone,
       whatsapp = null,
       email
-    } = req.body;
+    } = normalized;
 
     const id = `cr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const userId = req.user ? req.user.id : null;
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const reference = `KIN-CCG-${new Date().getFullYear()}-${randomSuffix}`;
+    
+    // Vérification de sécurité sur le user_id pour éviter un échec de contrainte étrangère
+    let validUserId = null;
+    if (req.user && req.user.id) {
+      try {
+        const [u] = await pool.query('SELECT id FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+        if (u.length > 0) validUserId = req.user.id;
+      } catch {}
+    }
+
     const servicesJson = Array.isArray(services) ? JSON.stringify(services) : JSON.stringify([]);
 
     // Nettoyage et assainissement
-    const cleanFullName = full_name.trim().substring(0, 255);
-    const cleanPhone = phone.trim().substring(0, 50);
-    const cleanWhatsapp = whatsapp ? whatsapp.trim().substring(0, 50) : null;
-    const cleanEmail = email.trim().toLowerCase().substring(0, 255);
-    const cleanCommune = commune.trim().substring(0, 100);
+    const cleanFullName = String(full_name).trim().substring(0, 255);
+    const cleanPhone = String(phone).trim().substring(0, 50);
+    const cleanWhatsapp = whatsapp ? String(whatsapp).trim().substring(0, 50) : null;
+    const cleanEmail = String(email).trim().toLowerCase().substring(0, 255);
+    const cleanCommune = String(commune).trim().substring(0, 100);
     const cleanQuartier = quartier ? String(quartier).trim().substring(0, 150) : null;
     const cleanDescription = description ? String(description).trim().substring(0, 2000) : null;
     const cleanCurrency = ['USD', 'CDF'].includes(currency) ? currency : 'USD';
@@ -263,9 +351,9 @@ router.post('/requests', optionalAuth, async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, NOW())
     `;
 
-    await pool.query(insertQuery, [
+    const insertParams = [
       id,
-      userId,
+      validUserId,
       project_type,
       property_type,
       cleanCommune,
@@ -283,37 +371,63 @@ router.post('/requests', optionalAuth, async (req, res) => {
       cleanPhone,
       cleanWhatsapp,
       cleanEmail
-    ]);
+    ];
+
+    try {
+      await pool.query(insertQuery, insertParams);
+    } catch (dbErr) {
+      if (dbErr.code === 'ER_NO_SUCH_TABLE' || (dbErr.message && dbErr.message.includes("doesn't exist"))) {
+        console.log('[Concierge POST] Auto-création de la table concierge_requests...');
+        await ensureConciergeTable();
+        await pool.query(insertQuery, insertParams);
+      } else {
+        throw dbErr;
+      }
+    }
 
     const [createdRows] = await pool.query('SELECT * FROM concierge_requests WHERE id = ?', [id]);
-    const createdRequest = createdRows[0];
+    const createdRequest = createdRows[0] || {
+      id,
+      user_id: validUserId,
+      project_type,
+      property_type,
+      commune: cleanCommune,
+      quartier: cleanQuartier,
+      budget_min: budget_min ? Number(budget_min) : null,
+      budget_max: Number(budget_max) || 0,
+      currency: cleanCurrency,
+      full_name: cleanFullName,
+      phone: cleanPhone,
+      email: cleanEmail,
+      status: 'new'
+    };
 
-    // ARCHITECTURE NOTIFICATIONS : Déclencher confirmation de demande au client (sans API externe)
+    // Déclencher notification de confirmation
     try {
       await NotificationService.triggerClientRequestConfirmation(createdRequest);
     } catch (notifErr) {
       console.warn('[Notification Trigger Warning]', notifErr.message);
     }
 
-    // Ne jamais renvoyer de données administratives au public
     res.status(201).json({
       success: true,
-      message: 'Votre demande de conciergerie a été enregistrée avec succès. Un conseiller va vous contacter.',
-      data: sanitizeForPublic(createdRequest)
+      message: 'Votre demande de recherche a été enregistrée avec succès. Un conseiller de la Conciergerie Kinimmo va vous contacter sous 24h.',
+      reference,
+      data: {
+        ...sanitizeForPublic(createdRequest),
+        reference
+      }
     });
   } catch (error) {
     console.error('[MySQL concierge_requests POST error]', error);
-    res.status(500).json({ success: false, error: 'Erreur lors de l’enregistrement de votre demande.' });
+    res.status(500).json({ success: false, error: 'Erreur lors de l’enregistrement de votre demande : ' + (error.message || 'Serveur indisponible') });
   }
 });
 
 /**
- * PATCH /api/concierge-requests/requests/:id
- * SÉCURITÉ :
- * - Vérifier que SEUL UN ADMINISTRATEUR peut modifier les demandes, assigner un agent ou changer les statuts critiques
- * - Requêtes préparées SQL
+ * PATCH /api/concierge-requests/:id OU /api/concierge-requests/requests/:id
  */
-router.patch('/requests/:id', authenticateToken, requireAdmin, async (req, res) => {
+router.patch(['/:id', '/requests/:id'], authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { status, assigned_agent_id, notesAdmin, project_type, property_type, commune, budget_max } = req.body;
@@ -388,7 +502,6 @@ router.patch('/requests/:id', authenticateToken, requireAdmin, async (req, res) 
     const [updatedRows] = await pool.query('SELECT * FROM concierge_requests WHERE id = ?', [id]);
     const updatedRequest = updatedRows[0];
 
-    // ARCHITECTURE NOTIFICATIONS : Déclencher notification à l'agent si nouvellement assigné
     if (agentToNotify && previousReq.assigned_agent_id !== assigned_agent_id) {
       try {
         await NotificationService.triggerAgentNotification(updatedRequest, agentToNotify);
@@ -409,10 +522,9 @@ router.patch('/requests/:id', authenticateToken, requireAdmin, async (req, res) 
 });
 
 /**
- * DELETE /api/concierge-requests/requests/:id
- * SÉCURITÉ : Seul l'administrateur peut supprimer une demande
+ * DELETE /api/concierge-requests/:id OU /api/concierge-requests/requests/:id
  */
-router.delete('/requests/:id', authenticateToken, requireAdmin, async (req, res) => {
+router.delete(['/:id', '/requests/:id'], authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM concierge_requests WHERE id = ?', [id]);
