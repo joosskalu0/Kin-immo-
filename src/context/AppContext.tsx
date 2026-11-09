@@ -884,19 +884,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const deleted = getDeletedPropertiesIds();
           const durable = getDurableLocalProperties();
           const propsMap = new Map<string, Property>();
+          const sanitizeProp = (p: Property): Property => ({
+            ...p,
+            labels: Array.isArray(p.labels) ? p.labels : [],
+            amenities: Array.isArray(p.amenities) ? p.amenities : [],
+            images: Array.isArray(p.images) ? p.images : []
+          });
 
           // 1. Charger les propriétés de base et locales
           currentLocalProps.forEach((p) => {
-            if (!deleted.has(p.id)) propsMap.set(p.id, p);
+            if (!deleted.has(p.id)) propsMap.set(p.id, sanitizeProp(p));
           });
           durable.forEach((p) => {
-            if (!deleted.has(p.id)) propsMap.set(p.id, p);
+            if (!deleted.has(p.id)) propsMap.set(p.id, sanitizeProp(p));
           });
 
           // 2. Fusionner les propriétés mises à jour
           storeProps.forEach((fp) => {
             if (!deleted.has(fp.id)) {
-              propsMap.set(fp.id, fp);
+              propsMap.set(fp.id, sanitizeProp(fp));
             }
           });
 
@@ -914,11 +920,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setProperties((currentLocalProps) => {
           const deleted = getDeletedPropertiesIds();
           const propsMap = new Map<string, Property>();
+          const sanitizeProp = (p: Property): Property => ({
+            ...p,
+            labels: Array.isArray(p.labels) ? p.labels : [],
+            amenities: Array.isArray(p.amenities) ? p.amenities : [],
+            images: Array.isArray(p.images) ? p.images : []
+          });
           currentLocalProps.forEach((p) => {
-            if (!deleted.has(p.id)) propsMap.set(p.id, p);
+            if (!deleted.has(p.id)) propsMap.set(p.id, sanitizeProp(p));
           });
           items.forEach((p: Property) => {
-            if (!deleted.has(p.id)) propsMap.set(p.id, p);
+            if (!deleted.has(p.id)) propsMap.set(p.id, sanitizeProp(p));
           });
           const merged = Array.from(propsMap.values());
           saveDurableLocalProperties(merged);

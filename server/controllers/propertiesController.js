@@ -140,6 +140,7 @@ async function getProperties(req, res, next) {
       boostExpiresAt: row.boost_expires_at || null,
       refreshBumpAt: row.refresh_bump_at || null,
       published: Boolean(row.published),
+      labels: [],
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }));

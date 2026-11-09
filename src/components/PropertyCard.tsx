@@ -82,6 +82,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
   const isRented = property.listingStatus === 'RENTED';
   const isUnavailable = isSold || isRented || property.listingStatus === 'ARCHIVED';
   const formattedPrice = convertAndFormatPrice(property.price, currency);
+  const labels = Array.isArray(property.labels) ? property.labels : [];
 
   const agent = agents.find((a) => a.id === property.agentId || a.name === property.agentId || (property.contactEmail && a.email === property.contactEmail));
   const agency =
@@ -275,14 +276,14 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
             </span>
           )}
 
-          {(property.featured || property.labels.includes('featured') || property.listingTier === 'featured') && !(property.isPremium || property.listingTier === 'premium') && (
+          {(property.featured || labels.includes('featured') || property.listingTier === 'featured') && !(property.isPremium || property.listingTier === 'premium') && (
             <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-amber-400 text-slate-950 flex items-center gap-1.5 shadow-sm">
               <Sparkles className="w-3.5 h-3.5 fill-slate-950" />
               Vedette
             </span>
           )}
 
-          {property.labels.includes('hot') && !property.isUrgent && (
+          {labels.includes('hot') && !property.isUrgent && (
             <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-rose-500 text-white flex items-center gap-1.5 shadow-sm">
               <Flame className="w-3.5 h-3.5 fill-white" />
               Hot Deal
