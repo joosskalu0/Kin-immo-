@@ -75,8 +75,8 @@ app.use(cors({
 }));
 
 // Middlewares pour parser le JSON et les formulaires URL-encoded
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Middleware de journalisation structurée
 app.use(requestLogger);
@@ -125,6 +125,19 @@ app.use('/api/concierge-requests', conciergeRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/videos', videosRoutes);
 app.use('/api/trust', trustRoutes);
+
+// Dossier pour les fichiers téléversés (vidéos, documents, photos)
+const uploadsPaths = [
+  path.join(__dirname, 'uploads'),
+  path.join(__dirname, '..', 'uploads'),
+  path.join(process.cwd(), 'uploads')
+];
+uploadsPaths.forEach(up => {
+  if (!fs.existsSync(up)) {
+    try { fs.mkdirSync(up, { recursive: true }); } catch {}
+  }
+  app.use('/uploads', express.static(up));
+});
 
 // Détection et service automatique du frontend compilé React (dist/)
 const candidateDistPaths = [

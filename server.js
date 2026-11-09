@@ -743,8 +743,16 @@ var __dirname = path.dirname(__filename);
 var app = express();
 var PORT = process.env.PORT ? isNaN(Number(process.env.PORT)) ? process.env.PORT : Number(process.env.PORT) : 3e3;
 var isProd = process.env.NODE_ENV === "production";
-app.use(express.json({ limit: "5mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+var devUploadsDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(devUploadsDir)) {
+  try {
+    fs.mkdirSync(devUploadsDir, { recursive: true });
+  } catch {
+  }
+}
+app.use("/uploads", express.static(devUploadsDir));
 var LOCAL_LEADS_FILE = path.join(__dirname, "concierge_requests.json");
 var LOCAL_LEADS_FILE_ALT = path.join(__dirname, "conciergerie_requests.json");
 var LOCAL_VISITS_FILE = path.join(__dirname, "property_visits.json");
@@ -3414,10 +3422,42 @@ app.get("/api/properties", (req, res) => {
     }
     const total = list.length;
     const paginated = list.slice(Number(offset), Number(offset) + Number(limit));
-    return res.json({ success: true, count: total, properties: paginated });
+    return res.json({ success: true, count: total, properties: paginated, data: paginated });
   } catch (err) {
     return res.status(500).json({ success: false, error: err?.message });
   }
+});
+var videoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const dir = path.join(__dirname, "uploads", "videos");
+    if (!fs.existsSync(dir)) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch {
+      }
+    }
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname) || ".mp4";
+    cb(null, `video_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`);
+  }
+});
+var videoUpload = multer({
+  storage: videoStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
+app.post("/api/properties/upload-video", videoUpload.single("video"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: "Aucun fichier vid\xE9o re\xE7u." });
+  }
+  return res.json({
+    success: true,
+    message: "Vid\xE9o t\xE9l\xE9vers\xE9e avec succ\xE8s.",
+    url: `/uploads/videos/${req.file.filename}`,
+    filename: req.file.filename,
+    size: req.file.size
+  });
 });
 app.get("/api/properties/:id", (req, res) => {
   const prop = inMemoryProperties.find((p) => p.id === req.params.id);

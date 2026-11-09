@@ -121,9 +121,10 @@ export function subscribeToProperties(callback: (properties: Property[]) => void
   fetch('/api/properties')
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
-      if (json?.success && Array.isArray(json.data)) {
-        localStorage.setItem('kinimmo_properties', JSON.stringify(json.data));
-        callback(json.data);
+      const items = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.properties) ? json.properties : null);
+      if (items) {
+        localStorage.setItem('kinimmo_properties', JSON.stringify(items));
+        callback(items);
       }
     })
     .catch(() => {});

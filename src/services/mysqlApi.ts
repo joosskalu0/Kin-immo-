@@ -407,7 +407,7 @@ async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}):
   const token = getStoredToken();
   
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string> || {})
   };
 
@@ -512,6 +512,15 @@ export const mysqlApi = {
     return apiRequest('/properties', {
       method: 'POST',
       body: JSON.stringify(property)
+    });
+  },
+
+  async uploadPropertyVideo(file: File) {
+    const formData = new FormData();
+    formData.append('video', file);
+    return apiRequest('/properties/upload-video', {
+      method: 'POST',
+      body: formData
     });
   },
 

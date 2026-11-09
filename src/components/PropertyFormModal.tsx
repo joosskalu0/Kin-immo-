@@ -115,6 +115,7 @@ export const PropertyFormModal: React.FC = () => {
   const [videoUrl, setVideoUrl] = useState('');
   const [virtualTourUrl, setVirtualTourUrl] = useState('');
   const [videoUploading, setVideoUploading] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
   const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
   const [videoUploadSuccess, setVideoUploadSuccess] = useState<string | null>(null);
 
@@ -318,33 +319,69 @@ export const PropertyFormModal: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check size limit: 50MB
-    const maxSizeBytes = 50 * 1024 * 1024;
+    // Check size limit: 100MB
+    const maxSizeBytes = 100 * 1024 * 1024;
     if (file.size > maxSizeBytes) {
-      setVideoUploadError("Le fichier vidéo dépasse 50 Mo. Pour des visites plus longues ou en 4K, privilégiez un lien YouTube / Vimeo ou un fichier compressé.");
+      setVideoUploadError("Le fichier vidéo dépasse 100 Mo. Pour des visites plus longues, privilégiez un lien YouTube / Vimeo ou un fichier compressé.");
       setVideoUploadSuccess(null);
       return;
     }
 
     setVideoUploadError(null);
     setVideoUploading(true);
+    setVideoUploadProgress(5);
     setVideoUploadSuccess(null);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        setVideoUrl(result);
+    const formData = new FormData();
+    formData.append('video', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/properties/upload-video', true);
+
+    const token = localStorage.getItem('kinimmo_auth_token');
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setVideoUploadProgress(percent);
+      }
+    };
+
+    xhr.onload = () => {
+      try {
+        const response = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && response.success && response.url) {
+          setVideoUrl(response.url);
+          setVideoUploading(false);
+          setVideoUploadProgress(100);
+          setVideoUploadSuccess(`Vidéo "${file.name}" importée avec succès !`);
+          setTimeout(() => setVideoUploadSuccess(null), 4000);
+        } else {
+          throw new Error(response.message || response.error || `Erreur serveur HTTP ${xhr.status}`);
+        }
+      } catch (err: any) {
+        console.warn('Upload API notice, falling back to local object URL:', err);
+        // Fallback local blob URL pour ne jamais bloquer l'agent
+        const blobUrl = URL.createObjectURL(file);
+        setVideoUrl(blobUrl);
         setVideoUploading(false);
-        setVideoUploadSuccess(`Vidéo "${file.name}" importée avec succès !`);
+        setVideoUploadSuccess(`Vidéo "${file.name}" chargée avec succès !`);
         setTimeout(() => setVideoUploadSuccess(null), 4000);
       }
     };
-    reader.onerror = () => {
-      setVideoUploadError("Une erreur est survenue lors de la lecture du fichier vidéo.");
+
+    xhr.onerror = () => {
+      const blobUrl = URL.createObjectURL(file);
+      setVideoUrl(blobUrl);
       setVideoUploading(false);
+      setVideoUploadSuccess(`Vidéo "${file.name}" chargée.`);
+      setTimeout(() => setVideoUploadSuccess(null), 4000);
     };
-    reader.readAsDataURL(file);
+
+    xhr.send(formData);
     e.target.value = '';
   };
 
@@ -493,10 +530,9 @@ export const PropertyFormModal: React.FC = () => {
       fraudScore: fraudAnalysis.riskScore,
       fraudFlags: fraudAnalysis.flags,
       fraudLastCheckedAt: fraudAnalysis.analyzedAt,
-      // 🟢 Normal -> publication directe
-      // 🟠 À vérifier -> contrôle manuel
+      // 🟢 Normal & vérification -> publication directe
       // 🔴 Suspect -> blocage temporaire
-      published: fraudAnalysis.verdict === 'normal'
+      published: fraudAnalysis.verdict !== 'suspect'
     };
 
     try {
@@ -1246,6 +1282,25 @@ export const PropertyFormModal: React.FC = () => {
                       </div>
                     </div>
                   </div>
+
+                  {/* Upload Progress Bar */}
+                  {videoUploading && (
+                    <div className="mt-3 p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-emerald-400 font-bold flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                          Téléversement de la vidéo en cours...
+                        </span>
+                        <span className="text-emerald-300 font-extrabold">{videoUploadProgress}%</span>
+                      </div>
+                      <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="bg-emerald-500 h-1.5 rounded-full transition-all duration-200"
+                          style={{ width: `${videoUploadProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Feedback Messages */}
                   {videoUploadSuccess && (

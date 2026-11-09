@@ -17,9 +17,16 @@ const app = express();
 const PORT = process.env.PORT ? (isNaN(Number(process.env.PORT)) ? process.env.PORT : Number(process.env.PORT)) : 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// Parser JSON & URL-encoded
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Parser JSON & URL-encoded (support des vidéos et photos haute définition)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Servir les fichiers téléversés
+const devUploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(devUploadsDir)) {
+  try { fs.mkdirSync(devUploadsDir, { recursive: true }); } catch {}
+}
+app.use('/uploads', express.static(devUploadsDir));
 
 // Fichier local de secours pour persistance robuste
 const LOCAL_LEADS_FILE = path.join(__dirname, 'concierge_requests.json');
@@ -3122,10 +3129,42 @@ app.get('/api/properties', (req: Request, res: Response) => {
 
     const total = list.length;
     const paginated = list.slice(Number(offset), Number(offset) + Number(limit));
-    return res.json({ success: true, count: total, properties: paginated });
+    return res.json({ success: true, count: total, properties: paginated, data: paginated });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
+});
+
+// Upload direct de vidéo de propriété
+const videoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const dir = path.join(__dirname, 'uploads', 'videos');
+    if (!fs.existsSync(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+    }
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.mp4';
+    cb(null, `video_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`);
+  }
+});
+const videoUpload = multer({
+  storage: videoStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
+
+app.post('/api/properties/upload-video', videoUpload.single('video'), (req: Request, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'Aucun fichier vidéo reçu.' });
+  }
+  return res.json({
+    success: true,
+    message: 'Vidéo téléversée avec succès.',
+    url: `/uploads/videos/${req.file.filename}`,
+    filename: req.file.filename,
+    size: req.file.size
+  });
 });
 
 // 10.2 Détail d'une propriété

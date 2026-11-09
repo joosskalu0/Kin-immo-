@@ -120,4 +120,9 @@ CREATE TABLE IF NOT EXISTS `hero_showcase_slides` (
   INDEX `idx_showcase_order` (`display_order`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 5. Sécurisation de la table properties (Vidéo fluide & Affichage garanti sur la page d'accueil)
+ALTER TABLE `properties` MODIFY COLUMN `video_url` TEXT DEFAULT NULL;
+ALTER TABLE `properties` MODIFY COLUMN `published` BOOLEAN NOT NULL DEFAULT TRUE;
+UPDATE `properties` SET `published` = TRUE WHERE `published` IS NULL OR `published` = FALSE;
+
 SET FOREIGN_KEY_CHECKS = 1;

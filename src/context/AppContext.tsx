@@ -907,6 +907,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
+    // Chargement direct depuis l'API REST MySQL
+    mysqlApi.getProperties().then((res: any) => {
+      const items = Array.isArray(res?.data) ? res.data : (Array.isArray(res?.properties) ? res.properties : (Array.isArray(res) ? res : null));
+      if (items && items.length > 0) {
+        setProperties((currentLocalProps) => {
+          const deleted = getDeletedPropertiesIds();
+          const propsMap = new Map<string, Property>();
+          currentLocalProps.forEach((p) => {
+            if (!deleted.has(p.id)) propsMap.set(p.id, p);
+          });
+          items.forEach((p: Property) => {
+            if (!deleted.has(p.id)) propsMap.set(p.id, p);
+          });
+          const merged = Array.from(propsMap.values());
+          saveDurableLocalProperties(merged);
+          return merged;
+        });
+      }
+    }).catch(() => {});
+
     const unsubFields = subscribeToCustomFields((firestoreFields) => {
       if (Array.isArray(firestoreFields)) {
         setCustomFields(firestoreFields);
@@ -1054,10 +1074,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fraudScore: fraudAnalysis.riskScore,
       fraudFlags: fraudAnalysis.flags,
       fraudLastCheckedAt: fraudAnalysis.analyzedAt,
-      // 🟢 Normal -> publication directe
-      // 🟠 À vérifier -> contrôle manuel requis
+      // 🟢 Normal & vérification -> publication directe
       // 🔴 Suspect -> blocage temporaire
-      published: fraudAnalysis.verdict === 'normal' ? (property.published !== false) : false
+      published: fraudAnalysis.verdict !== 'suspect' && (property.published !== false)
     };
 
     setProperties((prev) => {
@@ -1099,7 +1118,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fraudScore: fraudAnalysis.riskScore,
       fraudFlags: fraudAnalysis.flags,
       fraudLastCheckedAt: fraudAnalysis.analyzedAt,
-      published: fraudAnalysis.verdict === 'normal' ? (property.published !== false) : false
+      published: fraudAnalysis.verdict !== 'suspect' && (property.published !== false)
     };
 
     setProperties((prev) => {

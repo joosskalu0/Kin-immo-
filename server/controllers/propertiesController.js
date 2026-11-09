@@ -1,4 +1,6 @@
 const pool = require('../config/database');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Récupérer la liste des propriétés avec filtres Kinshasa
@@ -34,7 +36,7 @@ async function getProperties(req, res, next) {
       FROM properties p
       LEFT JOIN users u ON p.agent_id = u.id
       LEFT JOIN agencies ag ON p.agency_id = ag.id
-      WHERE p.published = TRUE
+      WHERE (p.published = TRUE OR p.published = 1 OR p.published IS NULL)
     `;
 
     const params = [];
@@ -145,7 +147,8 @@ async function getProperties(req, res, next) {
     res.json({
       success: true,
       count: formatted.length,
-      properties: formatted
+      properties: formatted,
+      data: formatted
     });
   } catch (error) {
     next(error);
@@ -317,14 +320,41 @@ async function createProperty(req, res, next) {
       }
     }
 
+    // Traitement sécurisé de l'URL vidéo (conversion base64 automatique si fournie)
+    let videoUrlToSave = p.videoUrl || null;
+    if (videoUrlToSave && typeof videoUrlToSave === 'string') {
+      if (videoUrlToSave.startsWith('data:video')) {
+        try {
+          const matches = videoUrlToSave.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          if (matches && matches.length === 3) {
+            const ext = matches[1].includes('webm') ? 'webm' : matches[1].includes('mov') ? 'mov' : 'mp4';
+            const filename = `video_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+            const uploadDir = path.join(__dirname, '..', 'uploads', 'videos');
+            if (!fs.existsSync(uploadDir)) {
+              fs.mkdirSync(uploadDir, { recursive: true });
+            }
+            fs.writeFileSync(path.join(uploadDir, filename), Buffer.from(matches[2], 'base64'));
+            videoUrlToSave = `/uploads/videos/${filename}`;
+          }
+        } catch (videoSaveErr) {
+          console.warn('[Property Controller] Avertissement écriture vidéo base64:', videoSaveErr.message);
+          videoUrlToSave = null;
+        }
+      } else if (videoUrlToSave.length > 255) {
+        videoUrlToSave = videoUrlToSave.substring(0, 255);
+      }
+    }
+
+    const isPublished = p.published !== false ? 1 : 1;
+
     // Insertion principale
     await connection.execute(
       `INSERT INTO properties (
         id, title, description, price, currency, period, type, status, category,
         address, city, commune, quartier, avenue, reference_point, zip_code, country,
         lat, lng, bedrooms, bathrooms, area, year_built, garages,
-        amenities, custom_fields, video_url, virtual_tour_url, agent_id, agency_id, featured
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        amenities, custom_fields, video_url, virtual_tour_url, agent_id, agency_id, featured, published
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         propertyId,
         p.title,
@@ -352,11 +382,12 @@ async function createProperty(req, res, next) {
         p.garages || 0,
         JSON.stringify(p.amenities || []),
         JSON.stringify(p.customFields || {}),
-        p.videoUrl || null,
+        videoUrlToSave,
         p.virtualTourUrl || null,
         validAgentId,
         validAgencyId,
-        Boolean(p.featured)
+        Boolean(p.featured),
+        isPublished
       ]
     );
 
@@ -423,7 +454,10 @@ async function updateProperty(req, res, next) {
            area = COALESCE(?, area),
            amenities = COALESCE(?, amenities),
            custom_fields = COALESCE(?, custom_fields),
-           featured = COALESCE(?, featured)
+           video_url = COALESCE(?, video_url),
+           virtual_tour_url = COALESCE(?, virtual_tour_url),
+           featured = COALESCE(?, featured),
+           published = COALESCE(?, published)
        WHERE id = ?`,
       [
         p.title || null,
@@ -440,7 +474,10 @@ async function updateProperty(req, res, next) {
         p.area !== undefined ? p.area : null,
         p.amenities ? JSON.stringify(p.amenities) : null,
         p.customFields ? JSON.stringify(p.customFields) : null,
+        p.videoUrl !== undefined ? p.videoUrl : null,
+        p.virtualTourUrl !== undefined ? p.virtualTourUrl : null,
         p.featured !== undefined ? Boolean(p.featured) : null,
+        p.published !== undefined ? (p.published ? 1 : 0) : null,
         id
       ]
     );
@@ -554,11 +591,34 @@ async function updatePropertyListingStatus(req, res, next) {
   }
 }
 
+/**
+ * Téléverser une vidéo pour une propriété
+ * POST /api/properties/upload-video
+ */
+async function uploadPropertyVideo(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier vidéo reçu.' });
+    }
+    const publicUrl = `/uploads/videos/${req.file.filename}`;
+    res.json({
+      success: true,
+      message: 'Vidéo téléversée avec succès.',
+      url: publicUrl,
+      filename: req.file.filename,
+      size: req.file.size
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getProperties,
   getPropertyById,
   createProperty,
   updateProperty,
   deleteProperty,
-  updatePropertyListingStatus
+  updatePropertyListingStatus,
+  uploadPropertyVideo
 };
