@@ -392,12 +392,39 @@ async function createProperty(req, res, next) {
       ]
     );
 
+function saveBase64Image(imgData, propertyId, index) {
+  if (!imgData || typeof imgData !== 'string') return imgData;
+  if (!imgData.startsWith('data:image')) return imgData;
+
+  try {
+    const matches = imgData.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return imgData;
+
+    const rawExt = matches[1].toLowerCase();
+    const ext = rawExt.includes('png') ? 'png' : rawExt.includes('webp') ? 'webp' : 'jpg';
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'images');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const cleanPropId = String(propertyId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `img_${cleanPropId}_${index}_${Date.now()}.${ext}`;
+    const filePath = path.join(uploadDir, filename);
+    fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
+    return `/uploads/images/${filename}`;
+  } catch (err) {
+    console.warn('[Property Controller] Warning saving image file:', err.message);
+    return imgData;
+  }
+}
+
     // Insertion des images dans la table property_images
     if (Array.isArray(p.images) && p.images.length > 0) {
       for (let i = 0; i < p.images.length; i++) {
+        const savedUrl = saveBase64Image(p.images[i], propertyId, i);
         await connection.execute(
           'INSERT INTO property_images (property_id, image_url, display_order, is_featured) VALUES (?, ?, ?, ?)',
-          [propertyId, p.images[i], i, i === 0]
+          [propertyId, savedUrl, i, i === 0]
         );
       }
     }
@@ -487,9 +514,10 @@ async function updateProperty(req, res, next) {
     if (Array.isArray(p.images)) {
       await connection.execute('DELETE FROM property_images WHERE property_id = ?', [id]);
       for (let i = 0; i < p.images.length; i++) {
+        const savedUrl = saveBase64Image(p.images[i], id, i);
         await connection.execute(
           'INSERT INTO property_images (property_id, image_url, display_order, is_featured) VALUES (?, ?, ?, ?)',
-          [id, p.images[i], i, i === 0]
+          [id, savedUrl, i, i === 0]
         );
       }
     }

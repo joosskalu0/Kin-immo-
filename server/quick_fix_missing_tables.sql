@@ -125,4 +125,7 @@ ALTER TABLE `properties` MODIFY COLUMN `video_url` TEXT DEFAULT NULL;
 ALTER TABLE `properties` MODIFY COLUMN `published` BOOLEAN NOT NULL DEFAULT TRUE;
 UPDATE `properties` SET `published` = TRUE WHERE `published` IS NULL OR `published` = FALSE;
 
+-- 6. Sécurisation de la table property_images (Photos HD complètes sans coupure grise)
+ALTER TABLE `property_images` MODIFY COLUMN `image_url` LONGTEXT NOT NULL;
+
 SET FOREIGN_KEY_CHECKS = 1;
