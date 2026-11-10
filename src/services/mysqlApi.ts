@@ -1146,6 +1146,53 @@ export const mysqlApi = {
     });
   },
 
+  async adminGetBoostRequests(status?: string) {
+    const query = status && status !== 'all' ? `?status=${status}` : '';
+    return apiRequest(`/billing/admin/boost-requests${query}`);
+  },
+
+  async adminApproveBoost(boostId: string) {
+    return apiRequest(`/billing/admin/boost-requests/${boostId}/approve`, {
+      method: 'POST'
+    });
+  },
+
+  async adminRejectBoost(boostId: string, reason: string) {
+    return apiRequest(`/billing/admin/boost-requests/${boostId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    });
+  },
+
+  async adminSuspendBoost(boostId: string) {
+    return apiRequest(`/billing/admin/boost-requests/${boostId}/suspend`, {
+      method: 'POST'
+    });
+  },
+
+  async adminResumeBoost(boostId: string) {
+    return apiRequest(`/billing/admin/boost-requests/${boostId}/resume`, {
+      method: 'POST'
+    });
+  },
+
+  async adminUpdateBoostDuration(boostId: string, payload: { durationDays?: number; expiresAt?: string }) {
+    return apiRequest(`/billing/admin/boost-requests/${boostId}/duration`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async adminDeleteBoost(boostId: string) {
+    return apiRequest(`/billing/admin/boost-requests/${boostId}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async getVitrineStats() {
+    return apiRequest('/billing/admin/vitrine-stats');
+  },
+
   // 8. Régie Publicitaire, Bannières & Partenaires (Monétisation & AdSense)
   getAdSenseConfig(): AdSenseConfig {
     try {

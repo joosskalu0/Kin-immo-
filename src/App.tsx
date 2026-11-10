@@ -22,6 +22,7 @@ import { CompareDock } from './components/CompareDock';
 import { AdminPortal } from './components/Admin/AdminPortal';
 import { MonetizationPricingView } from './components/Monetization/MonetizationPricingView';
 import { ArchitecturalHeroSlider } from './components/ArchitecturalHeroSlider';
+import { VitrineSection } from './components/VitrineSection';
 import { FloatingConciergeWidget } from './components/FloatingConciergeWidget';
 import { ConciergeriePage } from './components/Conciergerie/ConciergeriePage';
 import { VisitsReelsView } from './components/Visits/VisitsReelsView';
@@ -509,6 +510,16 @@ const AppContent: React.FC = () => {
 
             {/* Search Widget - Direct et Simple */}
             <SearchWidget />
+
+            {/* SECTION VITRINE OFFICIELLE KINIMMO - Biens Validés & Mises en Avant Actives */}
+            <VitrineSection
+              properties={properties}
+              onSelectProperty={(prop) => setActivePropertyModalId(prop.id)}
+              onExploreCatalog={() => {
+                const el = document.getElementById('properties-catalog-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+            />
 
             {/* Results Toolbar */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-sm">

@@ -2154,6 +2154,393 @@ app.put('/api/billing/invoices/:id/reject', (req: Request, res: Response) => {
   }
 });
 
+// 5i-ter. Liste des demandes de boost pour l'administration (GET /api/billing/admin/boost-requests)
+app.get('/api/billing/admin/boost-requests', (_req: Request, res: Response) => {
+  try {
+    const boostInvoices = inMemoryInvoices.filter((inv) => inv.invoice_type === 'boost' || inv.property_id);
+    const enriched = boostInvoices.map((inv) => {
+      const prop = inMemoryProperties.find((p: any) => p.id === inv.property_id);
+      return {
+        id: inv.id,
+        property_id: inv.property_id,
+        user_id: inv.user_id,
+        option_id: inv.option_id,
+        invoice_id: inv.id,
+        status: inv.status === 'paid' ? 'active' : (inv.status === 'failed' || inv.status === 'cancelled' ? 'rejected' : 'pending'),
+        admin_id: inv.admin_id || (inv.status === 'paid' ? 'admin' : null),
+        admin_name: inv.admin_name || (inv.status === 'paid' ? 'Administrateur Kinimmo' : null),
+        reviewed_at: inv.paid_at || inv.reviewed_at,
+        rejection_reason: inv.rejection_reason || inv.notes,
+        created_at: inv.created_at,
+        property_title: prop?.title || inv.property_title || 'Bien immobilier',
+        property_price: prop?.price || inv.amount,
+        property_currency: prop?.currency || inv.currency || 'USD',
+        property_commune: prop?.commune || 'Kinshasa',
+        property_type: prop?.type || 'Résidence',
+        property_status: prop?.status || 'for-sale',
+        property_published: prop?.published !== false,
+        property_featured: prop?.featured === true,
+        property_boost_expires_at: prop?.boostExpiresAt,
+        property_image: prop?.images?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600',
+        applicant_name: inv.user_name || inv.target_name || 'Annonceur Kinshasa',
+        applicant_email: inv.user_email || inv.target_email || 'partenaire@kinimmo.cd',
+        applicant_phone: prop?.contactPhone || '+243 81 000 0000',
+        option_name: inv.option_name || 'Mise en avant',
+        boost_type: inv.boost_type || 'featured',
+        duration_days: inv.duration_days || 7,
+        price_usd: inv.amount || 10,
+        price_cdf: inv.amount_cdf || 28500,
+        invoice_number: inv.invoice_number,
+        transaction_reference: inv.transaction_reference,
+        due_date: inv.due_date
+      };
+    });
+
+    return res.json({ success: true, count: enriched.length, boosts: enriched });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 5i-quater. Approbation directe d'un boost par l'administrateur
+const handleApproveBoostAction = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
+    if (!inv) {
+      return res.status(404).json({ success: false, error: 'Demande de boost introuvable' });
+    }
+
+    inv.status = 'paid';
+    inv.admin_id = 'admin';
+    inv.admin_name = 'Administrateur Kinimmo';
+    inv.paid_at = new Date().toISOString();
+    inv.reviewed_at = new Date().toISOString();
+    inv.updated_at = new Date().toISOString();
+
+    const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
+    let durationDays = Number(inv.duration_days) || 7;
+    let propTitle = inv.property_title || 'Bien';
+
+    if (propIdx !== -1) {
+      const prop = inMemoryProperties[propIdx];
+      propTitle = prop.title;
+      const expiresAt = new Date(Date.now() + durationDays * 86400000).toISOString();
+      prop.boostExpiresAt = expiresAt;
+      prop.featured = true;
+      prop.published = true;
+      if (inv.boost_type === 'premium') {
+        prop.isPremium = true;
+        prop.listingTier = 'premium';
+      } else {
+        prop.listingTier = 'featured';
+      }
+      prop.updatedAt = new Date().toISOString();
+      saveLocalProperties(inMemoryProperties);
+
+      // Synchronisation avec inMemorySlides pour la Vitrine
+      const existingSlideIdx = inMemorySlides.findIndex((s) => s.propertyId === prop.id);
+      const slideData = {
+        id: `slide_prop_${prop.id}`,
+        badgeCategory: prop.category?.toUpperCase() || 'PRESTIGE',
+        badgeLocation: `${(prop.commune || 'KINSHASA').toUpperCase()}`,
+        title: prop.title.toUpperCase(),
+        subTitle: `${(prop.type || 'RÉSIDENCE').toUpperCase()} D'EXCEPTION • KINSHASA`,
+        description: prop.description || 'Bien immobilier d\'exception validé en vitrine.',
+        image: prop.images?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=1600',
+        propertyType: prop.type || 'Résidence',
+        commune: prop.commune || 'Gombe',
+        propertyId: prop.id,
+        isActive: true,
+        order: 1,
+        contactName: prop.agencyName || 'Service Commercial',
+        contactPhone: prop.contactPhone || '+243 81 000 0001',
+        contactWhatsapp: prop.contactPhone || '+243 81 000 0001',
+        stats: {
+          units: prop.bedrooms ? `${prop.bedrooms} Chambres` : 'Standing',
+          parking: prop.bathrooms ? `${prop.bathrooms} Salles d'eau` : 'Parking',
+          surface: prop.area ? `${prop.area} m²` : '320 m²'
+        },
+        details: {
+          amenities: prop.amenities || ['Sécurité 24/7', 'Groupe & Forage', 'Titre foncier garanti'],
+          priceInfo: `$${Number(prop.price || 0).toLocaleString()} ${prop.period === 'month' ? '/ mois' : ''}`,
+          deliveryDate: 'Disponible immédiatement'
+        }
+      };
+
+      if (existingSlideIdx !== -1) {
+        inMemorySlides[existingSlideIdx] = { ...inMemorySlides[existingSlideIdx], ...slideData, isActive: true };
+      } else {
+        inMemorySlides.unshift(slideData);
+      }
+      saveLocalSlides(inMemorySlides);
+    }
+
+    saveLocalInvoices(inMemoryInvoices);
+
+    return res.json({
+      success: true,
+      message: `Demande de mise en avant validée avec succès. L'annonce "${propTitle}" est désormais active en vitrine pour ${durationDays} jours.`,
+      boost: { id: inv.id, status: 'active', propertyId: inv.property_id, durationDays }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+
+app.post('/api/billing/admin/boost-requests/:id/approve', handleApproveBoostAction);
+app.put('/api/billing/admin/boost-requests/:id/approve', handleApproveBoostAction);
+
+// 5i-quinquies. Rejet direct d'un boost par l'administrateur
+const handleRejectBoostAction = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason = 'Demande non validée ou paiement non reçu.' } = req.body;
+    const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
+    if (!inv) {
+      return res.status(404).json({ success: false, error: 'Demande de boost introuvable' });
+    }
+
+    inv.status = 'failed';
+    inv.admin_id = 'admin';
+    inv.admin_name = 'Administrateur Kinimmo';
+    inv.rejection_reason = reason;
+    inv.notes = `Demande rejetée : ${reason}`;
+    inv.reviewed_at = new Date().toISOString();
+    inv.updated_at = new Date().toISOString();
+
+    if (inv.property_id) {
+      const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
+      if (propIdx !== -1) {
+        inMemoryProperties[propIdx].featured = false;
+        inMemoryProperties[propIdx].boostExpiresAt = undefined;
+        saveLocalProperties(inMemoryProperties);
+      }
+
+      const slideIdx = inMemorySlides.findIndex((s) => s.propertyId === inv.property_id);
+      if (slideIdx !== -1) {
+        inMemorySlides[slideIdx].isActive = false;
+        saveLocalSlides(inMemorySlides);
+      }
+    }
+
+    saveLocalInvoices(inMemoryInvoices);
+
+    return res.json({
+      success: true,
+      message: `Demande de mise en avant rejetée. Motif : ${reason}`,
+      boost: { id: inv.id, status: 'rejected', rejectionReason: reason }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+
+app.post('/api/billing/admin/boost-requests/:id/reject', handleRejectBoostAction);
+app.put('/api/billing/admin/boost-requests/:id/reject', handleRejectBoostAction);
+
+// 5i-sexies. Suspension temporaire d'un boost avec gel du temps restant (Admin)
+const handleSuspendBoostAction = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
+    if (!inv) {
+      return res.status(404).json({ success: false, error: 'Demande de boost introuvable' });
+    }
+
+    let remainingSeconds = 7 * 86400;
+    if (inv.expires_at) {
+      const expiresTime = new Date(inv.expires_at).getTime();
+      remainingSeconds = Math.max(0, Math.floor((expiresTime - Date.now()) / 1000));
+    }
+
+    inv.status = 'suspended';
+    inv.remaining_seconds_frozen = remainingSeconds;
+    inv.reviewed_at = new Date().toISOString();
+    inv.updated_at = new Date().toISOString();
+
+    if (inv.property_id) {
+      const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
+      if (propIdx !== -1) {
+        inMemoryProperties[propIdx].featured = false;
+        saveLocalProperties(inMemoryProperties);
+      }
+      const slideIdx = inMemorySlides.findIndex((s) => s.propertyId === inv.property_id);
+      if (slideIdx !== -1) {
+        inMemorySlides[slideIdx].isActive = false;
+        saveLocalSlides(inMemorySlides);
+      }
+    }
+
+    saveLocalInvoices(inMemoryInvoices);
+    const remainingDays = Math.ceil(remainingSeconds / 86400);
+
+    return res.json({
+      success: true,
+      message: `Mise en avant suspendue. Le compteur a été gelé (${remainingDays} jour(s) préservé(s)).`,
+      boost: { id: inv.id, status: 'suspended', remainingSecondsFrozen: remainingSeconds, remainingDays }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+app.post('/api/billing/admin/boost-requests/:id/suspend', handleSuspendBoostAction);
+app.put('/api/billing/admin/boost-requests/:id/suspend', handleSuspendBoostAction);
+
+// 5i-septies. Réactivation d'une mise en avant suspendue avec dégeler le solde restant (Admin)
+const handleResumeBoostAction = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
+    if (!inv) {
+      return res.status(404).json({ success: false, error: 'Demande de boost introuvable' });
+    }
+
+    const remainingSeconds = inv.remaining_seconds_frozen || 7 * 86400;
+    const now = new Date();
+    const newExpiresAt = new Date(now.getTime() + remainingSeconds * 1000);
+
+    inv.status = 'paid';
+    inv.starts_at = now.toISOString();
+    inv.expires_at = newExpiresAt.toISOString();
+    inv.remaining_seconds_frozen = undefined;
+    inv.reviewed_at = now.toISOString();
+    inv.updated_at = now.toISOString();
+
+    if (inv.property_id) {
+      const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
+      if (propIdx !== -1) {
+        inMemoryProperties[propIdx].featured = true;
+        inMemoryProperties[propIdx].published = true;
+        inMemoryProperties[propIdx].boostExpiresAt = newExpiresAt.toISOString();
+        saveLocalProperties(inMemoryProperties);
+      }
+      const slideIdx = inMemorySlides.findIndex((s) => s.propertyId === inv.property_id);
+      if (slideIdx !== -1) {
+        inMemorySlides[slideIdx].isActive = true;
+        saveLocalSlides(inMemorySlides);
+      }
+    }
+
+    saveLocalInvoices(inMemoryInvoices);
+    const remainingDays = Math.ceil(remainingSeconds / 86400);
+
+    return res.json({
+      success: true,
+      message: `Mise en avant réactivée pour ${remainingDays} jour(s) restant(s).`,
+      boost: { id: inv.id, status: 'active', remainingDays, expiresAt: newExpiresAt.toISOString() }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+app.post('/api/billing/admin/boost-requests/:id/resume', handleResumeBoostAction);
+app.put('/api/billing/admin/boost-requests/:id/resume', handleResumeBoostAction);
+
+// 5i-octies. Modification manuelle de la durée ou prolongation (Admin)
+const handleUpdateBoostDurationAction = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { durationDays, expiresAt } = req.body;
+    const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
+    if (!inv) {
+      return res.status(404).json({ success: false, error: 'Demande de boost introuvable' });
+    }
+
+    let targetDate = new Date();
+    if (expiresAt) {
+      targetDate = new Date(expiresAt);
+    } else if (durationDays) {
+      const base = inv.expires_at && new Date(inv.expires_at) > new Date() ? new Date(inv.expires_at) : new Date();
+      base.setDate(base.getDate() + Number(durationDays));
+      targetDate = base;
+    } else {
+      return res.status(400).json({ success: false, error: 'Paramètre durationDays ou expiresAt requis' });
+    }
+
+    inv.status = 'paid';
+    inv.expires_at = targetDate.toISOString();
+    inv.updated_at = new Date().toISOString();
+
+    if (inv.property_id) {
+      const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
+      if (propIdx !== -1) {
+        inMemoryProperties[propIdx].featured = true;
+        inMemoryProperties[propIdx].boostExpiresAt = targetDate.toISOString();
+        saveLocalProperties(inMemoryProperties);
+      }
+      const slideIdx = inMemorySlides.findIndex((s) => s.propertyId === inv.property_id);
+      if (slideIdx !== -1) {
+        inMemorySlides[slideIdx].isActive = true;
+        saveLocalSlides(inMemorySlides);
+      }
+    }
+
+    saveLocalInvoices(inMemoryInvoices);
+
+    return res.json({
+      success: true,
+      message: `Mise en avant prolongée jusqu'au ${targetDate.toLocaleDateString()}.`,
+      expiresAt: targetDate.toISOString()
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+app.put('/api/billing/admin/boost-requests/:id/duration', handleUpdateBoostDurationAction);
+
+// 5i-nonies. Suppression d'une demande de boost (Admin)
+const handleDeleteBoostAction = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const idx = inMemoryInvoices.findIndex((i) => i.id === id || i.invoice_number === id || i.property_id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Demande de boost introuvable' });
+    }
+
+    const [deleted] = inMemoryInvoices.splice(idx, 1);
+    if (deleted.property_id) {
+      const propIdx = inMemoryProperties.findIndex((p: any) => p.id === deleted.property_id);
+      if (propIdx !== -1) {
+        inMemoryProperties[propIdx].featured = false;
+        inMemoryProperties[propIdx].boostExpiresAt = undefined;
+        saveLocalProperties(inMemoryProperties);
+      }
+      const slideIdx = inMemorySlides.findIndex((s) => s.propertyId === deleted.property_id);
+      if (slideIdx !== -1) {
+        inMemorySlides.splice(slideIdx, 1);
+        saveLocalSlides(inMemorySlides);
+      }
+    }
+
+    saveLocalInvoices(inMemoryInvoices);
+    return res.json({ success: true, message: 'Demande de boost supprimée.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+app.delete('/api/billing/admin/boost-requests/:id', handleDeleteBoostAction);
+
+// 5i-decies. Statistiques de la vitrine (Admin)
+app.get('/api/billing/admin/vitrine-stats', (_req: Request, res: Response) => {
+  try {
+    const boostInvoices = inMemoryInvoices.filter((i) => i.property_id || i.type === 'boost');
+    const now = Date.now();
+    const stats = {
+      totalRequests: boostInvoices.length,
+      pending: boostInvoices.filter((i) => i.status === 'pending' || i.status === 'pending_validation').length,
+      active: boostInvoices.filter((i) => (i.status === 'paid' || i.status === 'active') && (!i.expires_at || new Date(i.expires_at).getTime() > now)).length,
+      rejected: boostInvoices.filter((i) => i.status === 'failed' || i.status === 'rejected').length,
+      suspended: boostInvoices.filter((i) => i.status === 'suspended').length,
+      expired: boostInvoices.filter((i) => i.expires_at && new Date(i.expires_at).getTime() <= now).length,
+      activeShowcaseSlides: inMemorySlides.filter((s) => s.isActive && s.propertyId).length
+    };
+    return res.json({ success: true, stats });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
 // 5j. Consultation de toutes les factures côté administration (GET /api/admin/invoices)
 app.get('/api/admin/invoices', (_req: Request, res: Response) => {
   return res.json({
@@ -2326,7 +2713,36 @@ app.get('/api/billing/admin/monetization-stats', (_req: Request, res: Response) 
 // 6. MISE EN AVANT & SHOWCASE HERO SLIDER
 // ==========================================
 app.get('/api/showcase', (_req: Request, res: Response) => {
-  return res.json({ success: true, count: inMemorySlides.length, slides: inMemorySlides });
+  const now = Date.now();
+  // RÈGLES STRICTES : Affiche exclusivement les biens réels validés par l'administrateur
+  const validSlides = inMemorySlides.filter((slide) => {
+    if (!slide || slide.isActive === false) return false;
+    // Condition 1: Le bien doit exister
+    if (!slide.propertyId) return false;
+    const prop = inMemoryProperties.find((p: any) => p.id === slide.propertyId);
+    if (!prop) return false;
+
+    // Condition 2: Le bien doit être publié
+    if (prop.published === false) return false;
+
+    // Condition 3: Le bien ne doit pas être vendu, supprimé, archivé ou suspendu
+    const status = String(prop.status || '').toLowerCase();
+    if (status === 'sold' || status === 'archived' || status === 'draft' || status === 'rented') return false;
+
+    // Condition 4: Le bien doit avoir été validé par l'administrateur (featured)
+    const isFeatured = prop.featured === true || (Array.isArray(prop.labels) && prop.labels.includes('featured'));
+    if (!isFeatured) return false;
+
+    // Condition 5: La période de mise en avant doit être active
+    if (prop.boostExpiresAt) {
+      const expTime = new Date(prop.boostExpiresAt).getTime();
+      if (!isNaN(expTime) && expTime < now) return false;
+    }
+
+    return true;
+  });
+
+  return res.json({ success: true, count: validSlides.length, slides: validSlides });
 });
 
 app.post('/api/showcase', (req: Request, res: Response) => {

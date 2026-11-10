@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Property, ListingLifecycleStatus, LeadRequest } from '../../types';
+import { mysqlApi } from '../../services/mysqlApi';
 import {
   LISTING_STATUS_CONFIG,
   getListingLifecycleStatus,
@@ -50,7 +51,8 @@ import {
   BadgeCheck,
   TrendingUp,
   Receipt,
-  Layers
+  Layers,
+  RefreshCw
 } from 'lucide-react';
 
 export type AgentSectionId =
@@ -107,6 +109,28 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
 
   // Boost Modal State
   const [boostModalProperty, setBoostModalProperty] = useState<Property | null>(null);
+
+  // Agent's Personal Boost Requests (Chargées directement depuis MySQL)
+  const [agentBoostRequests, setAgentBoostRequests] = useState<any[]>([]);
+  const [isLoadingAgentBoosts, setIsLoadingAgentBoosts] = useState(false);
+
+  const loadAgentBoosts = async () => {
+    setIsLoadingAgentBoosts(true);
+    try {
+      const res = await mysqlApi.getMyBoosts();
+      if (res && res.boosts) {
+        setAgentBoostRequests(res.boosts);
+      }
+    } catch (e) {
+      console.warn('Erreur chargement des boosts agent:', e);
+    } finally {
+      setIsLoadingAgentBoosts(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAgentBoosts();
+  }, [user?.id]);
 
   // Kinimmo Trust Application Modal
   const [isTrustModalOpen, setIsTrustModalOpen] = useState(false);
@@ -888,70 +912,207 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
       {/* ======================================================== */}
       {/* 8. BOOSTS ET ANNONCES SPONSORISÉES */}
       {/* ======================================================== */}
+      {/* ======================================================== */}
+      {/* 8. BOOSTS ET ANNONCES SPONSORISÉES / MES MISES EN AVANT */}
+      {/* ======================================================== */}
       {activeSection === 'boosts' && (
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-6 shadow-xl">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
-              <h3 className="text-lg font-black text-white">Boosts & Annonces Sponsorisées</h3>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
+                  Espace Personnel Agent • Vitrine Kinimmo
+                </span>
+              </div>
+              <h3 className="text-xl font-black text-white flex items-center gap-2 mt-1">
+                <Sparkles className="w-5 h-5 text-amber-400" />
+                <span>Mes Mises en Avant & Vitrine</span>
+              </h3>
               <p className="text-xs text-slate-400">
-                Multipliez jusqu'à 5x vos demandes de visite en plaçant vos biens en vedette.
+                Suivez en temps réel la validation de vos demandes de mise en avant par la direction, vos dates d'activation et vos motifs de refus.
               </p>
             </div>
-            <span className="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
-              {activeBoostedProps.length} boost{activeBoostedProps.length > 1 ? 's' : ''} actif{activeBoostedProps.length > 1 ? 's' : ''}
-            </span>
+
+            <button
+              onClick={loadAgentBoosts}
+              disabled={isLoadingAgentBoosts}
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAgentBoosts ? 'animate-spin' : ''}`} />
+              <span>Actualiser</span>
+            </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-5 rounded-2xl bg-slate-950/70 border border-amber-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-xs">Mise en Vedette (7 jours)</span>
-                <span className="text-emerald-400 font-bold text-xs">10 $ USD</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Positionnement prioritaire en tête de la page d'accueil et dans les résultats de recherche.
-              </p>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-slate-950/70 border border-yellow-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-xs">Pack Premium (30 jours)</span>
-                <span className="text-emerald-400 font-bold text-xs">25 $ USD</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Cadre doré officiel, badge Premium exclusif et visibilité maximale pendant un mois complet.
-              </p>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-slate-950/70 border border-rose-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-xs">Badge Urgent (14 jours)</span>
-                <span className="text-emerald-400 font-bold text-xs">8 $ USD</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Bandeau d'urgence clignotant pour accélérer la transaction auprès des acquéreurs sérieux.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3 pt-2">
-            <h4 className="text-xs font-bold text-slate-300">Vos annonces avec boost actif</h4>
-            <div className="divide-y divide-slate-800">
-              {activeBoostedProps.map((p) => (
-                <div key={p.id} className="py-3 flex items-center justify-between text-xs">
-                  <span className="font-bold text-white">{p.title}</span>
-                  <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-[10px]">
-                    Sponsorisé Actif
-                  </span>
+          {/* Formules de mise en avant disponibles */}
+          <div className="space-y-3">
+            <h4 className="text-xs font-black uppercase tracking-wider text-slate-300">
+              Formules de Mise en Avant Disponibles
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-5 rounded-2xl bg-slate-950/70 border border-amber-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs">Mise en Vedette (7 jours)</span>
+                  <span className="text-amber-400 font-bold text-xs">10 $ USD</span>
                 </div>
-              ))}
-              {activeBoostedProps.length === 0 && (
-                <p className="text-slate-400 text-xs py-4 text-center">
-                  Aucun boost actif pour le moment. Cliquez sur « Booster » sur l'une de vos annonces publiées.
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Positionnement prioritaire dans la section Vitrine en tête de page et badge « À LA UNE » doré.
                 </p>
-              )}
+              </div>
+
+              <div className="p-5 rounded-2xl bg-slate-950/70 border border-yellow-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs">Pack Premium (30 jours)</span>
+                  <span className="text-amber-400 font-bold text-xs">25 $ USD</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Affichage maximal en vitrine pendant 1 mois entier, cadre d'exception et priorité absolue.
+                </p>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-slate-950/70 border border-rose-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs">Badge Urgent (14 jours)</span>
+                  <span className="text-rose-400 font-bold text-xs">8 $ USD</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Signalétique d'urgence pour trouver preneur rapidement auprès des acquéreurs et locataires.
+                </p>
+              </div>
             </div>
+          </div>
+
+          {/* Tableau détaillé des demandes de mise en avant de l'agent */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-300">
+                Historique de vos Demandes de Mise en Avant ({agentBoostRequests.length})
+              </h4>
+            </div>
+
+            {agentBoostRequests.length === 0 ? (
+              <div className="p-8 text-center rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
+                <Sparkles className="w-8 h-8 text-amber-500/60 mx-auto" />
+                <p className="text-xs font-bold text-slate-300">
+                  Vous n'avez aucune demande de mise en avant pour le moment.
+                </p>
+                <p className="text-[11px] text-slate-500 max-w-md mx-auto">
+                  Pour propulser l'un de vos biens dans la Vitrine Officielle Kinimmo, rendez-vous dans l'onglet « Mes Propriétés » ci-dessus et cliquez sur le bouton « Demander une mise en avant ».
+                </p>
+                <button
+                  onClick={() => setActiveSection('my_properties')}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs inline-flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+                >
+                  <Building2 className="w-4 h-4" />
+                  <span>Choisir un bien à mettre en avant</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {agentBoostRequests.map((boost) => {
+                  const isPending = boost.status === 'pending';
+                  const isActive = boost.status === 'active';
+                  const isRejected = boost.status === 'rejected';
+                  const isSuspended = boost.status === 'suspended';
+                  const isExpired = boost.status === 'expired' || (isActive && boost.expires_at && new Date(boost.expires_at).getTime() <= Date.now());
+
+                  return (
+                    <div
+                      key={boost.id}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+                        isPending
+                          ? 'bg-amber-950/20 border-amber-500/40'
+                          : isActive && !isExpired
+                          ? 'bg-slate-950/80 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
+                          : isSuspended
+                          ? 'bg-purple-950/20 border-purple-500/40'
+                          : isRejected
+                          ? 'bg-rose-950/20 border-rose-500/40'
+                          : 'bg-slate-950/40 border-slate-800 opacity-70'
+                      }`}
+                    >
+                      <div className="space-y-1.5 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              isPending
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                : isActive && !isExpired
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : isSuspended
+                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                                : isRejected
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}
+                          >
+                            {isPending
+                              ? '⏳ En attente de validation Admin'
+                              : isActive && !isExpired
+                              ? '✓ Active en Vitrine'
+                              : isSuspended
+                              ? '⏸ Suspendue (Compteur gelé)'
+                              : isRejected
+                              ? '✕ Demande Refusée'
+                              : 'Expirée'}
+                          </span>
+
+                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-bold">
+                            {boost.option_name || 'Option Visibilité'} ({boost.duration_days || 7} jours)
+                          </span>
+                        </div>
+
+                        <h4 className="text-sm font-bold text-white truncate">
+                          {boost.property_title || 'Bien immobilier'}
+                        </h4>
+
+                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+                          {boost.starts_at && (
+                            <span>Début : {new Date(boost.starts_at).toLocaleDateString('fr-FR')}</span>
+                          )}
+                          {boost.expires_at && (
+                            <span className={isActive && !isExpired ? 'text-emerald-400 font-semibold' : ''}>
+                              Fin : {new Date(boost.expires_at).toLocaleDateString('fr-FR')}
+                            </span>
+                          )}
+                          {boost.created_at && !boost.starts_at && (
+                            <span>Demandé le : {new Date(boost.created_at).toLocaleDateString('fr-FR')}</span>
+                          )}
+                        </div>
+
+                        {/* Motif du refus renseigné par l'administrateur */}
+                        {isRejected && boost.rejection_reason && (
+                          <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs mt-2">
+                            <strong>Motif du refus par l'administration :</strong> {boost.rejection_reason}
+                          </div>
+                        )}
+
+                        {/* Note de suspension */}
+                        {isSuspended && (
+                          <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs mt-2">
+                            Mise en avant mise en pause temporaire par la direction. Le solde de vos jours est préservé.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action de renouvellement si refusée ou expirée */}
+                      {(isExpired || isRejected) && (
+                        <button
+                          onClick={() => {
+                            const foundProp = properties.find((p) => p.id === boost.property_id);
+                            if (foundProp) setBoostModalProperty(foundProp);
+                            else setActiveSection('my_properties');
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all shrink-0 cursor-pointer"
+                        >
+                          Renouveler la demande
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

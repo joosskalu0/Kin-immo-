@@ -326,29 +326,13 @@ const getInitialHeroSlides = (): ArchitecturalSlide[] => {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Hydrater chaque slide avec les coordonnées directes de son agence partenaire
-        // et remplacer tout numéro d'administrateur (+243 84 529 4616) par le numéro WhatsApp propre à l'agence
-        return parsed.map((slide) => {
-          const defaultRef = INITIAL_ARCHITECTURAL_SLIDES.find((d) => d.id === slide.id);
-          const hasAdminNumber = (num?: string) => Boolean(num && num.replace(/[^0-9]/g, '').includes('845294616'));
-
-          const shouldFixWhatsapp = !slide.contactWhatsapp || hasAdminNumber(slide.contactWhatsapp);
-          const shouldFixPhone = !slide.contactPhone || hasAdminNumber(slide.contactPhone);
-
-          return {
-            ...slide,
-            contactName: (!slide.contactName || shouldFixWhatsapp) ? (defaultRef?.contactName || 'Agence Immo Kin Gombe SARL') : slide.contactName,
-            contactRole: (!slide.contactRole || shouldFixWhatsapp) ? (defaultRef?.contactRole || 'Agence Partenaire Agréée') : slide.contactRole,
-            contactPhone: shouldFixPhone ? (defaultRef?.contactPhone || '+243 82 123 4567') : slide.contactPhone,
-            contactWhatsapp: shouldFixWhatsapp ? (defaultRef?.contactWhatsapp || '+243 82 123 4567') : slide.contactWhatsapp,
-            contactEmail: (!slide.contactEmail || shouldFixWhatsapp) ? (defaultRef?.contactEmail || 'contact@kinimmo.com') : slide.contactEmail,
-            legalStatus: slide.legalStatus || defaultRef?.legalStatus || 'Titre Foncier & Certificat d’Enregistrement Conforme'
-          };
-        });
+        // Ne conserver que les slides réellement rattachés à un bien immobilier
+        const valid = parsed.filter((slide) => slide && slide.propertyId);
+        return valid;
       }
     }
   } catch {}
-  return INITIAL_ARCHITECTURAL_SLIDES;
+  return [];
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -2045,6 +2029,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 saveDurableLocalProperties(updatedProps);
                 return updatedProps;
               });
+
+              // Projection automatique dans la Vitrine Hero
+              promotePropertyToHero(targetPropId);
             }
           } else if (status === 'overdue' || status === 'cancelled') {
             if (inv.targetType === 'agency' || inv.targetId.startsWith('agency_')) {

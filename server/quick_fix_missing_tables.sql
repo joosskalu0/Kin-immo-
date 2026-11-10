@@ -123,9 +123,41 @@ CREATE TABLE IF NOT EXISTS `hero_showcase_slides` (
 -- 5. Sécurisation de la table properties (Vidéo fluide & Affichage garanti sur la page d'accueil)
 ALTER TABLE `properties` MODIFY COLUMN `video_url` TEXT DEFAULT NULL;
 ALTER TABLE `properties` MODIFY COLUMN `published` BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `boost_expires_at` TIMESTAMP NULL DEFAULT NULL;
 UPDATE `properties` SET `published` = TRUE WHERE `published` IS NULL OR `published` = FALSE;
 
 -- 6. Sécurisation de la table property_images (Photos HD complètes sans coupure grise)
 ALTER TABLE `property_images` MODIFY COLUMN `image_url` LONGTEXT NOT NULL;
 
+-- 7. Traçabilité et Validation Manuelle des Boosts par l'Administrateur (listing_boosts)
+CREATE TABLE IF NOT EXISTS `listing_boosts` (
+  `id` VARCHAR(64) NOT NULL,
+  `property_id` VARCHAR(64) NOT NULL,
+  `user_id` VARCHAR(64) NOT NULL,
+  `option_id` VARCHAR(50) NOT NULL,
+  `invoice_id` VARCHAR(64) DEFAULT NULL,
+  `status` ENUM('pending', 'active', 'expired', 'canceled', 'rejected') NOT NULL DEFAULT 'pending',
+  `admin_id` VARCHAR(64) DEFAULT NULL,
+  `reviewed_at` TIMESTAMP NULL DEFAULT NULL,
+  `rejection_reason` TEXT DEFAULT NULL,
+  `starts_at` TIMESTAMP NULL DEFAULT NULL,
+  `expires_at` TIMESTAMP NULL DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_boost_property` (`property_id`),
+  INDEX `idx_boost_user` (`user_id`),
+  INDEX `idx_boost_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `listing_boosts` ADD COLUMN IF NOT EXISTS `admin_id` VARCHAR(64) DEFAULT NULL;
+ALTER TABLE `listing_boosts` ADD COLUMN IF NOT EXISTS `reviewed_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `listing_boosts` ADD COLUMN IF NOT EXISTS `rejection_reason` TEXT DEFAULT NULL;
+ALTER TABLE `listing_boosts` ADD COLUMN IF NOT EXISTS `remaining_seconds_frozen` INT DEFAULT NULL;
+ALTER TABLE `listing_boosts` MODIFY COLUMN `status` ENUM('pending', 'active', 'expired', 'canceled', 'rejected', 'suspended') NOT NULL DEFAULT 'pending';
+
+-- 8. Nettoyage de la Vitrine : Suppression des faux slides de test sans bien réel
+DELETE FROM `hero_showcase_slides` WHERE `property_id` IS NULL;
+
 SET FOREIGN_KEY_CHECKS = 1;
+

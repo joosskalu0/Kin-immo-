@@ -21,6 +21,18 @@ router.put('/invoices/:id/pay', authenticateToken, billingController.submitPayme
 // Routes d'administration de la monétisation et validation
 router.put('/invoices/:id/approve', authenticateToken, requireAdmin, billingController.approveInvoice);
 router.put('/invoices/:id/reject', authenticateToken, requireAdmin, billingController.rejectInvoice);
+router.get('/admin/boost-requests', authenticateToken, requireAdmin, billingController.adminGetBoostRequests);
+router.get('/admin/vitrine-stats', authenticateToken, requireAdmin, billingController.getVitrineStats);
+router.post('/admin/boost-requests/:id/approve', authenticateToken, requireAdmin, billingController.adminApproveBoost);
+router.put('/admin/boost-requests/:id/approve', authenticateToken, requireAdmin, billingController.adminApproveBoost);
+router.post('/admin/boost-requests/:id/reject', authenticateToken, requireAdmin, billingController.adminRejectBoost);
+router.put('/admin/boost-requests/:id/reject', authenticateToken, requireAdmin, billingController.adminRejectBoost);
+router.post('/admin/boost-requests/:id/suspend', authenticateToken, requireAdmin, billingController.adminSuspendBoost);
+router.put('/admin/boost-requests/:id/suspend', authenticateToken, requireAdmin, billingController.adminSuspendBoost);
+router.post('/admin/boost-requests/:id/resume', authenticateToken, requireAdmin, billingController.adminResumeBoost);
+router.put('/admin/boost-requests/:id/resume', authenticateToken, requireAdmin, billingController.adminResumeBoost);
+router.put('/admin/boost-requests/:id/duration', authenticateToken, requireAdmin, billingController.adminUpdateBoostDuration);
+router.delete('/admin/boost-requests/:id', authenticateToken, requireAdmin, billingController.adminDeleteBoost);
 router.get('/admin/monetization-stats', authenticateToken, requireAdmin, billingController.getAdminMonetizationStats);
 router.get('/admin/advertisements', authenticateToken, requireAdmin, billingController.getAdminAdvertisements);
 router.post('/admin/advertisements', authenticateToken, requireAdmin, billingController.createAdvertisement);

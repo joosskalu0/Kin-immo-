@@ -150,21 +150,91 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
     };
   };
 
-  // Active slides that are enabled for display
-  const activeSlides = (heroSlides && heroSlides.length > 0)
-    ? heroSlides.filter((s) => s.isActive !== false)
-    : INITIAL_ARCHITECTURAL_SLIDES;
+  // Filtrage strict de la Vitrine Kinimmo :
+  // Affiche EXCLUSIVEMENT les biens réels validés et autorisés par l'administrateur
+  const displaySlides = React.useMemo(() => {
+    if (!heroSlides || heroSlides.length === 0) return [];
+    const now = Date.now();
 
-  const displaySlides = activeSlides.length > 0 ? activeSlides : (heroSlides && heroSlides.length > 0 ? heroSlides : INITIAL_ARCHITECTURAL_SLIDES);
+    return heroSlides.filter((slide) => {
+      if (!slide || slide.isActive === false) return false;
+      if (!slide.propertyId) return false; // Exclusion stricte des faux slides sans bien associé
+
+      const prop = properties.find((p) => p.id === slide.propertyId);
+      if (prop) {
+        if (prop.published === false) return false;
+        const status = String(prop.status || '').toLowerCase();
+        if (status === 'sold' || status === 'archived' || status === 'draft' || status === 'rented') return false;
+
+        const isFeatured = prop.featured === true || (Array.isArray(prop.labels) && prop.labels.includes('featured'));
+        if (!isFeatured) return false;
+
+        if (prop.boostExpiresAt) {
+          const expTime = new Date(prop.boostExpiresAt).getTime();
+          if (!isNaN(expTime) && expTime < now) return false;
+        }
+      }
+      return true;
+    });
+  }, [heroSlides, properties]);
 
   // Keep index within bounds if list changes
   useEffect(() => {
-    if (currentIndex >= displaySlides.length) {
+    if (currentIndex >= displaySlides.length && displaySlides.length > 0) {
       setCurrentIndex(0);
     }
   }, [displaySlides.length, currentIndex]);
 
-  const currentSlide = displaySlides[currentIndex] || displaySlides[0] || INITIAL_ARCHITECTURAL_SLIDES[0];
+  // Affichage d'attente haut de gamme si aucun bien n'a de mise en avant approuvée active
+  if (displaySlides.length === 0) {
+    return (
+      <div className="relative w-full mb-6 rounded-3xl overflow-hidden bg-slate-950 border border-slate-800/80 p-8 sm:p-12 shadow-2xl relative select-none">
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/90 to-emerald-950/30" />
+        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 max-w-2xl space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#10b981]" />
+            <span className="text-[11px] font-black uppercase tracking-widest text-emerald-300 bg-slate-900/80 px-3.5 py-1.5 rounded-full border border-emerald-500/30 shadow-lg">
+              KINIMMO PRESTIGE • KINSHASA
+            </span>
+          </div>
+
+          <h2 className="text-2xl sm:text-4xl font-black uppercase text-white tracking-tight leading-tight">
+            Vitrine Immobilière d'Exception
+          </h2>
+
+          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-normal">
+            Cet espace exclusif en tête de site est réservé aux biens immobiliers d'exception vérifiés et validés manuellement par la direction Kinimmo.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            {onNavigateToAgencies && (
+              <button
+                onClick={onNavigateToAgencies}
+                className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-lg active:scale-95"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Agences Partenaires & Promoteurs</span>
+              </button>
+            )}
+
+            {onNavigateToConciergerie && (
+              <button
+                onClick={onNavigateToConciergerie}
+                className="px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/20 transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <Key className="w-4 h-4 text-emerald-400" />
+                <span>Conciergerie Immobilière VIP</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentSlide = displaySlides[currentIndex] || displaySlides[0];
   const currentAgency = getAgencyContactForSlide(currentSlide);
 
   // Auto-play : la mise en avant bascule automatiquement avec transition fluide
