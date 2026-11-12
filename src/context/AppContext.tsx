@@ -338,14 +338,24 @@ const getInitialHeroSlides = (): ArchitecturalSlide[] => {
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguage] = useState<LanguageCode>('fr');
   const [currency, setCurrency] = useState<CurrencyCode>('USD');
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const raw = localStorage.getItem('kinimmo_user');
+        return raw ? JSON.parse(raw) : null;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
 
   // Invitation link state for agents & agencies
   const [invitedRole, setInvitedRole] = useState<'agent' | 'agency' | null>(null);
   const [invitedBy, setInvitedBy] = useState<string | null>(null);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
-  // Proactively clean up legacy temporary and demo items to ensure a virgin platform
+  // Proactively clean up legacy temporary items from old migrations (without touching kinimmo data)
   useEffect(() => {
     try {
       localStorage.removeItem('estatik_kinshasa_user');
@@ -359,13 +369,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.removeItem('kin_tracking_config');
       localStorage.removeItem('immocraft_durable_published_properties');
       localStorage.removeItem('estatik_durable_properties');
-      localStorage.removeItem('kinimmo_properties');
-      localStorage.removeItem('kinimmo_agents');
-      localStorage.removeItem('kinimmo_agencies');
-      localStorage.removeItem('kinimmo_users');
-      localStorage.removeItem('kinimmo_leads');
-      localStorage.removeItem('kinimmo_invoices');
-      localStorage.removeItem('kinimmo_property_videos_v1');
       localStorage.removeItem('immocraft_property_user_reports');
     } catch {}
   }, []);

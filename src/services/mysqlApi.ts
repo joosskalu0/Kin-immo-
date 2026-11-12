@@ -375,28 +375,41 @@ const DEFAULT_PAYMENT_METHODS = [
   }
 ];
 
-// Récupérer le token JWT stocké
+// Clé unique canonique pour le stockage du jeton d'authentification
+export const AUTH_TOKEN_KEY = 'kinimmo_token';
+
+// Récupérer le token d'authentification stocké
 export const getStoredToken = (): string | null => {
   try {
-    return localStorage.getItem('kinimmo_jwt_token');
+    return (
+      localStorage.getItem(AUTH_TOKEN_KEY) ||
+      localStorage.getItem('kinimmo_jwt_token') ||
+      localStorage.getItem('kinimmo_auth_token') ||
+      localStorage.getItem('token')
+    );
   } catch {
     return null;
   }
 };
 
-// Sauvegarder le token JWT
+// Sauvegarder le token (avec clé unique et miroirs de compatibilité)
 export const setStoredToken = (token: string): void => {
   try {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.setItem('kinimmo_jwt_token', token);
+    localStorage.setItem('kinimmo_auth_token', token);
   } catch (e) {
     console.error('Impossible de stocker le token', e);
   }
 };
 
-// Supprimer le token JWT (Déconnexion)
+// Supprimer le token (Déconnexion)
 export const clearStoredToken = (): void => {
   try {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem('kinimmo_jwt_token');
+    localStorage.removeItem('kinimmo_auth_token');
+    localStorage.removeItem('token');
   } catch (e) {
     console.error('Erreur suppression token', e);
   }
@@ -451,14 +464,15 @@ export const mysqlApi = {
     return apiRequest('/health');
   },
 
-  // 2. Authentification
+  // 2. Authentification (Passage direct par /auth/register et /auth/login)
   async register(userData: { name: string; email: string; password: string; phone?: string; role?: string; agencyName?: string }) {
     const res = await apiRequest('/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData)
     });
-    if (res.success && res.data?.token) {
-      setStoredToken(res.data.token);
+    const token = res.token || res.data?.token;
+    if (res.success && token) {
+      setStoredToken(token);
     }
     return res;
   },
@@ -468,8 +482,9 @@ export const mysqlApi = {
       method: 'POST',
       body: JSON.stringify(credentials)
     });
-    if (res.success && res.data?.token) {
-      setStoredToken(res.data.token);
+    const token = res.token || res.data?.token;
+    if (res.success && token) {
+      setStoredToken(token);
     }
     return res;
   },

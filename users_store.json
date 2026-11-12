@@ -1,0 +1,49 @@
+[
+  {
+    "id": "user_1794498961985_vx6l",
+    "name": "Agent Test",
+    "email": "agent.test@kinimmo.cd",
+    "password": "Password123!",
+    "phone": "",
+    "role": "agent",
+    "agencyName": "Kinshasa Immo Test",
+    "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    "planId": "pro",
+    "createdAt": "2026-11-12T15:56:01.985Z"
+  },
+  {
+    "id": "admin_master",
+    "name": "Direction Kinimmo",
+    "email": "admin@kinimmo.cd",
+    "password": "AdminPassword2026!",
+    "phone": "+243 84 529 4616",
+    "role": "admin",
+    "agencyName": "Kinimmo RDC",
+    "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    "createdAt": "2026-11-12T15:55:53.665Z"
+  },
+  {
+    "id": "agent_gombe_01",
+    "name": "Cabinet Immobilier Gombe",
+    "email": "agent.gombe@kinimmo.cd",
+    "password": "Password123!",
+    "phone": "+243 81 000 0001",
+    "role": "agent",
+    "agencyName": "Cabinet Immobilier Gombe SARL",
+    "rccmOrNif": "CD/KIN/RCCM/26-B-08420",
+    "avatar": "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80",
+    "createdAt": "2026-11-12T15:55:53.665Z"
+  },
+  {
+    "id": "agency_prestige_01",
+    "name": "Agence Prestige Kinshasa",
+    "email": "agence@kinimmo.cd",
+    "password": "Password123!",
+    "phone": "+243 82 123 4567",
+    "role": "agency",
+    "agencyName": "Agence Prestige Kinshasa SARL",
+    "rccmOrNif": "CD/KIN/RCCM/24-B-01192",
+    "avatar": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
+    "createdAt": "2026-11-12T15:55:53.665Z"
+  }
+]

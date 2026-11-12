@@ -1,6 +1,0 @@
-{
-  "summary":  "Plan complet de finalisation et d'audit du module Vitrine & Mises en avant (Kinimmo) :\n- Base de données MySQL et API Node.js Hostinger (gestion PENDING, APPROVED, REJECTED, SUSPENDED avec gel du compteur de jours, EXPIRED, suppression, prolongation, statistiques).\n- Hub d'administration complet avec tous les filtres, actions manuelles (valider, refuser avec motif, suspendre/dégeler, modifier la date, supprimer, voir l'agent propriétaire).\n- Espace Agent avec l'onglet dédié 'Mes Mises en Avant' pour suivre ses demandes, statuts, dates, motifs de refus et commander de nouveaux boosts.\n- Section publique Vitrine sur la page d'accueil positionnée immédiatement sous la recherche principale, avec affichage 100% réel depuis MySQL sans données factices.\n- Moteur d'expiration strict interdisant toute réactivation automatique.",
-  "updatedAt":  "2026-11-10T08:35:19.042164658Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

@@ -185,6 +185,17 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
     }
   }, [displaySlides.length, currentIndex]);
 
+  // Auto-play : la mise en avant bascule automatiquement avec transition fluide (déclaré avant tout return)
+  useEffect(() => {
+    if (isPaused || selectedSlideDetails !== null || displaySlides.length <= 1) return;
+
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % displaySlides.length);
+    }, 6500);
+
+    return () => clearInterval(timer);
+  }, [isPaused, selectedSlideDetails, displaySlides.length]);
+
   // Affichage d'attente haut de gamme si aucun bien n'a de mise en avant approuvée active
   if (displaySlides.length === 0) {
     return (
@@ -236,17 +247,6 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
 
   const currentSlide = displaySlides[currentIndex] || displaySlides[0];
   const currentAgency = getAgencyContactForSlide(currentSlide);
-
-  // Auto-play : la mise en avant bascule automatiquement avec transition fluide
-  useEffect(() => {
-    if (isPaused || selectedSlideDetails !== null || displaySlides.length <= 1) return;
-
-    const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % displaySlides.length);
-    }, 6500);
-
-    return () => clearInterval(timer);
-  }, [isPaused, selectedSlideDetails, displaySlides.length]);
 
   const handleNext = () => {
     setCurrentIndex((prev) => (prev + 1) % displaySlides.length);

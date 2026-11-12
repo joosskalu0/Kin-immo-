@@ -10,10 +10,12 @@ import {
   AvailabilityStatus
 } from '../types/trust';
 
+import { getStoredToken } from './mysqlApi';
+
 const API_BASE = '/api/trust';
 
 function getHeaders(): HeadersInit {
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
   
@@ -27,7 +29,7 @@ function getHeaders(): HeadersInit {
     } catch {}
   }
 
-  const token = localStorage.getItem('kinimmo_auth_token') || localStorage.getItem('token');
+  const token = getStoredToken();
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }

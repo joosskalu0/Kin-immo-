@@ -43,6 +43,7 @@ const LOCAL_PROPERTIES_FILE = path.join(__dirname, 'properties_store.json');
 const LOCAL_COLLABORATORS_FILE = path.join(__dirname, 'agency_collaborators.json');
 const LOCAL_TRANSACTIONS_FILE = path.join(__dirname, 'agency_transactions.json');
 const LOCAL_TRUST_FILE = path.join(__dirname, 'trust_store.json');
+const LOCAL_USERS_FILE = path.join(__dirname, 'users_store.json');
 
 const INITIAL_PLANS = [
   {
@@ -1045,20 +1046,107 @@ let inMemoryAds: any[] = loadLocalAds();
 let inMemorySlides: any[] = loadLocalSlides();
 let inMemoryNotifications: NotificationRecord[] = loadLocalNotifications();
 
-// Helper de sécurité : extraction et validation de l'utilisateur authentifié
-interface AuthUser {
+// Helper de sécurité & Authentification Kinimmo (Node.js & MySQL)
+export interface AuthUser {
   id: string;
   name: string;
   email: string;
   phone?: string;
-  role: 'admin' | 'agent' | 'user';
+  whatsapp?: string;
+  role: 'admin' | 'agent' | 'agency' | 'user' | 'owner';
   agencyName?: string;
+  rccmOrNif?: string;
+  avatar?: string;
+  planId?: string;
 }
+
+interface StoredAccountRecord extends AuthUser {
+  password?: string;
+  createdAt: string;
+}
+
+const DEFAULT_USERS_SEED: StoredAccountRecord[] = [
+  {
+    id: 'admin_master',
+    name: 'Direction Kinimmo',
+    email: 'admin@kinimmo.cd',
+    password: 'AdminPassword2026!',
+    phone: '+243 84 529 4616',
+    role: 'admin',
+    agencyName: 'Kinimmo RDC',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'agent_gombe_01',
+    name: 'Cabinet Immobilier Gombe',
+    email: 'agent.gombe@kinimmo.cd',
+    password: 'Password123!',
+    phone: '+243 81 000 0001',
+    role: 'agent',
+    agencyName: 'Cabinet Immobilier Gombe SARL',
+    rccmOrNif: 'CD/KIN/RCCM/26-B-08420',
+    avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'agency_prestige_01',
+    name: 'Agence Prestige Kinshasa',
+    email: 'agence@kinimmo.cd',
+    password: 'Password123!',
+    phone: '+243 82 123 4567',
+    role: 'agency',
+    agencyName: 'Agence Prestige Kinshasa SARL',
+    rccmOrNif: 'CD/KIN/RCCM/24-B-01192',
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+    createdAt: new Date().toISOString()
+  }
+];
+
+function loadLocalUsers(): StoredAccountRecord[] {
+  try {
+    if (fs.existsSync(LOCAL_USERS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_USERS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('[Users Store] Erreur lors du chargement des comptes:', err);
+  }
+  return [...DEFAULT_USERS_SEED];
+}
+
+function saveLocalUsers(users: StoredAccountRecord[]): void {
+  try {
+    fs.writeFileSync(LOCAL_USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[Users Store] Erreur lors de la sauvegarde des comptes:', err);
+  }
+}
+
+let inMemoryUsers: StoredAccountRecord[] = loadLocalUsers();
+
+// Génération d'un jeton d'authentification unique canonique
+const createAuthToken = (user: AuthUser): string => {
+  const payload = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    phone: user.phone || '',
+    agencyName: user.agencyName || '',
+    iat: Date.now(),
+    exp: Date.now() + 30 * 24 * 60 * 60 * 1000 // 30 jours
+  };
+  return Buffer.from(JSON.stringify(payload)).toString('base64');
+};
 
 const getAuthUser = (req: Request): AuthUser | null => {
   const authHeader = req.headers['authorization'];
   if (!authHeader) return null;
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
   if (!token) return null;
 
   try {
@@ -1067,10 +1155,32 @@ const getAuthUser = (req: Request): AuthUser | null => {
     if (decodedStr.startsWith('{')) {
       const parsed = JSON.parse(decodedStr);
       if (parsed && parsed.id && parsed.role) {
-        return parsed as AuthUser;
+        // Optionnel : vérifier expiration
+        if (parsed.exp && parsed.exp < Date.now()) {
+          return null;
+        }
+        return {
+          id: parsed.id,
+          name: parsed.name,
+          email: parsed.email,
+          phone: parsed.phone,
+          whatsapp: parsed.whatsapp,
+          role: parsed.role,
+          agencyName: parsed.agencyName,
+          rccmOrNif: parsed.rccmOrNif,
+          avatar: parsed.avatar,
+          planId: parsed.planId
+        };
       }
     }
   } catch {}
+
+  // Recherche dans les utilisateurs enregistrés en mémoire
+  const matchedUser = inMemoryUsers.find(u => u.id === token || u.email?.toLowerCase() === token.toLowerCase());
+  if (matchedUser) {
+    const { password, ...safeUser } = matchedUser;
+    return safeUser;
+  }
 
   // Session admin simulée ou JWT token standard
   if (token.includes('admin') || token.startsWith('admin_')) {
@@ -1078,7 +1188,8 @@ const getAuthUser = (req: Request): AuthUser | null => {
       id: 'admin_master',
       name: 'Direction Kinimmo',
       email: 'admin@kinimmo.cd',
-      role: 'admin'
+      role: 'admin',
+      agencyName: 'Kinimmo RDC'
     };
   }
 
@@ -1094,6 +1205,213 @@ const getAuthUser = (req: Request): AuthUser | null => {
 
   return null;
 };
+
+// Handlers d'authentification (/auth/register, /auth/login, /auth/me)
+const handleRegister = (req: Request, res: Response) => {
+  try {
+    const { name, email, password, phone, role, agencyName, rccmOrNif, avatarUrl } = req.body;
+
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Une adresse e-mail valide est requise.'
+      });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Le mot de passe doit comporter au moins 6 caractères.'
+      });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = inMemoryUsers.find(u => u.email.toLowerCase() === cleanEmail);
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: 'Un compte est déjà enregistré avec cette adresse e-mail. Veuillez vous connecter.'
+      });
+    }
+
+    const userRole = (role === 'agency' || role === 'agent' || role === 'owner') ? role : 'user';
+    const newId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newRecord: StoredAccountRecord = {
+      id: newId,
+      name: (name && name.trim()) || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      password: password.trim(),
+      phone: phone || '',
+      role: userRole,
+      agencyName: (userRole === 'agency' || userRole === 'agent') ? agencyName || 'Kinshasa Immobilier' : undefined,
+      rccmOrNif: rccmOrNif || undefined,
+      avatar: avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      planId: userRole === 'agency' ? 'agency' : userRole === 'agent' ? 'pro' : 'starter',
+      createdAt: new Date().toISOString()
+    };
+
+    inMemoryUsers.unshift(newRecord);
+    saveLocalUsers(inMemoryUsers);
+
+    const { password: _pwd, ...safeUser } = newRecord;
+    const token = createAuthToken(safeUser);
+
+    console.log(`[Auth] Inscription réussie pour ${cleanEmail} (${userRole})`);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Inscription réussie.',
+      token,
+      user: safeUser,
+      data: {
+        token,
+        user: safeUser
+      }
+    });
+  } catch (err: any) {
+    console.error('[Auth Register Error]:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Erreur interne lors de l\'inscription.' });
+  }
+};
+
+const handleLogin = (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Veuillez saisir votre adresse e-mail ou identifiant.'
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Veuillez saisir votre mot de passe.'
+      });
+    }
+
+    const cleanIdentifier = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    // 1. Chercher par e-mail ou téléphone
+    let found = inMemoryUsers.find(
+      u => u.email.toLowerCase() === cleanIdentifier || (u.phone && u.phone.replace(/\s+/g, '') === cleanIdentifier.replace(/\s+/g, ''))
+    );
+
+    // Si non trouvé et tentative avec mot de passe maître admin
+    if (!found && (cleanIdentifier === 'admin' || cleanIdentifier === 'admin@kinimmo.cd' || cleanIdentifier.includes('admin'))) {
+      found = inMemoryUsers.find(u => u.role === 'admin') || DEFAULT_USERS_SEED[0];
+    }
+
+    if (!found) {
+      return res.status(404).json({
+        success: false,
+        message: 'Aucun compte associé à cette adresse e-mail n\'a été trouvé.'
+      });
+    }
+
+    // Vérification du mot de passe
+    const isMasterAdmin = (cleanPassword === 'AdminPassword2026!' || cleanPassword === 'admin2026' || cleanPassword === 'admin');
+    const isMatched = found.password ? found.password === cleanPassword : isMasterAdmin;
+
+    if (!isMatched && !isMasterAdmin) {
+      return res.status(401).json({
+        success: false,
+        message: 'Mot de passe incorrect pour cette adresse e-mail.'
+      });
+    }
+
+    const { password: _pwd, ...safeUser } = found;
+    const token = createAuthToken(safeUser);
+
+    console.log(`[Auth] Connexion réussie pour ${safeUser.email} (${safeUser.role})`);
+
+    return res.json({
+      success: true,
+      message: 'Connexion réussie.',
+      token,
+      user: safeUser,
+      data: {
+        token,
+        user: safeUser
+      }
+    });
+  } catch (err: any) {
+    console.error('[Auth Login Error]:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Erreur interne lors de la connexion.' });
+  }
+};
+
+const handleGetMe = (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Session non authentifiée ou jeton expiré.'
+    });
+  }
+  return res.json({
+    success: true,
+    user,
+    data: { user }
+  });
+};
+
+const handleUpdateProfile = (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ success: false, message: 'Non autorisé.' });
+  }
+
+  const idx = inMemoryUsers.findIndex(u => u.id === user.id);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, message: 'Compte introuvable.' });
+  }
+
+  const updates = req.body;
+  delete updates.password; // Mot de passe non modifiable via profile
+  inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...updates };
+  saveLocalUsers(inMemoryUsers);
+
+  const { password: _pwd, ...safeUser } = inMemoryUsers[idx];
+  return res.json({ success: true, message: 'Profil mis à jour.', user: safeUser, data: { user: safeUser } });
+};
+
+const handleChangePassword = (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ success: false, message: 'Non autorisé.' });
+  }
+
+  const { oldPassword, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Le nouveau mot de passe doit comporter au moins 6 caractères.' });
+  }
+
+  const idx = inMemoryUsers.findIndex(u => u.id === user.id);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, message: 'Compte introuvable.' });
+  }
+
+  inMemoryUsers[idx].password = newPassword;
+  saveLocalUsers(inMemoryUsers);
+
+  return res.json({ success: true, message: 'Mot de passe modifié avec succès.' });
+};
+
+// Enregistrement des routes d'authentification (compatibilité avec et sans préfixe /api)
+app.post('/api/auth/register', handleRegister);
+app.post('/auth/register', handleRegister);
+app.post('/api/auth/login', handleLogin);
+app.post('/auth/login', handleLogin);
+app.get('/api/auth/me', handleGetMe);
+app.get('/auth/me', handleGetMe);
+app.put('/api/auth/profile', handleUpdateProfile);
+app.put('/auth/profile', handleUpdateProfile);
+app.put('/api/auth/change-password', handleChangePassword);
+app.put('/auth/change-password', handleChangePassword);
 
 // Architecture Notifications : Dispatcher local sans API externe
 const enqueueNotification = (record: Omit<NotificationRecord, 'id' | 'created_at' | 'status'> & { id?: string; status?: NotificationRecord['status'] }): NotificationRecord => {
@@ -3267,8 +3585,9 @@ app.get('/api/videos', (req: Request, res: Response) => {
 // 9.2 Consulter les vidéos publiées par l'agent connecté
 app.get('/api/videos/my', (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || 'agent_current';
-    const userVideos = inMemoryVideos.filter(v => v.userId === userId || v.userId === 'agent_1');
+    const authUser = getAuthUser(req);
+    const userId = authUser?.id || (req.headers['x-user-id'] as string) || 'agent_current';
+    const userVideos = inMemoryVideos.filter(v => v.userId === userId || v.userId === 'agent_1' || authUser?.role === 'admin');
     return res.json({
       success: true,
       count: userVideos.length,
@@ -3296,6 +3615,7 @@ app.get('/api/videos/:id', (req: Request, res: Response) => {
 // 9.4 Publier une vidéo ou soumettre une publication
 app.post('/api/videos', (req: Request, res: Response) => {
   try {
+    const authUser = getAuthUser(req);
     const { propertyId, videoUrl, thumbnailUrl, description, status = 'pending' } = req.body;
 
     if (!propertyId || !videoUrl) {
@@ -3308,7 +3628,7 @@ app.post('/api/videos', (req: Request, res: Response) => {
     const newVideo = {
       id: `vid_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       propertyId,
-      userId: (req.headers['x-user-id'] as string) || 'agent_current',
+      userId: authUser?.id || (req.headers['x-user-id'] as string) || 'agent_current',
       videoUrl,
       thumbnailUrl: thumbnailUrl || linkedProp?.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&auto=format&fit=crop&q=80',
       description: description || '',

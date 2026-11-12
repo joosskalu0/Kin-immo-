@@ -1,6 +1,22 @@
 {
   "verifications": [
     {
+      "id": "trust_1794498997846_fwkat",
+      "targetType": "agent",
+      "targetId": "user_1794498961985_vx6l",
+      "targetName": "Agent Test",
+      "applicantUserId": "user_1794498961985_vx6l",
+      "applicantName": "Agent Test",
+      "applicantEmail": "agent.test@kinimmo.cd",
+      "applicantPhone": "+243810000000",
+      "trustStatus": "pending",
+      "trustLevel": "En attente d’audit",
+      "trustScore": 20,
+      "submittedAt": "2026-11-12T15:56:37.846Z",
+      "createdAt": "2026-11-12T15:56:37.846Z",
+      "updatedAt": "2026-11-12T15:56:37.846Z"
+    },
+    {
       "id": "trust_prop_gombe_villa",
       "targetType": "property",
       "targetId": "prop_1",
@@ -171,6 +187,21 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "audit_1794498997846",
+      "verificationId": "trust_1794498997846_fwkat",
+      "targetType": "agent",
+      "targetId": "user_1794498961985_vx6l",
+      "adminUserId": "user_1794498961985_vx6l",
+      "adminName": "Agent Test",
+      "adminEmail": "agent.test@kinimmo.cd",
+      "action": "DOSSIER_SUBMITTED",
+      "previousStatus": "unverified",
+      "newStatus": "pending",
+      "reasonOrNotes": "Demande de vérification Kinimmo Trust soumise par le demandeur avec documents justificatifs.",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-11-12T15:56:37.846Z"
+    },
     {
       "id": "audit_1793166216193",
       "verificationId": "trust_prop_penthouse_river",

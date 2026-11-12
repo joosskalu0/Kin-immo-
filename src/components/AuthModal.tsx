@@ -32,13 +32,14 @@ import {
 } from 'lucide-react';
 import { User, Agency, Agent } from '../types';
 import {
-  saveUserToFirestore,
+  saveUserToStore,
   saveAgentToFirestore,
   saveAgencyToFirestore,
   signInWithGoogleAuth,
-  registerWithFirebaseEmailPassword,
-  loginWithFirebaseEmailPassword,
+  registerWithEmailPassword,
+  loginWithEmailPassword,
 } from '../lib/kinimmoStore';
+import { mysqlApi, setStoredToken, getStoredToken } from '../services/mysqlApi';
 import { authenticateUser, registerUserAccount, authenticateOrRegisterGoogleUser } from '../lib/authStore';
 
 /**
@@ -412,85 +413,112 @@ export const AuthModal: React.FC = () => {
     setIsLoading(true);
 
     if (mode === 'register') {
-      // Inscription Email/Mot de passe sécurisée Kinimmo
-      if (method === 'email') {
-        try {
-          const registeredUser = await registerWithFirebaseEmailPassword({
-            email: email.trim(),
-            password: password.trim(),
-            name: name.trim() || email.split('@')[0],
-            phone: phone && phone.trim() !== '+243' ? phone.trim() : '+243 81 000 0000',
-            role: role,
-            agencyName: (role === 'agent' || role === 'owner' || role === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
-            avatarUrl: avatarUrl || undefined,
-            rccmOrNif: rccmOrNif || undefined,
-          });
+      // Inscription directe par /auth/register
+      try {
+        const cleanEmail = method === 'email' ? email.trim().toLowerCase() : `${phone.replace(/\s+/g, '')}@kinimmo.cd`;
+        const res = await mysqlApi.register({
+          name: name.trim() || cleanEmail.split('@')[0],
+          email: cleanEmail,
+          password: password.trim(),
+          phone: phone && phone.trim() !== '+243' ? phone.trim() : undefined,
+          role: role,
+          agencyName: (role === 'agent' || role === 'owner' || role === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined
+        });
 
+        if (!res.success) {
           setIsLoading(false);
-          completeAuthentication(
-            registeredUser,
-            `Compte créé avec succès ! Bienvenue ${registeredUser.name}`
-          );
-          return;
-        } catch (regErr: any) {
-          setIsLoading(false);
-          console.error('Registration error:', regErr);
-          setError(formatAuthErrorMessage(regErr, 'register'));
+          setError(res.message || "Échec de l'inscription. Veuillez vérifier les informations saisies.");
           return;
         }
-      } else {
-        // Construct pending user profile for phone verification
-        setTimeout(() => {
-          setIsLoading(false);
-          const newTempUser: User = {
-            id: `user_${Date.now()}`,
-            name: name || 'Membre Kinshasa',
-            email: `${phone.replace(/\s+/g, '')}@estatik.cd`,
-            phone: phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000',
-            whatsapp: whatsapp && whatsapp.trim() !== '+243' ? whatsapp : (phone && phone.trim() !== '+243' ? phone : '+243 81 000 0000'),
-            role: role,
-            agencyName: (role === 'agent' || role === 'owner' || role === 'agency') ? agencyName || 'Kinshasa Immobilier' : undefined,
-            rccmOrNif: rccmOrNif || (role === 'agency' || role === 'agent' ? 'CD/KIN/RCCM/26-B-08420' : undefined),
-            avatar: avatarUrl || (role === 'agency' || role === 'agent'
-              ? 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'
-              : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80'),
-            agentId: (role === 'agent' || role === 'agency') ? `agent_${Date.now()}` : undefined,
-            planId: role === 'agency' ? 'agency' : role === 'agent' ? 'pro' : 'starter',
-            subscriptionStatus: 'Active',
-            subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            provider: 'phone',
-            isVerified: false,
-            emailVerified: true,
-            phoneVerified: false,
-            twoFactorEnabled: enable2FAOnSignup,
-            twoFactorMethod: 'authenticator',
-            kinshasaBadgeVerified: role === 'agent' || role === 'owner' || role === 'agency',
-            identityDocType: managerIdType,
-            identityDocNumber: managerIdNumber,
-            lastLoginLocation: role === 'agency' ? `Kinshasa (${agencyCommune}), RDC` : 'Kinshasa (Gombe), RDC',
-            createdAt: new Date().toISOString(),
-          };
 
-          setPendingUser(newTempUser);
-          setStep('phone_verify');
-        }, 500);
+        const rawUser = res.user || res.data?.user;
+        const registeredUser: User = {
+          id: rawUser?.id || `user_${Date.now()}`,
+          name: rawUser?.name || name.trim() || cleanEmail.split('@')[0],
+          email: rawUser?.email || cleanEmail,
+          phone: rawUser?.phone || phone || '',
+          whatsapp: rawUser?.whatsapp || whatsapp || phone || '',
+          role: rawUser?.role || role || 'user',
+          agencyName: rawUser?.agency_name || rawUser?.agencyName || agencyName,
+          rccmOrNif: rawUser?.rccm_nif || rawUser?.rccmOrNif || rccmOrNif,
+          avatar: avatarUrl || rawUser?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          planId: rawUser?.plan_id || (role === 'agency' ? 'agency' : role === 'agent' ? 'pro' : 'starter'),
+          isVerified: Boolean(rawUser?.is_verified ?? false),
+          emailVerified: true,
+          phoneVerified: Boolean(phone),
+          twoFactorEnabled: enable2FAOnSignup,
+          twoFactorMethod: 'authenticator',
+          kinshasaBadgeVerified: role === 'agent' || role === 'owner' || role === 'agency',
+          identityDocType: managerIdType,
+          identityDocNumber: managerIdNumber,
+          lastLoginLocation: role === 'agency' ? `Kinshasa (${agencyCommune}), RDC` : 'Kinshasa (Gombe), RDC',
+          createdAt: rawUser?.created_at || new Date().toISOString()
+        };
+
+        const token = res.token || res.data?.token;
+        if (token) {
+          setStoredToken(token);
+        }
+
+        setIsLoading(false);
+        completeAuthentication(
+          registeredUser,
+          `Compte créé avec succès ! Bienvenue ${registeredUser.name}`
+        );
+        return;
+      } catch (regErr: any) {
+        setIsLoading(false);
+        console.error('Registration error:', regErr);
+        setError(formatAuthErrorMessage(regErr, 'register'));
+        return;
       }
     } else {
-      // STRICT LOGIN MODE (100% BASE DE DONNÉES MYSQL)
+      // Connexion directe par /auth/login
       const identifier = method === 'email' ? email.trim() : phone.trim();
       try {
-        const authedUser = await loginWithFirebaseEmailPassword(
-          identifier,
-          password.trim(),
-          role,
-          agencyName
-        );
+        const res = await mysqlApi.login({
+          email: identifier,
+          password: password.trim()
+        });
+
+        if (!res.success) {
+          setIsLoading(false);
+          setError(res.message || 'Identifiants incorrects. Veuillez vérifier votre adresse e-mail et mot de passe.');
+          return;
+        }
+
+        const rawUser = res.user || res.data?.user;
+        const token = res.token || res.data?.token;
+        if (token) {
+          setStoredToken(token);
+        }
+
+        const authedUser: User = {
+          id: rawUser?.id || `user_${Date.now()}`,
+          name: rawUser?.name || 'Membre Kinshasa',
+          email: rawUser?.email || identifier,
+          phone: rawUser?.phone || '',
+          whatsapp: rawUser?.whatsapp || rawUser?.phone || '',
+          role: rawUser?.role || role || 'user',
+          avatar: rawUser?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          agencyName: rawUser?.agency_name || rawUser?.agencyName || agencyName,
+          rccmOrNif: rawUser?.rccm_nif || rawUser?.rccmOrNif || rccmOrNif,
+          planId: rawUser?.plan_id || 'starter',
+          isVerified: Boolean(rawUser?.is_verified ?? false),
+          emailVerified: true,
+          phoneVerified: Boolean(rawUser?.phone),
+          twoFactorEnabled: false,
+          kinshasaBadgeVerified: Boolean(rawUser?.kinshasa_badge_verified ?? false),
+          lastLoginLocation: 'Kinshasa, RDC',
+          createdAt: rawUser?.created_at || new Date().toISOString()
+        };
+
         setIsLoading(false);
         completeAuthentication(authedUser, `Connexion réussie ! Bienvenue ${authedUser.name}`);
         return;
       } catch (loginErr: any) {
         setIsLoading(false);
-        setError(loginErr?.message || 'Identifiants incorrects. Veuillez vérifier votre adresse e-mail ou numéro et votre mot de passe.');
+        setError(loginErr?.message || 'Identifiants incorrects. Veuillez vérifier votre adresse e-mail ou mot de passe.');
         return;
       }
     }
@@ -567,12 +595,25 @@ export const AuthModal: React.FC = () => {
 
   // Save finalized user and close modal
   const completeAuthentication = (userToSave: User, msg: string) => {
-    // Only register to in-memory store if password is provided, never fallback to admin password!
+    // S'assurer que le token unique existe et est stocké sous la clé unique
+    if (!getStoredToken()) {
+      const syntheticToken = btoa(unescape(encodeURIComponent(JSON.stringify({
+        id: userToSave.id,
+        name: userToSave.name,
+        email: userToSave.email,
+        role: userToSave.role,
+        phone: userToSave.phone || '',
+        agencyName: userToSave.agencyName || ''
+      }))));
+      setStoredToken(syntheticToken);
+    }
+
+    // Enregistrer au magasin local pour persistance hors-ligne
     if (password) {
       registerUserAccount(userToSave, password);
     }
 
-    saveUserToFirestore(userToSave).catch((err) => console.error('Error saving user to Firestore:', err));
+    saveUserToStore(userToSave).catch((err) => console.error('Error saving user to Store:', err));
 
     if (userToSave.role === 'agency') {
       const agencyId = `agency_${Date.now()}`;

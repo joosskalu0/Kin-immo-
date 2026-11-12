@@ -1,5 +1,33 @@
 [
   {
+    "title": "Villa Prestige Test",
+    "price": 350000,
+    "currency": "USD",
+    "type": "villa",
+    "status": "for-sale",
+    "commune": "Gombe",
+    "address": "Avenue de la Justice, Gombe",
+    "bedrooms": 4,
+    "bathrooms": 3,
+    "area": 280,
+    "id": "prop_1794498977610_wj7t",
+    "listingStatus": "PUBLISHED",
+    "isAvailable": true,
+    "createdAt": "2026-11-12T15:56:17.610Z",
+    "updatedAt": "2026-11-12T15:56:17.610Z",
+    "statusHistory": [
+      {
+        "id": "hist_1794498977610",
+        "fromStatus": "NONE",
+        "toStatus": "PUBLISHED",
+        "changedByUserId": "current_user",
+        "changedByName": "Agent Kinimmo",
+        "changedAt": "2026-11-12T15:56:17.610Z",
+        "note": "Création initiale de l'annonce"
+      }
+    ]
+  },
+  {
     "id": "prop_1",
     "title": "Penthouse de Standing avec Vue Panoramique sur le Fleuve Congo - Gombe",
     "description": "Situé au sommet d'une résidence ultra-moderne sur le Boulevard du 30 Juin à Gombe, sublime duplex meublé offrant une vue féérique sur le Fleuve Congo et Brazzaville. Finitions en marbre, terrasse privée de 80 m², cuisine européenne équipée, ascenseur sécurisé avec badge, groupe électrogène 100 KVA automatique et réservoir d'eau 10 000 Litres avec système d'épuration.",

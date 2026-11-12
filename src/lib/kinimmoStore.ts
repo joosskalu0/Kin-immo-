@@ -30,7 +30,7 @@ import {
   authenticateOrRegisterGoogleUser,
   getRegisteredAccounts
 } from './authStore';
-import { mysqlApi } from '../services/mysqlApi';
+import { mysqlApi, getStoredToken, clearStoredToken } from '../services/mysqlApi';
 
 // Database & Auth Mock/Proxy Objects to maintain full interface compatibility
 export const db = null as any;
@@ -331,7 +331,7 @@ export async function savePropertyToStore(property: Property) {
 
   // Sync with Express backend
   try {
-    const token = localStorage.getItem('kinimmo_auth_token') || sessionStorage.getItem('kinimmo_auth_token');
+    const token = getStoredToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -444,7 +444,11 @@ export async function saveUserToStore(user: User) {
       list.unshift(user);
     }
     localStorage.setItem('kinimmo_users', JSON.stringify(list));
+    localStorage.setItem('kinimmo_user', JSON.stringify(user));
     notifyListeners('users', list);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kinimmo_auth_change', { detail: user }));
+    }
   } catch {}
 
   try {
@@ -730,14 +734,17 @@ export const loginWithFirebaseEmailPassword = loginWithEmailPassword;
 export async function logOutFromStore(): Promise<void> {
   try {
     localStorage.removeItem('kinimmo_user');
-    localStorage.removeItem('kinimmo_jwt_token');
+    clearStoredToken();
     localStorage.removeItem('kinimmo_session_user');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kinimmo_auth_change', { detail: null }));
+    }
   } catch {}
 }
 export const logOutFromFirebase = logOutFromStore;
 
 export function listenToAuthChanges(callback: (user: User | null) => void): () => void {
-  const handler = () => {
+  const readCurrent = () => {
     try {
       const raw = localStorage.getItem('kinimmo_user');
       if (raw) {
@@ -750,8 +757,30 @@ export function listenToAuthChanges(callback: (user: User | null) => void): () =
     }
   };
 
-  window.addEventListener('storage', handler);
+  // 1. Invocation immédiate dès l'initialisation
+  readCurrent();
+
+  // 2. Écouteur des changements dans la même fenêtre / onglet
+  const handleCustom = (e: any) => {
+    callback(e.detail ?? null);
+  };
+
+  // 3. Écouteur des changements multi-onglets (storage standard)
+  const handleStorage = (e: StorageEvent) => {
+    if (!e.key || e.key === 'kinimmo_user' || e.key === 'kinimmo_token') {
+      readCurrent();
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('kinimmo_auth_change', handleCustom as any);
+    window.addEventListener('storage', handleStorage);
+  }
+
   return () => {
-    window.removeEventListener('storage', handler);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('kinimmo_auth_change', handleCustom as any);
+      window.removeEventListener('storage', handleStorage);
+    }
   };
 }
