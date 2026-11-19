@@ -337,10 +337,14 @@ export const AdminConciergerieManager: React.FC = () => {
         notes: editForm.notes
       };
 
-      await updateConciergeRequestFull(editingRequest.id, updatePayload);
+      const res = await updateConciergeRequestFull(editingRequest.id, updatePayload);
+      if (!res.success) {
+        notify('error', res.error || 'Erreur lors de la modification.');
+        return;
+      }
 
       setRequests((prev) =>
-        prev.map((r) => (r.id === editingRequest.id ? { ...r, ...updatePayload, updated_at: new Date().toISOString() } : r))
+        prev.map((r) => (r.id === editingRequest.id ? { ...r, ...(res.data || updatePayload), updated_at: new Date().toISOString() } : r))
       );
 
       notify('success', 'Demande modifiée avec succès.');
@@ -364,15 +368,26 @@ export const AdminConciergerieManager: React.FC = () => {
       const targetAgent = agents.find((a) => a.id === selectedAgentId);
       const agentName = targetAgent ? targetAgent.name : null;
 
-      await updateConciergeRequestFull(assigningRequest.id, {
+      const res = await updateConciergeRequestFull(assigningRequest.id, {
         assigned_agent_id: selectedAgentId || null,
         assigned_agent_name: agentName
       });
 
+      if (!res.success) {
+        notify('error', res.error || 'Erreur lors de l’attribution.');
+        return;
+      }
+
       setRequests((prev) =>
         prev.map((r) =>
           r.id === assigningRequest.id
-            ? { ...r, assigned_agent_id: selectedAgentId || null, assigned_agent_name: agentName, updated_at: new Date().toISOString() }
+            ? {
+                ...r,
+                ...(res.data || {}),
+                assigned_agent_id: res.data?.assigned_agent_id ?? (selectedAgentId || null),
+                assigned_agent_name: res.data?.assigned_agent_name ?? agentName,
+                updated_at: new Date().toISOString()
+              }
             : r
         )
       );
@@ -380,7 +395,7 @@ export const AdminConciergerieManager: React.FC = () => {
       notify('success', selectedAgentId ? `Demande attribuée à ${agentName}.` : 'Demande réinitialisée sans agent.');
       setAssigningRequest(null);
     } catch (e: any) {
-      notify('error', 'Erreur lors de l’attribution.');
+      notify('error', e?.message || 'Erreur lors de l’attribution.');
     }
   };
 
@@ -465,13 +480,17 @@ export const AdminConciergerieManager: React.FC = () => {
 
   const handleUpdateStatus = async (id: string, newStatus: ConciergeRequestStatus) => {
     try {
+      const ok = await updateConciergeRequestStatus(id, newStatus);
+      if (!ok) {
+        notify('error', 'Impossible de mettre à jour le statut (droits insuffisants ou erreur serveur).');
+        return;
+      }
       setRequests((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status: newStatus, updated_at: new Date().toISOString() } : r))
       );
-      await updateConciergeRequestStatus(id, newStatus);
       notify('success', `Statut mis à jour : ${CONCIERGE_STATUS_CONFIG[newStatus]?.label || newStatus}`);
       setStatusChangingRequest(null);
-    } catch (e) {
+    } catch {
       notify('error', 'Erreur lors du changement de statut.');
     }
   };
@@ -479,7 +498,7 @@ export const AdminConciergerieManager: React.FC = () => {
   // Action 7 : AJOUTER UNE NOTE
   const handleOpenAddNote = (req: ConciergeRequest) => {
     setNotingRequest(req);
-    setNoteContent(req.notesAdmin || '');
+    setNoteContent(req.notesAdmin || (req as any).notes_admin || '');
   };
 
   const handleSaveNote = async () => {
@@ -487,13 +506,17 @@ export const AdminConciergerieManager: React.FC = () => {
     setIsSavingNote(true);
 
     try {
-      await updateConciergeRequestStatus(notingRequest.id, undefined as any, noteContent);
+      const ok = await updateConciergeRequestStatus(notingRequest.id, undefined, noteContent);
+      if (!ok) {
+        notify('error', 'Erreur lors de l’enregistrement de la note administrative.');
+        return;
+      }
       setRequests((prev) =>
         prev.map((r) => (r.id === notingRequest.id ? { ...r, notesAdmin: noteContent, updated_at: new Date().toISOString() } : r))
       );
       notify('success', 'Note administrative enregistrée.');
       setNotingRequest(null);
-    } catch (e) {
+    } catch {
       notify('error', 'Erreur enregistrement note.');
     } finally {
       setIsSavingNote(false);
@@ -824,7 +847,7 @@ export const AdminConciergerieManager: React.FC = () => {
                       });
 
                       // Biens correspondants pour badge rapide
-                      const matches = findMatchingProperties(req, properties, { minScore: 10, limit: 15 });
+                      const matches = findMatchingProperties(req, Array.isArray(properties) ? properties : [], { minScore: 10, limit: 15 });
 
                       return (
                         <tr
@@ -834,7 +857,7 @@ export const AdminConciergerieManager: React.FC = () => {
                           {/* 1. Colonne ID */}
                           <td className="py-3 px-3 align-middle font-mono font-bold text-slate-300 whitespace-nowrap">
                             <span className="bg-slate-950 px-2 py-0.5 rounded-md border border-slate-800 text-[11px] text-emerald-400">
-                              #{req.reference || req.id.slice(-6)}
+                              #{req.reference || String(req.id || '').slice(-6)}
                             </span>
                           </td>
 
@@ -1112,7 +1135,7 @@ export const AdminConciergerieManager: React.FC = () => {
                     {visits.map((v) => (
                       <tr key={v.id} className="hover:bg-slate-800/50 transition-colors">
                         <td className="py-3 px-3 font-mono font-bold text-cyan-400 whitespace-nowrap">
-                          {v.visit_date} {v.visit_time ? `à ${v.visit_time}` : ''}
+                          {String(v.visit_date || '').slice(0, 10)} {v.visit_time ? `à ${v.visit_time}` : ''}
                         </td>
                         <td className="py-3 px-3 font-extrabold text-white">
                           {v.client_name || 'Client'}
@@ -1144,7 +1167,11 @@ export const AdminConciergerieManager: React.FC = () => {
                             {v.status !== 'completed' && (
                               <button
                                 onClick={async () => {
-                                  await updatePropertyVisitStatus(v.id, 'completed');
+                                  const ok = await updatePropertyVisitStatus(v.id, 'completed');
+                                  if (!ok) {
+                                    notify('error', 'Erreur lors de la clôture de la visite.');
+                                    return;
+                                  }
                                   setVisits((prev) => prev.map((item) => item.id === v.id ? { ...item, status: 'completed' } : item));
                                   notify('success', 'Visite marquée comme effectuée.');
                                 }}
@@ -1156,7 +1183,11 @@ export const AdminConciergerieManager: React.FC = () => {
                             <button
                               onClick={async () => {
                                 if (window.confirm('Supprimer cette visite ?')) {
-                                  await deletePropertyVisit(v.id);
+                                  const ok = await deletePropertyVisit(v.id);
+                                  if (!ok) {
+                                    notify('error', 'Erreur lors de la suppression de la visite.');
+                                    return;
+                                  }
                                   setVisits((prev) => prev.filter((item) => item.id !== v.id));
                                   notify('success', 'Visite supprimée.');
                                 }
@@ -1476,9 +1507,9 @@ export const AdminConciergerieManager: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Budget Min ($)</label>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Budget Min ({editForm.currency})</label>
                   <input
                     type="number"
                     min="0"
@@ -1488,7 +1519,7 @@ export const AdminConciergerieManager: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Budget Max ($)</label>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Budget Max ({editForm.currency})</label>
                   <input
                     type="number"
                     min="0"
@@ -1496,6 +1527,17 @@ export const AdminConciergerieManager: React.FC = () => {
                     onChange={(e) => setEditForm({ ...editForm, budget_max: Number(e.target.value) })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
                   />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Devise</label>
+                  <select
+                    value={editForm.currency}
+                    onChange={(e) => setEditForm({ ...editForm, currency: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="CDF">CDF</option>
+                  </select>
                 </div>
               </div>
 
@@ -1671,7 +1713,11 @@ export const AdminConciergerieManager: React.FC = () => {
 
             {/* Liste des résultats avec score */}
             {(() => {
-              const matchedList = findMatchingProperties(matchingModalRequest, properties, { minScore: 10, limit: 15 });
+              const matchedList = findMatchingProperties(
+                matchingModalRequest,
+                Array.isArray(properties) ? properties : [],
+                { minScore: 10, limit: 15 }
+              );
               if (matchedList.length === 0) {
                 return (
                   <div className="p-8 text-center bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
@@ -1695,14 +1741,14 @@ export const AdminConciergerieManager: React.FC = () => {
                       >
                         <div className="flex items-center gap-3">
                           <img
-                            src={match.property.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400'}
-                            alt={match.property.title}
+                            src={(Array.isArray(match.property.images) && match.property.images[0]) || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400'}
+                            alt={match.property.title || 'Bien Kinimmo'}
                             className="w-16 h-16 rounded-xl object-cover shrink-0 ring-1 ring-slate-800"
                           />
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="font-extrabold text-white text-xs hover:text-purple-300">
-                                {match.property.title}
+                                {match.property.title || 'Bien Kinimmo'}
                               </span>
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
                                 {match.score}% compatibilité
@@ -1710,12 +1756,12 @@ export const AdminConciergerieManager: React.FC = () => {
                             </div>
                             <div className="text-slate-400 text-[11px] flex items-center gap-2 mt-1">
                               <span className="font-bold text-emerald-400 font-mono">
-                                ${match.property.price?.toLocaleString()} {match.property.pricePeriod ? `/${match.property.pricePeriod}` : ''}
+                                {(Number(match.property.price) || 0).toLocaleString()} {match.property.currency || 'USD'} {match.property.pricePeriod ? `/${match.property.pricePeriod}` : ''}
                               </span>
                               <span>•</span>
                               <span className="flex items-center gap-1">
                                 <MapPin className="w-3 h-3 text-slate-500" />
-                                {match.property.commune}
+                                {match.property.commune || 'Kinshasa'}
                               </span>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-0.5">

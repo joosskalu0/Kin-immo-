@@ -40,7 +40,7 @@ import {
   validateConciergerieRequest
 } from '../../utils/conciergerieValidation';
 import { findMatchingProperties, PropertyMatchResult } from '../../utils/propertyMatching';
-import { submitConciergerieRequest } from '../../services/conciergerieApi';
+import { normalizeConciergeRequestRecord, submitConciergerieRequest } from '../../services/conciergerieApi';
 import { useApp } from '../../context/AppContext';
 
 interface ConciergeriePageProps {
@@ -241,23 +241,38 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
         }
         setServerError(res.error || 'Erreur lors de la validation par le serveur.');
         setIsSubmitting(false);
+        formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
       }
 
       if (res.data) {
-        setSubmittedData(res.data);
-        if (res.matched_properties && res.matched_properties.length > 0) {
-          setSubmissionMatches(res.matched_properties);
+        const normalizedSubmitted = normalizeConciergeRequestRecord(res.data);
+        setSubmittedData(normalizedSubmitted);
+        const validServerMatches = Array.isArray(res.matched_properties)
+          ? res.matched_properties.filter((m) => m && m.property && m.property.id)
+          : [];
+        if (validServerMatches.length > 0) {
+          setSubmissionMatches(validServerMatches);
         } else {
-          const matches = findMatchingProperties(res.data, properties, { minScore: 10, limit: 10 });
+          const matches = findMatchingProperties(
+            normalizedSubmitted,
+            Array.isArray(properties) ? properties : [],
+            { minScore: 10, limit: 10 }
+          );
           setSubmissionMatches(matches);
         }
+      } else {
+        setServerError('Réponse incomplète du serveur lors de l’enregistrement.');
+        setIsSubmitting(false);
+        formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
       }
       setIsSubmitting(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch {
-      setServerError('Une erreur inattendue est survenue. Veuillez réessayer.');
+    } catch (err: any) {
+      setServerError(err?.message || 'Une erreur inattendue est survenue. Veuillez réessayer.');
       setIsSubmitting(false);
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
@@ -456,7 +471,21 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
       </div>
 
       {/* 2. CONFIRMATION DE SOUMISSION RÉUSSIE */}
-      {submittedData && (
+      {submittedData && (() => {
+        const confRef = submittedData.reference || submittedData.id;
+        const confName = submittedData.client?.nomComplet || submittedData.full_name || 'Client';
+        const confType = submittedData.typeBien || submittedData.property_type || 'Bien immobilier';
+        const confProjet = submittedData.projet || submittedData.project_type || 'Recherche';
+        const confCommune = submittedData.localisation?.commune || submittedData.commune || 'Kinshasa';
+        const confQuartier = submittedData.localisation?.quartier || submittedData.quartier || '';
+        const confBudgetMax = Number(submittedData.budget?.max ?? submittedData.budget_max ?? 0) || 0;
+        const confDevise = submittedData.budget?.devise || submittedData.currency || 'USD';
+        const confPhone = submittedData.client?.telephone || submittedData.phone || '';
+        const formattedBudgetMax = confDevise === 'USD'
+          ? `$${confBudgetMax.toLocaleString()} USD`
+          : `${confBudgetMax.toLocaleString()} ${confDevise}`;
+
+        return (
         <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-10">
           <div className="p-8 sm:p-10 rounded-3xl bg-white border-2 border-emerald-500 shadow-sm text-slate-900 space-y-6 text-center animate-in fade-in zoom-in-95 duration-200">
             
@@ -466,13 +495,13 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
 
             <div className="space-y-2 max-w-xl mx-auto">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100 px-3.5 py-1 rounded-full border border-emerald-200 inline-block">
-                Dossier Enregistré • Réf : {submittedData.reference}
+                Dossier Enregistré • Réf : {confRef}
               </span>
               <h2 className="text-2xl sm:text-3xl font-black text-slate-900 uppercase">
                 Votre demande a bien été transmise à la Conciergerie Kinimmo !
               </h2>
               <p className="text-sm text-slate-600">
-                Merci <strong className="text-slate-900">{submittedData.client.nomComplet}</strong>. Un conseiller dédié étudie actuellement votre recherche de <span className="text-emerald-700 font-bold">{submittedData.typeBien} ({submittedData.projet})</span> à <span className="text-emerald-700 font-bold">{submittedData.localisation.commune}</span>.
+                Merci <strong className="text-slate-900">{confName}</strong>. Un conseiller dédié étudie actuellement votre recherche de <span className="text-emerald-700 font-bold">{confType} ({confProjet})</span> à <span className="text-emerald-700 font-bold">{confCommune}</span>.
               </p>
             </div>
 
@@ -480,19 +509,19 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
             <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 text-left grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-medium">
               <div>
                 <span className="text-slate-500 block font-normal">Projet & Type :</span>
-                <span className="text-slate-900 font-bold">{submittedData.projet} • {submittedData.typeBien}</span>
+                <span className="text-slate-900 font-bold">{confProjet} • {confType}</span>
               </div>
               <div>
                 <span className="text-slate-500 block font-normal">Localisation :</span>
-                <span className="text-slate-900 font-bold">{submittedData.localisation.commune} {submittedData.localisation.quartier ? `(${submittedData.localisation.quartier})` : ''}</span>
+                <span className="text-slate-900 font-bold">{confCommune} {confQuartier ? `(${confQuartier})` : ''}</span>
               </div>
               <div>
                 <span className="text-slate-500 block font-normal">Budget Max :</span>
-                <span className="text-emerald-700 font-mono font-black">${submittedData.budget.max.toLocaleString()} {submittedData.budget.devise}</span>
+                <span className="text-emerald-700 font-mono font-black">{formattedBudgetMax}</span>
               </div>
               <div>
                 <span className="text-slate-500 block font-normal">Contact :</span>
-                <span className="text-slate-900 font-bold">{submittedData.client.telephone}</span>
+                <span className="text-slate-900 font-bold">{confPhone}</span>
               </div>
             </div>
 
@@ -500,7 +529,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <a
                 href={`https://wa.me/${conciergeWhatsAppNumber}?text=${encodeURIComponent(
-                  `Bonjour Conciergerie Kinimmo, je viens de soumettre ma demande de recherche n° ${submittedData.reference} pour un ${submittedData.typeBien} (${submittedData.projet}) à ${submittedData.localisation.commune}. Je souhaite échanger avec vous.`
+                  `Bonjour Conciergerie Kinimmo, je viens de soumettre ma demande de recherche n° ${confRef} pour un ${confType} (${confProjet}) à ${confCommune}. Je souhaite échanger avec vous.`
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -538,8 +567,11 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
 
                 {/* Grille des biens correspondants classés par score décroissant */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
-                  {submissionMatches.slice(0, 6).map((match, idx) => {
+                  {submissionMatches.filter((m) => m && m.property).slice(0, 6).map((match, idx) => {
                     const prop = match.property;
+                    const propPrice = Number(prop.price) || 0;
+                    const propCurrency = prop.currency || 'USD';
+                    const breakdown = match.breakdown || { locationScore: 0, typeScore: 0, budgetScore: 0, bedroomsScore: 0 };
                     let badgeClass = 'bg-emerald-100 text-emerald-900 border-emerald-300';
                     if (match.score < 50) {
                       badgeClass = 'bg-amber-100 text-amber-900 border-amber-300';
@@ -556,8 +588,8 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
                           {/* Image & Score Badge */}
                           <div className="relative rounded-2xl overflow-hidden aspect-video bg-slate-100">
                             <img
-                              src={prop.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600'}
-                              alt={prop.title}
+                              src={(Array.isArray(prop.images) && prop.images[0]) || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600'}
+                              alt={prop.title || 'Bien immobilier Kinimmo'}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                             />
                             <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
@@ -577,44 +609,44 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
                           <div className="space-y-1">
                             <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
                               <span className="uppercase text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md font-bold">
-                                {prop.type}
+                                {prop.type || 'Bien'}
                               </span>
                               <span className="flex items-center gap-1">
                                 <MapPin className="w-3 h-3 text-emerald-600" />
-                                <span>{prop.commune}</span>
+                                <span>{prop.commune || 'Kinshasa'}</span>
                               </span>
                             </div>
 
                             <h4 className="text-sm font-bold text-slate-900 line-clamp-2 leading-snug">
-                              {prop.title}
+                              {prop.title || 'Bien immobilier à Kinshasa'}
                             </h4>
 
                             <div className="text-base font-mono font-black text-emerald-700 pt-1">
-                              {prop.price.toLocaleString()} {prop.currency}
+                              {propPrice.toLocaleString()} {propCurrency}
                               {prop.period ? <span className="text-xs text-slate-500 font-normal"> / {prop.period}</span> : ''}
                             </div>
                           </div>
 
                           {/* Chips des points attribués (+30, +20, +25, +15, +10) */}
                           <div className="flex flex-wrap gap-1 text-[10px] font-bold">
-                            {match.breakdown.locationScore > 0 && (
+                            {breakdown.locationScore > 0 && (
                               <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                📍 Loc +{match.breakdown.locationScore}
+                                📍 Loc +{breakdown.locationScore}
                               </span>
                             )}
-                            {match.breakdown.typeScore > 0 && (
+                            {breakdown.typeScore > 0 && (
                               <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200">
-                                🏠 Type +{match.breakdown.typeScore}
+                                🏠 Type +{breakdown.typeScore}
                               </span>
                             )}
-                            {match.breakdown.budgetScore > 0 && (
+                            {breakdown.budgetScore > 0 && (
                               <span className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 border border-purple-200">
-                                💰 Budget +{match.breakdown.budgetScore}
+                                💰 Budget +{breakdown.budgetScore}
                               </span>
                             )}
-                            {match.breakdown.bedroomsScore > 0 && (
+                            {breakdown.bedroomsScore > 0 && (
                               <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                                🛏️ {prop.bedrooms} ch.
+                                🛏️ {prop.bedrooms || 0} ch.
                               </span>
                             )}
                           </div>
@@ -624,7 +656,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
                         <div className="pt-2 border-t border-slate-100">
                           <a
                             href={`https://wa.me/${conciergeWhatsAppNumber}?text=${encodeURIComponent(
-                              `Bonjour Conciergerie Kinimmo, suite à ma demande n° ${submittedData.reference}, je souhaite visiter ce bien suggéré par votre système (${match.score}% de correspondance) :\n\n🏡 *${prop.title}*\n📍 ${prop.commune}\n💵 ${prop.price} ${prop.currency}`
+                              `Bonjour Conciergerie Kinimmo, suite à ma demande n° ${confRef}, je souhaite visiter ce bien suggéré par votre système (${match.score}% de correspondance) :\n\n🏡 *${prop.title || 'Bien Kinimmo'}*\n📍 ${prop.commune || 'Kinshasa'}\n💵 ${propPrice} ${propCurrency}`
                             )}`}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -643,7 +675,8 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
 
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* 3. FORMULAIRE DE DEMANDE COMPLET (Design Clair Kinimmo) */}
       {!submittedData && (
@@ -777,8 +810,10 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
               <div id="field-commune" className="space-y-3">
                 <label className="text-xs font-bold uppercase text-slate-700 tracking-wider flex items-center justify-between">
                   <span>3. Localisation à Kinshasa <span className="text-emerald-600">*</span></span>
-                  {errors['localisation.commune'] && (
-                    <span className="text-rose-600 text-[11px] font-normal">{errors['localisation.commune']}</span>
+                  {(errors.commune || errors['localisation.commune']) && (
+                    <span className="text-rose-600 text-[11px] font-normal">
+                      {errors.commune || errors['localisation.commune']}
+                    </span>
                   )}
                 </label>
                 
@@ -814,11 +849,13 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
               </div>
 
               {/* SECTION 4 : BUDGET */}
-              <div id="field-budget" className="space-y-3">
+              <div id="field-budgetMax" className="space-y-3">
                 <label className="text-xs font-bold uppercase text-slate-700 tracking-wider flex items-center justify-between">
                   <span>4. Budget & Devise <span className="text-emerald-600">*</span></span>
-                  {errors['budget.max'] && (
-                    <span className="text-rose-600 text-[11px] font-normal">{errors['budget.max']}</span>
+                  {(errors.budgetMax || errors['budget.max'] || errors.budgetMin) && (
+                    <span className="text-rose-600 text-[11px] font-normal">
+                      {errors.budgetMax || errors['budget.max'] || errors.budgetMin}
+                    </span>
                   )}
                 </label>
 

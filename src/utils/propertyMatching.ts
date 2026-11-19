@@ -167,13 +167,14 @@ export function calculatePropertyMatch(
   const rawBudgetMin = Number(request.budget_min ?? request.budget?.min ?? 0);
   const reqCurrency = (request.currency || request.budget?.devise || 'USD').toUpperCase();
   const propCurrency = (property.currency || 'USD').toUpperCase();
+  const propPrice = Number(property.price) || 0;
 
   // Convertir le prix du bien dans la devise de la demande
-  let normalizedPropertyPrice = property.price;
+  let normalizedPropertyPrice = propPrice;
   if (reqCurrency === 'CDF' && propCurrency === 'USD') {
-    normalizedPropertyPrice = property.price * exchangeRate;
+    normalizedPropertyPrice = propPrice * exchangeRate;
   } else if (reqCurrency === 'USD' && propCurrency === 'CDF') {
-    normalizedPropertyPrice = property.price / exchangeRate;
+    normalizedPropertyPrice = propPrice / exchangeRate;
   }
 
   if (rawBudgetMax <= 0) {
@@ -186,12 +187,12 @@ export function calculatePropertyMatch(
         if (normalizedPropertyPrice >= rawBudgetMin) {
           budgetScore = 25;
           reasons.push(
-            `Prix (${property.price.toLocaleString()} ${property.currency}) dans la fourchette client (+25)`
+            `Prix (${propPrice.toLocaleString()} ${propCurrency}) dans la fourchette client (+25)`
           );
         } else if (normalizedPropertyPrice >= rawBudgetMin * 0.75) {
           budgetScore = 22;
           reasons.push(
-            `Prix (${property.price.toLocaleString()} ${property.currency}) très avantageux (+22)`
+            `Prix (${propPrice.toLocaleString()} ${propCurrency}) très avantageux (+22)`
           );
         } else {
           budgetScore = 18;
@@ -202,7 +203,7 @@ export function calculatePropertyMatch(
       } else {
         budgetScore = 25;
         reasons.push(
-          `Prix (${property.price.toLocaleString()} ${property.currency}) respecte le plafond de ${rawBudgetMax.toLocaleString()} ${reqCurrency} (+25)`
+          `Prix (${propPrice.toLocaleString()} ${propCurrency}) respecte le plafond de ${rawBudgetMax.toLocaleString()} ${reqCurrency} (+25)`
         );
       }
     } else if (normalizedPropertyPrice <= rawBudgetMax * 1.1) {
@@ -301,9 +302,11 @@ export function findMatchingProperties(
 ): PropertyMatchResult[] {
   const { minScore = 20, limit = 20, exchangeRate = 2800 } = options;
 
+  const safeProperties = Array.isArray(properties) ? properties : [];
   const results: PropertyMatchResult[] = [];
 
-  for (const property of properties) {
+  for (const property of safeProperties) {
+    if (!property || typeof property !== 'object') continue;
     const breakdown = calculatePropertyMatch(request, property, exchangeRate);
 
     // Filtrer par le score minimum requis et la disponibilité

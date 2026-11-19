@@ -17,34 +17,141 @@ const ALLOWED_STATUSES = [
   'cancelled'
 ];
 
-const ALLOWED_VISIT_STATUSES = [
-  'scheduled',
-  'confirmed',
-  'completed',
-  'cancelled',
-  'rescheduled'
-];
+let schemaReadyPromise = null;
 
-const ALLOWED_PROJECTS = [
-  'Acheter',
-  'Louer',
-  'Trouver un terrain',
-  'Trouver un local commercial',
-  'Autre'
-];
+function parseJsonStringArray(val) {
+  if (Array.isArray(val)) {
+    return val.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item).trim()).filter(Boolean);
+        }
+      } catch {}
+    }
+    return trimmed
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeConciergeStatus(rawStatus) {
+  if (!rawStatus) return 'new';
+  const s = String(rawStatus).trim().toLowerCase();
+  if (s === 'nouveau') return 'new';
+  if (s === 'en_cours') return 'searching';
+  if (s === 'traite') return 'completed';
+  if (s === 'archive') return 'cancelled';
+  return ALLOWED_STATUSES.includes(s) ? s : 'new';
+}
 
 /**
- * Fonction d'assainissement et projection sécurisée pour le frontend public
- * Ne JAMAIS exposer les notes administratives ni les données internes au public
+ * Normalise une ligne MySQL en contrat unifié (colonnes SQL + objets imbriqués UI)
+ */
+function serializeConciergeRow(row, { includeAdminNotes = false } = {}) {
+  if (!row || typeof row !== 'object') return null;
+
+  const id = String(row.id || '');
+  const createdAt = row.created_at || row.createdAt || new Date().toISOString();
+  const updatedAt = row.updated_at || row.updatedAt || createdAt;
+  const year = new Date(createdAt).getFullYear() || new Date().getFullYear();
+  const reference = row.reference || `KIN-CCG-${year}-${id.slice(-4).toUpperCase()}`;
+
+  const budgetMin =
+    row.budget_min !== undefined && row.budget_min !== null && row.budget_min !== ''
+      ? Number(row.budget_min)
+      : null;
+  const budgetMax = Number(row.budget_max || 0) || 0;
+  const currency = String(row.currency || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD';
+  const bedrooms =
+    row.bedrooms !== undefined && row.bedrooms !== null && row.bedrooms !== ''
+      ? Number(row.bedrooms)
+      : null;
+  const bathrooms =
+    row.bathrooms !== undefined && row.bathrooms !== null && row.bathrooms !== ''
+      ? Number(row.bathrooms)
+      : null;
+  const parking = Boolean(row.parking);
+  const furnished = Boolean(row.furnished);
+
+  const services = parseJsonStringArray(row.services);
+  const matchedPropertyIds = parseJsonStringArray(row.matched_property_ids);
+  const description = row.description ?? null;
+
+  const serialized = {
+    ...row,
+    id,
+    reference,
+    budget_min: budgetMin,
+    budget_max: budgetMax,
+    currency,
+    bedrooms,
+    bathrooms,
+    parking,
+    furnished,
+    services: services.length > 0 ? services : ['Recherche de biens'],
+    matched_property_ids: matchedPropertyIds,
+    description,
+    notes: description || undefined,
+    status: normalizeConciergeStatus(row.status),
+    assigned_agent_id: row.assigned_agent_id || null,
+    assigned_agent_name: row.assigned_agent_name || null,
+    created_at: createdAt,
+    updated_at: updatedAt,
+
+    // Blocs de compatibilité frontend
+    projet: row.project_type || 'Acheter',
+    typeBien: row.property_type || 'Appartement',
+    localisation: {
+      commune: row.commune || 'Gombe',
+      quartier: row.quartier || undefined
+    },
+    budget: {
+      min: budgetMin !== null ? budgetMin : undefined,
+      max: budgetMax,
+      devise: currency
+    },
+    caracteristiques: {
+      chambres: bedrooms !== null ? bedrooms : undefined,
+      sallesDeBain: bathrooms !== null ? bathrooms : undefined,
+      parking,
+      meuble: furnished
+    },
+    client: {
+      nomComplet: row.full_name || 'Client Kinimmo',
+      telephone: row.phone || '',
+      whatsapp: row.whatsapp || undefined,
+      email: row.email || '',
+      message: description || undefined
+    },
+    createdAt,
+    updatedAt
+  };
+
+  if (includeAdminNotes) {
+    serialized.notesAdmin = row.notes_admin || row.notesAdmin || '';
+  } else {
+    delete serialized.notesAdmin;
+    delete serialized.notes_admin;
+    delete serialized.internal_notes;
+    delete serialized.admin_notes;
+  }
+
+  return serialized;
+}
+
+/**
+ * Projection sécurisée pour le frontend public
  */
 function sanitizeForPublic(row) {
-  if (!row) return null;
-  const clone = { ...row };
-  // Supprimer les notes administratives confidentielles
-  delete clone.notesAdmin;
-  delete clone.internal_notes;
-  delete clone.admin_notes;
-  return clone;
+  return serializeConciergeRow(row, { includeAdminNotes: false });
 }
 
 function normalizeConciergeData(data) {
@@ -62,74 +169,217 @@ function normalizeConciergeData(data) {
     email: data.email || client.email || client.adresseEmail || '',
     project_type: data.project_type || data.projet || '',
     property_type: data.property_type || data.typeBien || '',
-    commune: data.commune || localisation.commune || (Array.isArray(localisation.communesSouhaitees) ? localisation.communesSouhaitees[0] : '') || '',
+    commune:
+      data.commune ||
+      localisation.commune ||
+      (Array.isArray(localisation.communesSouhaitees) ? localisation.communesSouhaitees[0] : '') ||
+      '',
     quartier: data.quartier || localisation.quartier || null,
-    budget_min: data.budget_min !== undefined ? data.budget_min : (budget.min !== undefined ? budget.min : data.budgetMin),
-    budget_max: data.budget_max !== undefined ? data.budget_max : (budget.max !== undefined ? budget.max : data.budgetMax),
+    budget_min:
+      data.budget_min !== undefined
+        ? data.budget_min
+        : budget.min !== undefined
+        ? budget.min
+        : data.budgetMin,
+    budget_max:
+      data.budget_max !== undefined
+        ? data.budget_max
+        : budget.max !== undefined
+        ? budget.max
+        : data.budgetMax,
     currency: data.currency || budget.devise || data.devise || 'USD',
-    bedrooms: data.bedrooms !== undefined ? data.bedrooms : (caracteristiques.chambres !== undefined ? caracteristiques.chambres : data.chambres),
-    bathrooms: data.bathrooms !== undefined ? data.bathrooms : (caracteristiques.sallesDeBain !== undefined ? caracteristiques.sallesDeBain : data.sallesDeBain),
+    bedrooms:
+      data.bedrooms !== undefined
+        ? data.bedrooms
+        : caracteristiques.chambres !== undefined
+        ? caracteristiques.chambres
+        : data.chambres,
+    bathrooms:
+      data.bathrooms !== undefined
+        ? data.bathrooms
+        : caracteristiques.sallesDeBain !== undefined
+        ? caracteristiques.sallesDeBain
+        : data.sallesDeBain,
     parking: data.parking !== undefined ? data.parking : caracteristiques.parking,
     furnished: data.furnished !== undefined ? data.furnished : caracteristiques.meuble,
     services: data.services || caracteristiques.equipementsSouhaites || [],
-    description: data.description || client.message || client.messageSupplementaire || caracteristiques.cahierDesCharges || null
+    description:
+      data.description !== undefined
+        ? data.description
+        : data.notes !== undefined
+        ? data.notes
+        : client.message || client.messageSupplementaire || caracteristiques.cahierDesCharges || null
   };
 }
 
 /**
- * Validation robuste des entrées de demande
+ * Validation robuste des entrées de demande (retourne liste + map par champ)
  */
 function validateRequestInput(rawInput) {
   const data = normalizeConciergeData(rawInput);
   const errors = [];
+  const fieldErrors = {};
 
   if (!data.full_name || typeof data.full_name !== 'string' || data.full_name.trim().length < 2) {
-    errors.push('Le nom complet est obligatoire (au moins 2 caractères).');
+    const msg = 'Le nom complet est obligatoire (au moins 2 caractères).';
+    errors.push(msg);
+    fieldErrors.nomComplet = msg;
   }
 
   if (!data.phone || typeof data.phone !== 'string' || data.phone.trim().length < 6) {
-    errors.push('Le numéro de téléphone est obligatoire.');
+    const msg = 'Le numéro de téléphone est obligatoire.';
+    errors.push(msg);
+    fieldErrors.telephone = msg;
   }
 
   if (!data.email || typeof data.email !== 'string') {
-    errors.push('L’adresse e-mail est obligatoire.');
+    const msg = 'L’adresse e-mail est obligatoire.';
+    errors.push(msg);
+    fieldErrors.email = msg;
   } else {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(data.email.trim())) {
-      errors.push('Format d’adresse e-mail invalide.');
+      const msg = 'Format d’adresse e-mail invalide.';
+      errors.push(msg);
+      fieldErrors.email = msg;
     }
   }
 
   if (!data.project_type || typeof data.project_type !== 'string') {
-    errors.push('Le type de projet est obligatoire.');
+    const msg = 'Le type de projet est obligatoire.';
+    errors.push(msg);
+    fieldErrors.projet = msg;
   }
 
   if (!data.property_type || typeof data.property_type !== 'string') {
-    errors.push('Le type de bien est obligatoire.');
+    const msg = 'Le type de bien est obligatoire.';
+    errors.push(msg);
+    fieldErrors.typeBien = msg;
   }
 
   if (!data.commune || typeof data.commune !== 'string') {
-    errors.push('La commune de Kinshasa est obligatoire.');
-  }
-
-  if (data.budget_min !== undefined && data.budget_min !== null && data.budget_min !== '' && Number(data.budget_min) < 0) {
-    errors.push('Le budget minimum ne peut pas être négatif.');
-  }
-
-  if (data.budget_max !== undefined && data.budget_max !== null && data.budget_max !== '' && Number(data.budget_max) < 0) {
-    errors.push('Le budget maximum ne peut pas être négatif.');
+    const msg = 'La commune de Kinshasa est obligatoire.';
+    errors.push(msg);
+    fieldErrors.commune = msg;
   }
 
   if (
-    data.budget_min &&
-    data.budget_max &&
+    data.budget_min !== undefined &&
+    data.budget_min !== null &&
+    data.budget_min !== '' &&
+    (Number.isNaN(Number(data.budget_min)) || Number(data.budget_min) < 0)
+  ) {
+    const msg = 'Le budget minimum ne peut pas être négatif.';
+    errors.push(msg);
+    fieldErrors.budgetMin = msg;
+  }
+
+  if (
+    data.budget_max === undefined ||
+    data.budget_max === null ||
+    data.budget_max === '' ||
+    Number.isNaN(Number(data.budget_max)) ||
+    Number(data.budget_max) <= 0
+  ) {
+    const msg = 'Le budget maximum doit être supérieur à zéro.';
+    errors.push(msg);
+    fieldErrors.budgetMax = msg;
+  }
+
+  if (
+    data.budget_min !== undefined &&
+    data.budget_min !== null &&
+    data.budget_min !== '' &&
+    data.budget_max !== undefined &&
+    data.budget_max !== null &&
+    data.budget_max !== '' &&
     Number(data.budget_min) > Number(data.budget_max) &&
     Number(data.budget_max) > 0
   ) {
-    errors.push('Le budget minimum ne peut pas dépasser le budget maximum.');
+    const msg = 'Le budget minimum ne peut pas dépasser le budget maximum.';
+    errors.push(msg);
+    fieldErrors.budgetMax = msg;
   }
 
-  return errors;
+  return { errors, fieldErrors };
+}
+
+/**
+ * Helper SQL pour créer et mettre à niveau automatiquement la table concierge_requests
+ */
+async function ensureConciergeTable() {
+  if (schemaReadyPromise) {
+    return schemaReadyPromise;
+  }
+
+  schemaReadyPromise = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS concierge_requests (
+        id VARCHAR(64) NOT NULL PRIMARY KEY,
+        reference VARCHAR(64) DEFAULT NULL,
+        user_id VARCHAR(64) DEFAULT NULL,
+        project_type VARCHAR(100) NOT NULL,
+        property_type VARCHAR(100) NOT NULL,
+        commune VARCHAR(100) NOT NULL,
+        quartier VARCHAR(150) DEFAULT NULL,
+        budget_min DECIMAL(15, 2) DEFAULT NULL,
+        budget_max DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+        currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+        bedrooms INT DEFAULT NULL,
+        bathrooms INT DEFAULT NULL,
+        parking BOOLEAN NOT NULL DEFAULT FALSE,
+        furnished BOOLEAN NOT NULL DEFAULT FALSE,
+        services TEXT DEFAULT NULL,
+        description TEXT DEFAULT NULL,
+        notes_admin TEXT DEFAULT NULL,
+        full_name VARCHAR(255) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
+        whatsapp VARCHAR(50) DEFAULT NULL,
+        email VARCHAR(255) NOT NULL,
+        status ENUM('new', 'searching', 'properties_found', 'visit_scheduled', 'negotiation', 'completed', 'cancelled') NOT NULL DEFAULT 'new',
+        assigned_agent_id VARCHAR(64) DEFAULT NULL,
+        assigned_agent_name VARCHAR(255) DEFAULT NULL,
+        matched_property_ids TEXT DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_concierge_status (status),
+        INDEX idx_concierge_commune (commune)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    try {
+      const [cols] = await pool.query('SHOW COLUMNS FROM concierge_requests');
+      const colMap = new Map(cols.map((c) => [String(c.Field).toLowerCase(), c]));
+
+      if (!colMap.has('reference')) {
+        await pool.query('ALTER TABLE concierge_requests ADD COLUMN reference VARCHAR(64) DEFAULT NULL AFTER id');
+      }
+      if (!colMap.has('notes_admin')) {
+        await pool.query('ALTER TABLE concierge_requests ADD COLUMN notes_admin TEXT DEFAULT NULL AFTER description');
+      }
+      if (!colMap.has('assigned_agent_name')) {
+        await pool.query('ALTER TABLE concierge_requests ADD COLUMN assigned_agent_name VARCHAR(255) DEFAULT NULL AFTER assigned_agent_id');
+      }
+      if (!colMap.has('matched_property_ids')) {
+        await pool.query('ALTER TABLE concierge_requests ADD COLUMN matched_property_ids TEXT DEFAULT NULL AFTER assigned_agent_name');
+      }
+
+      const bMinType = String(colMap.get('budget_min')?.Type || '').toLowerCase();
+      const bMaxType = String(colMap.get('budget_max')?.Type || '').toLowerCase();
+      if (bMinType.includes('(12,') || bMaxType.includes('(12,')) {
+        await pool.query(
+          'ALTER TABLE concierge_requests MODIFY COLUMN budget_min DECIMAL(15, 2) DEFAULT NULL, MODIFY COLUMN budget_max DECIMAL(15, 2) NOT NULL DEFAULT 0.00'
+        );
+      }
+    } catch (alterErr) {
+      console.warn('[Concierge Schema Upgrade Warning]', alterErr.message);
+    }
+  })().catch((err) => {
+    schemaReadyPromise = null;
+    throw err;
+  });
+
+  return schemaReadyPromise;
 }
 
 // ==========================================
@@ -137,68 +387,54 @@ function validateRequestInput(rawInput) {
 // ==========================================
 
 /**
- * GET /api/concierge-requests/requests OU /api/concierge/requests
- * SÉCURITÉ :
- * - Authentification obligatoire pour consulter les demandes administratives
- * - Contrôle des rôles :
- *   * Admin : accès complet à toutes les demandes
- *   * Agent : accès strictement restreint aux demandes qui lui sont attribuées (assigned_agent_id = user.id)
- * - Requêtes SQL paramétrées (protection contre SQL injection)
- */
-/**
  * GET /api/concierge-requests OU /api/concierge-requests/requests OU /api/concierge/requests
  */
 router.get(['/', '/requests'], authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
   try {
+    await ensureConciergeTable();
     const user = req.user;
     const { status, commune, assigned_agent_id, limit = 50, offset = 0 } = req.query;
 
-    let query = 'SELECT * FROM concierge_requests WHERE 1=1';
+    let query = `
+      SELECT c.*, COALESCE(c.assigned_agent_name, u.name) AS assigned_agent_name
+      FROM concierge_requests c
+      LEFT JOIN users u ON c.assigned_agent_id = u.id
+      WHERE 1=1
+    `;
     const params = [];
 
     // CONTRÔLE D'ISOLATION DES DONNÉES : Un agent ne peut accéder QU'À ses propres demandes
     if (user.role === 'agent') {
-      query += ' AND assigned_agent_id = ?';
+      query += ' AND c.assigned_agent_id = ?';
       params.push(user.id);
     } else if (assigned_agent_id && user.role === 'admin') {
-      query += ' AND assigned_agent_id = ?';
+      query += ' AND c.assigned_agent_id = ?';
       params.push(assigned_agent_id);
     }
 
     if (status && ALLOWED_STATUSES.includes(status)) {
-      query += ' AND status = ?';
+      query += ' AND c.status = ?';
       params.push(status);
     }
 
     if (commune) {
-      query += ' AND commune = ?';
-      params.push(commune.trim());
+      query += ' AND c.commune = ?';
+      params.push(String(commune).trim());
     }
 
-    // Protection SQL Injection sur limit & offset avec conversion Number stricte
-    const sanitizedLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
-    const sanitizedOffset = Math.max(Number(offset) || 0, 0);
+    const sanitizedLimit = Math.min(Math.max(parseInt(String(limit), 10) || 50, 1), 100);
+    const sanitizedOffset = Math.max(parseInt(String(offset), 10) || 0, 0);
 
-    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    query += ' ORDER BY c.created_at DESC LIMIT ? OFFSET ?';
     params.push(sanitizedLimit, sanitizedOffset);
 
-    // Requête préparée paramétrée
-    let rows = [];
-    try {
-      const [result] = await pool.query(query, params);
-      rows = result;
-    } catch (err) {
-      if (err.code === 'ER_NO_SUCH_TABLE' || (err.message && err.message.includes("doesn't exist"))) {
-        console.warn('[Concierge GET] Table concierge_requests inexistante, retour vide.');
-        return res.json({ success: true, count: 0, data: [] });
-      }
-      throw err;
-    }
+    const [rows] = await pool.query(query, params);
+    const serialized = rows.map((r) => serializeConciergeRow(r, { includeAdminNotes: true }));
 
     res.json({
       success: true,
-      count: rows.length,
-      data: rows
+      count: serialized.length,
+      data: serialized
     });
   } catch (error) {
     console.error('[MySQL concierge_requests GET error]', error);
@@ -220,17 +456,23 @@ router.delete('/visits/:id', authenticateToken, requireRoles('admin', 'agent', '
  */
 router.get(['/:id', '/requests/:id'], authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
   try {
+    await ensureConciergeTable();
     const { id } = req.params;
     const user = req.user;
 
-    const [rows] = await pool.query('SELECT * FROM concierge_requests WHERE id = ?', [id]);
+    const [rows] = await pool.query(
+      `SELECT c.*, COALESCE(c.assigned_agent_name, u.name) AS assigned_agent_name
+       FROM concierge_requests c
+       LEFT JOIN users u ON c.assigned_agent_id = u.id
+       WHERE c.id = ?`,
+      [id]
+    );
     if (rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Demande de conciergerie introuvable.' });
     }
 
     const request = rows[0];
 
-    // CONTRÔLE STRICT D'ACCÈS : Un agent ne peut pas voir le dossier d'un autre agent
     if (user.role === 'agent' && request.assigned_agent_id !== user.id) {
       return res.status(403).json({
         success: false,
@@ -245,11 +487,15 @@ router.get(['/:id', '/requests/:id'], authenticateToken, requireRoles('admin', '
         [id]
       );
       visits = visitRows;
-    } catch (vErr) {
-      // Ignorer si la table property_visits n'existe pas encore
-    }
+    } catch {}
 
-    res.json({ success: true, data: { ...request, visits } });
+    res.json({
+      success: true,
+      data: {
+        ...serializeConciergeRow(request, { includeAdminNotes: true }),
+        visits
+      }
+    });
   } catch (error) {
     console.error('[MySQL concierge_requests GET :id error]', error);
     res.status(500).json({ success: false, error: 'Erreur interne lors de la consultation du dossier.' });
@@ -257,52 +503,20 @@ router.get(['/:id', '/requests/:id'], authenticateToken, requireRoles('admin', '
 });
 
 /**
- * Helper SQL pour créer automatiquement la table concierge_requests si absente
- */
-async function ensureConciergeTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS concierge_requests (
-      id VARCHAR(64) NOT NULL PRIMARY KEY,
-      user_id VARCHAR(64) DEFAULT NULL,
-      project_type VARCHAR(100) NOT NULL,
-      property_type VARCHAR(100) NOT NULL,
-      commune VARCHAR(100) NOT NULL,
-      quartier VARCHAR(150) DEFAULT NULL,
-      budget_min DECIMAL(12, 2) DEFAULT NULL,
-      budget_max DECIMAL(12, 2) NOT NULL DEFAULT 0,
-      currency VARCHAR(10) NOT NULL DEFAULT 'USD',
-      bedrooms INT DEFAULT NULL,
-      bathrooms INT DEFAULT NULL,
-      parking BOOLEAN NOT NULL DEFAULT FALSE,
-      furnished BOOLEAN NOT NULL DEFAULT FALSE,
-      services JSON DEFAULT NULL,
-      description TEXT DEFAULT NULL,
-      full_name VARCHAR(255) NOT NULL,
-      phone VARCHAR(50) NOT NULL,
-      whatsapp VARCHAR(50) DEFAULT NULL,
-      email VARCHAR(255) NOT NULL,
-      status ENUM('new', 'searching', 'properties_found', 'visit_scheduled', 'negotiation', 'completed', 'cancelled') NOT NULL DEFAULT 'new',
-      assigned_agent_id VARCHAR(64) DEFAULT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      INDEX idx_concierge_status (status),
-      INDEX idx_concierge_commune (commune)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-}
-
-/**
  * POST /api/concierge-requests OU /api/concierge-requests/requests OU /api/concierge/requests
  * Création d'une nouvelle demande (Formulaire public ou connecté)
  */
 router.post(['/', '/requests'], optionalAuth, async (req, res) => {
   try {
+    await ensureConciergeTable();
+
     const normalized = normalizeConciergeData(req.body);
-    const validationErrors = validateRequestInput(normalized);
+    const { errors: validationErrors, fieldErrors } = validateRequestInput(normalized);
     if (validationErrors.length > 0) {
       return res.status(400).json({
         success: false,
         error: 'Erreurs de validation des données soumises.',
+        errors: fieldErrors,
         details: validationErrors
       });
     }
@@ -330,7 +544,7 @@ router.post(['/', '/requests'], optionalAuth, async (req, res) => {
     const id = `cr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const reference = `KIN-CCG-${new Date().getFullYear()}-${randomSuffix}`;
-    
+
     // Vérification de sécurité sur le user_id pour éviter un échec de contrainte étrangère
     let validUserId = null;
     if (req.user && req.user.id) {
@@ -340,39 +554,56 @@ router.post(['/', '/requests'], optionalAuth, async (req, res) => {
       } catch {}
     }
 
-    const servicesJson = Array.isArray(services) ? JSON.stringify(services) : JSON.stringify([]);
+    const cleanServices = parseJsonStringArray(services);
+    const servicesJson = JSON.stringify(cleanServices.length > 0 ? cleanServices : ['Recherche de biens']);
 
-    // Nettoyage et assainissement
+    // Identifiants des biens correspondants éventuels transmis par le matching client
+    let matchedIds = [];
+    if (Array.isArray(req.body?.matched_property_ids)) {
+      matchedIds = req.body.matched_property_ids.map((item) => String(item)).filter(Boolean);
+    } else if (Array.isArray(req.body?.matched_properties)) {
+      matchedIds = req.body.matched_properties
+        .map((m) => (m && m.property ? m.property.id : m?.id))
+        .filter(Boolean)
+        .map(String);
+    }
+    const matchedIdsJson = JSON.stringify(matchedIds);
+
     const cleanFullName = String(full_name).trim().substring(0, 255);
     const cleanPhone = String(phone).trim().substring(0, 50);
     const cleanWhatsapp = whatsapp ? String(whatsapp).trim().substring(0, 50) : null;
     const cleanEmail = String(email).trim().toLowerCase().substring(0, 255);
+    const cleanProjectType = String(project_type).trim().substring(0, 100);
+    const cleanPropertyType = String(property_type).trim().substring(0, 100);
     const cleanCommune = String(commune).trim().substring(0, 100);
     const cleanQuartier = quartier ? String(quartier).trim().substring(0, 150) : null;
     const cleanDescription = description ? String(description).trim().substring(0, 2000) : null;
-    const cleanCurrency = ['USD', 'CDF'].includes(currency) ? currency : 'USD';
+    const cleanCurrency = ['USD', 'CDF'].includes(String(currency).toUpperCase())
+      ? String(currency).toUpperCase()
+      : 'USD';
 
     const insertQuery = `
       INSERT INTO concierge_requests (
-        id, user_id, project_type, property_type, commune, quartier,
+        id, reference, user_id, project_type, property_type, commune, quartier,
         budget_min, budget_max, currency, bedrooms, bathrooms,
         parking, furnished, services, description, full_name,
-        phone, whatsapp, email, status, assigned_agent_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, NOW())
+        phone, whatsapp, email, status, assigned_agent_id, matched_property_ids, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, NOW())
     `;
 
     const insertParams = [
       id,
+      reference,
       validUserId,
-      project_type,
-      property_type,
+      cleanProjectType,
+      cleanPropertyType,
       cleanCommune,
       cleanQuartier,
-      budget_min ? Number(budget_min) : null,
+      budget_min !== null && budget_min !== '' ? Number(budget_min) : null,
       Number(budget_max) || 0,
       cleanCurrency,
-      bedrooms ? Number(bedrooms) : null,
-      bathrooms ? Number(bathrooms) : null,
+      bedrooms !== null && bedrooms !== '' ? Number(bedrooms) : null,
+      bathrooms !== null && bathrooms !== '' ? Number(bathrooms) : null,
       parking ? 1 : 0,
       furnished ? 1 : 0,
       servicesJson,
@@ -380,57 +611,61 @@ router.post(['/', '/requests'], optionalAuth, async (req, res) => {
       cleanFullName,
       cleanPhone,
       cleanWhatsapp,
-      cleanEmail
+      cleanEmail,
+      matchedIdsJson
     ];
 
-    try {
-      await pool.query(insertQuery, insertParams);
-    } catch (dbErr) {
-      if (dbErr.code === 'ER_NO_SUCH_TABLE' || (dbErr.message && dbErr.message.includes("doesn't exist"))) {
-        console.log('[Concierge POST] Auto-création de la table concierge_requests...');
-        await ensureConciergeTable();
-        await pool.query(insertQuery, insertParams);
-      } else {
-        throw dbErr;
-      }
-    }
+    await pool.query(insertQuery, insertParams);
 
     const [createdRows] = await pool.query('SELECT * FROM concierge_requests WHERE id = ?', [id]);
     const createdRequest = createdRows[0] || {
       id,
+      reference,
       user_id: validUserId,
-      project_type,
-      property_type,
+      project_type: cleanProjectType,
+      property_type: cleanPropertyType,
       commune: cleanCommune,
       quartier: cleanQuartier,
-      budget_min: budget_min ? Number(budget_min) : null,
+      budget_min: budget_min !== null && budget_min !== '' ? Number(budget_min) : null,
       budget_max: Number(budget_max) || 0,
       currency: cleanCurrency,
+      bedrooms: bedrooms !== null && bedrooms !== '' ? Number(bedrooms) : null,
+      bathrooms: bathrooms !== null && bathrooms !== '' ? Number(bathrooms) : null,
+      parking: Boolean(parking),
+      furnished: Boolean(furnished),
+      services: cleanServices,
+      matched_property_ids: matchedIds,
+      description: cleanDescription,
       full_name: cleanFullName,
       phone: cleanPhone,
+      whatsapp: cleanWhatsapp,
       email: cleanEmail,
-      status: 'new'
+      status: 'new',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
 
-    // Déclencher notification de confirmation
+    // Déclencher notification de confirmation (strictement non bloquant)
     try {
-      await NotificationService.triggerClientRequestConfirmation(createdRequest);
+      await NotificationService.triggerClientRequestConfirmation({ ...createdRequest, reference });
     } catch (notifErr) {
       console.warn('[Notification Trigger Warning]', notifErr.message);
     }
+
+    const publicData = sanitizeForPublic({ ...createdRequest, reference });
 
     res.status(201).json({
       success: true,
       message: 'Votre demande de recherche a été enregistrée avec succès. Un conseiller de la Conciergerie Kinimmo va vous contacter sous 24h.',
       reference,
-      data: {
-        ...sanitizeForPublic(createdRequest),
-        reference
-      }
+      data: publicData
     });
   } catch (error) {
     console.error('[MySQL concierge_requests POST error]', error);
-    res.status(500).json({ success: false, error: 'Erreur lors de l’enregistrement de votre demande : ' + (error.message || 'Serveur indisponible') });
+    res.status(500).json({
+      success: false,
+      error: 'Erreur lors de l’enregistrement de votre demande : ' + (error.message || 'Serveur indisponible')
+    });
   }
 });
 
@@ -439,11 +674,14 @@ router.post(['/', '/requests'], optionalAuth, async (req, res) => {
  */
 async function updateConciergeRequest(req, res) {
   try {
+    await ensureConciergeTable();
     const { id } = req.params;
+    const user = req.user;
     const body = normalizeConciergeData(req.body);
     const {
       status,
       assigned_agent_id,
+      assigned_agent_name,
       notesAdmin,
       project_type,
       property_type,
@@ -464,44 +702,103 @@ async function updateConciergeRequest(req, res) {
       email
     } = body;
 
-    // Vérifier l'existence de la demande
     const [existingRows] = await pool.query('SELECT * FROM concierge_requests WHERE id = ?', [id]);
     if (existingRows.length === 0) {
       return res.status(404).json({ success: false, error: 'Demande introuvable.' });
     }
     const previousReq = existingRows[0];
 
+    // Un agent ne peut modifier que le statut / notes de ses propres dossiers assignés
+    if (user.role === 'agent') {
+      if (previousReq.assigned_agent_id !== user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Accès interdit : vous ne pouvez mettre à jour que les demandes qui vous sont attribuées.'
+        });
+      }
+      if (req.body.assigned_agent_id !== undefined) {
+        return res.status(403).json({
+          success: false,
+          error: 'Accès interdit : seul un administrateur peut réattribuer une demande.'
+        });
+      }
+    }
+
     const updates = [];
     const params = [];
 
     if (status !== undefined) {
-      if (!ALLOWED_STATUSES.includes(status)) {
+      const normalizedStatus = normalizeConciergeStatus(status);
+      if (!ALLOWED_STATUSES.includes(normalizedStatus)) {
         return res.status(400).json({
           success: false,
           error: `Statut invalide. Statuts acceptés : ${ALLOWED_STATUSES.join(', ')}`
         });
       }
       updates.push('status = ?');
-      params.push(status);
+      params.push(normalizedStatus);
     }
 
     let agentToNotify = null;
-    if (assigned_agent_id !== undefined) {
+    if (assigned_agent_id !== undefined && user.role === 'admin') {
       if (assigned_agent_id) {
-        const [agentRows] = await pool.query('SELECT id, name, email, phone, role FROM users WHERE id = ?', [assigned_agent_id]);
-        if (agentRows.length === 0) {
-          return res.status(400).json({ success: false, error: 'Agent introuvable.' });
+        let resolvedUserId = null;
+        let resolvedAgentName = assigned_agent_name || null;
+
+        try {
+          const [userRows] = await pool.query(
+            'SELECT id, name, email, phone, role FROM users WHERE id = ? LIMIT 1',
+            [assigned_agent_id]
+          );
+          if (userRows.length > 0) {
+            resolvedUserId = userRows[0].id;
+            resolvedAgentName = resolvedAgentName || userRows[0].name;
+            agentToNotify = userRows[0];
+          }
+        } catch {}
+
+        // Si l'ID vient du répertoire agents plutôt que de users
+        if (!resolvedUserId) {
+          try {
+            const [agentRows] = await pool.query(
+              'SELECT id, user_id, name, email, phone FROM agents WHERE id = ? OR user_id = ? LIMIT 1',
+              [assigned_agent_id, assigned_agent_id]
+            );
+            if (agentRows.length > 0) {
+              const ag = agentRows[0];
+              resolvedAgentName = resolvedAgentName || ag.name;
+              if (ag.user_id) {
+                const [linkedUser] = await pool.query('SELECT id, name, email, phone FROM users WHERE id = ? LIMIT 1', [ag.user_id]);
+                if (linkedUser.length > 0) {
+                  resolvedUserId = linkedUser[0].id;
+                  agentToNotify = linkedUser[0];
+                }
+              }
+            }
+          } catch {}
         }
-        agentToNotify = agentRows[0];
+
+        if (!resolvedUserId && !resolvedAgentName) {
+          return res.status(400).json({ success: false, error: 'Agent responsable introuvable.' });
+        }
+
+        updates.push('assigned_agent_id = ?');
+        params.push(resolvedUserId);
+        updates.push('assigned_agent_name = ?');
+        params.push(resolvedAgentName || null);
+      } else {
+        updates.push('assigned_agent_id = ?');
+        params.push(null);
+        updates.push('assigned_agent_name = ?');
+        params.push(null);
       }
-      updates.push('assigned_agent_id = ?');
-      params.push(assigned_agent_id || null);
     }
 
     if (notesAdmin !== undefined) {
-      updates.push('description = ?');
-      params.push(String(notesAdmin).trim());
-    } else if (description !== undefined && req.body.description !== undefined) {
+      updates.push('notes_admin = ?');
+      params.push(notesAdmin === null ? null : String(notesAdmin).trim());
+    }
+    if (req.body.description !== undefined || req.body.notes !== undefined) {
       updates.push('description = ?');
       params.push(description ? String(description).trim() : null);
     }
@@ -531,8 +828,9 @@ async function updateConciergeRequest(req, res) {
       params.push(Number(budget_max) || 0);
     }
     if (req.body.currency !== undefined || req.body.devise !== undefined || req.body.budget !== undefined) {
+      const upperCurr = String(currency || 'USD').toUpperCase();
       updates.push('currency = ?');
-      params.push(['USD', 'CDF'].includes(currency) ? currency : 'USD');
+      params.push(['USD', 'CDF'].includes(upperCurr) ? upperCurr : 'USD');
     }
     if (bedrooms !== undefined) {
       updates.push('bedrooms = ?');
@@ -552,7 +850,7 @@ async function updateConciergeRequest(req, res) {
     }
     if (req.body.services !== undefined || req.body.caracteristiques !== undefined) {
       updates.push('services = ?');
-      params.push(JSON.stringify(Array.isArray(services) ? services : []));
+      params.push(JSON.stringify(parseJsonStringArray(services)));
     }
     if (req.body.full_name !== undefined || req.body.client !== undefined) {
       if (full_name) {
@@ -584,10 +882,16 @@ async function updateConciergeRequest(req, res) {
     params.push(id);
     await pool.query(`UPDATE concierge_requests SET ${updates.join(', ')} WHERE id = ?`, params);
 
-    const [updatedRows] = await pool.query('SELECT * FROM concierge_requests WHERE id = ?', [id]);
-    const updatedRequest = updatedRows[0];
+    const [updatedRows] = await pool.query(
+      `SELECT c.*, COALESCE(c.assigned_agent_name, u.name) AS assigned_agent_name
+       FROM concierge_requests c
+       LEFT JOIN users u ON c.assigned_agent_id = u.id
+       WHERE c.id = ?`,
+      [id]
+    );
+    const updatedRequest = serializeConciergeRow(updatedRows[0], { includeAdminNotes: true });
 
-    if (agentToNotify && previousReq.assigned_agent_id !== assigned_agent_id) {
+    if (agentToNotify && previousReq.assigned_agent_id !== updatedRequest.assigned_agent_id) {
       try {
         await NotificationService.triggerAgentNotification(updatedRequest, agentToNotify);
       } catch (notifErr) {
@@ -606,14 +910,15 @@ async function updateConciergeRequest(req, res) {
   }
 }
 
-router.patch(['/:id', '/requests/:id'], authenticateToken, requireAdmin, updateConciergeRequest);
-router.put(['/:id', '/requests/:id'], authenticateToken, requireAdmin, updateConciergeRequest);
+router.patch(['/:id', '/requests/:id'], authenticateToken, requireRoles('admin', 'agent'), updateConciergeRequest);
+router.put(['/:id', '/requests/:id'], authenticateToken, requireRoles('admin', 'agent'), updateConciergeRequest);
 
 /**
  * DELETE /api/concierge-requests/:id OU /api/concierge-requests/requests/:id
  */
 router.delete(['/:id', '/requests/:id'], authenticateToken, requireAdmin, async (req, res) => {
   try {
+    await ensureConciergeTable();
     const { id } = req.params;
     await pool.query('DELETE FROM concierge_requests WHERE id = ?', [id]);
     res.json({ success: true, message: 'Demande supprimée définitivement.' });

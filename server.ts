@@ -1601,6 +1601,48 @@ app.get('/api/concierge-requests/:id/matches', async (req: Request, res: Respons
 
 // 2. Consultation des demandes (Table: concierge_requests)
 // SÉCURITÉ : Authentification et contrôle strict des rôles
+const serializeConciergeForPreview = (raw: any): ConciergerieRequest => {
+  const createdAt = raw.created_at || raw.createdAt || new Date().toISOString();
+  const updatedAt = raw.updated_at || raw.updatedAt || createdAt;
+  const currency = String(raw.currency || raw.budget?.devise || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD';
+  const budgetMin = raw.budget_min !== undefined ? raw.budget_min : raw.budget?.min ?? null;
+  const budgetMax = Number(raw.budget_max ?? raw.budget?.max ?? 0) || 0;
+  return {
+    ...raw,
+    reference: raw.reference || `KIN-CONC-${new Date(createdAt).getFullYear()}-${String(raw.id || '').slice(-4).toUpperCase()}`,
+    currency,
+    services: Array.isArray(raw.services) ? raw.services : ['Recherche de biens'],
+    projet: raw.project_type || raw.projet || 'Acheter',
+    typeBien: raw.property_type || raw.typeBien || 'Appartement',
+    localisation: {
+      commune: raw.commune || raw.localisation?.commune || 'Gombe',
+      quartier: raw.quartier || raw.localisation?.quartier || undefined
+    },
+    budget: {
+      min: budgetMin !== null && budgetMin !== undefined ? Number(budgetMin) : undefined,
+      max: budgetMax,
+      devise: currency
+    },
+    caracteristiques: {
+      chambres: raw.bedrooms !== null && raw.bedrooms !== undefined ? Number(raw.bedrooms) : raw.caracteristiques?.chambres,
+      sallesDeBain: raw.bathrooms !== null && raw.bathrooms !== undefined ? Number(raw.bathrooms) : raw.caracteristiques?.sallesDeBain,
+      parking: Boolean(raw.parking ?? raw.caracteristiques?.parking),
+      meuble: Boolean(raw.furnished ?? raw.caracteristiques?.meuble)
+    },
+    client: {
+      nomComplet: raw.full_name || raw.client?.nomComplet || 'Client Kinimmo',
+      telephone: raw.phone || raw.client?.telephone || '',
+      whatsapp: raw.whatsapp || raw.client?.whatsapp || undefined,
+      email: raw.email || raw.client?.email || '',
+      message: raw.description || raw.notes || raw.client?.message || undefined
+    },
+    created_at: createdAt,
+    updated_at: updatedAt,
+    createdAt,
+    updatedAt
+  };
+};
+
 const handleGetConciergeRequests = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
@@ -1617,7 +1659,7 @@ const handleGetConciergeRequests = async (req: Request, res: Response) => {
       });
     }
 
-    let list: ConciergerieRequest[] = [...inMemoryRequests];
+    let list: ConciergerieRequest[] = inMemoryRequests.map(serializeConciergeForPreview);
 
     // SÉCURITÉ : Un agent ne peut accéder qu'aux demandes qui lui sont attribuées
     if (user.role === 'agent') {
@@ -1639,7 +1681,6 @@ app.get('/api/concierge/requests', handleGetConciergeRequests);
 app.get('/api/conciergerie', handleGetConciergeRequests);
 
 // 3. Mise à jour de statut, agent ou modification complète de la demande
-// SÉCURITÉ : Vérifier que SEUL UN ADMINISTRATEUR peut modifier les demandes
 const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
@@ -1650,11 +1691,10 @@ const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
       });
     }
 
-    // Contrôle strict des rôles : Seul l'administrateur peut modifier ou assigner les demandes
-    if (user.role !== 'admin') {
+    if (user.role !== 'admin' && user.role !== 'agent') {
       return res.status(403).json({
         success: false,
-        error: 'Accès interdit : Seul un administrateur habilité peut modifier ou réassigner les demandes de conciergerie.'
+        error: 'Accès interdit : Seuls les administrateurs ou agents assignés peuvent modifier une demande.'
       });
     }
 
@@ -1664,6 +1704,21 @@ const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
     const reqItem = inMemoryRequests.find((r) => r.id === id);
     if (!reqItem) {
       return res.status(404).json({ success: false, error: 'Demande introuvable.' });
+    }
+
+    if (user.role === 'agent') {
+      if (reqItem.assigned_agent_id !== user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Accès interdit : vous ne pouvez mettre à jour que les demandes qui vous sont attribuées.'
+        });
+      }
+      if (body.assigned_agent_id !== undefined) {
+        return res.status(403).json({
+          success: false,
+          error: 'Accès interdit : seul un administrateur peut réattribuer une demande.'
+        });
+      }
     }
 
     const previousAgentId = reqItem.assigned_agent_id;
@@ -1679,7 +1734,6 @@ const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
     ];
 
     if (body.status) {
-      // Normalisation des statuts
       let mappedStatus = body.status;
       if (body.status === 'nouveau') mappedStatus = 'new';
       else if (body.status === 'en_cours') mappedStatus = 'searching';
@@ -1701,13 +1755,19 @@ const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
     if (body.quartier !== undefined) reqItem.quartier = body.quartier;
     if (body.budget_min !== undefined) reqItem.budget_min = Number(body.budget_min) || 0;
     if (body.budget_max !== undefined) reqItem.budget_max = Number(body.budget_max) || 0;
-    if (body.currency !== undefined) reqItem.currency = body.currency;
+    if (body.currency !== undefined) reqItem.currency = String(body.currency).toUpperCase() === 'CDF' ? 'CDF' : 'USD';
     if (body.bedrooms !== undefined) reqItem.bedrooms = Number(body.bedrooms) || 0;
     if (body.bathrooms !== undefined) reqItem.bathrooms = Number(body.bathrooms) || 0;
-    if (body.notes !== undefined) reqItem.notes = body.notes;
-    if (body.assigned_agent_id !== undefined) reqItem.assigned_agent_id = body.assigned_agent_id;
-    if (body.assigned_agent_name !== undefined) reqItem.assigned_agent_name = body.assigned_agent_name;
+    if (body.notes !== undefined) {
+      reqItem.notes = body.notes;
+      reqItem.description = body.notes;
+    }
+    if (body.assigned_agent_id !== undefined && user.role === 'admin') reqItem.assigned_agent_id = body.assigned_agent_id;
+    if (body.assigned_agent_name !== undefined && user.role === 'admin') reqItem.assigned_agent_name = body.assigned_agent_name;
     if (body.notesAdmin !== undefined) reqItem.notesAdmin = String(body.notesAdmin);
+
+    const synced = serializeConciergeForPreview(reqItem);
+    Object.assign(reqItem, synced);
 
     const nowIso = new Date().toISOString();
     reqItem.updated_at = nowIso;
@@ -1715,7 +1775,6 @@ const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
 
     saveLocalRequests(inMemoryRequests);
 
-    // ARCHITECTURE NOTIFICATIONS : Déclencher notification à l'agent responsable lors d'une nouvelle attribution
     if (body.assigned_agent_id && body.assigned_agent_id !== previousAgentId) {
       try {
         enqueueNotification({
@@ -1824,6 +1883,7 @@ const handleCreatePropertyVisit = async (req: Request, res: Response) => {
       agent_name = user.name;
     }
 
+    const cleanVisitDate = String(visit_date).trim().split('T')[0].slice(0, 10);
     const nowIso = new Date().toISOString();
     const id = `visit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -1832,7 +1892,7 @@ const handleCreatePropertyVisit = async (req: Request, res: Response) => {
       request_id: String(request_id),
       property_id: property_id || null,
       agent_id: agent_id || null,
-      visit_date: String(visit_date),
+      visit_date: cleanVisitDate,
       visit_time: visit_time || '14:00',
       status: status || 'scheduled',
       notes: notes ? String(notes).trim() : null,
@@ -1919,7 +1979,7 @@ const handlePatchPropertyVisit = async (req: Request, res: Response) => {
 
     if (status !== undefined) visit.status = status;
     if (notes !== undefined) visit.notes = notes;
-    if (visit_date !== undefined) visit.visit_date = visit_date;
+    if (visit_date !== undefined) visit.visit_date = String(visit_date).trim().split('T')[0].slice(0, 10);
     if (visit_time !== undefined) visit.visit_time = visit_time;
     if (agent_id !== undefined && user.role === 'admin') visit.agent_id = agent_id;
     if (property_id !== undefined) visit.property_id = property_id;
