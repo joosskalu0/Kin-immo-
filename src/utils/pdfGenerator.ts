@@ -63,7 +63,8 @@ export function generatePropertyPDF(
   doc.setTextColor(100, 116, 139);
   doc.text(`[ Photo Principale de la propriété ]`, 70, 105);
   doc.setFontSize(8);
-  doc.text(`URL: ${property.images[0] || 'Image indisponible'}`, 25, 112);
+  const mainImageUrl = Array.isArray(property.images) && property.images.length > 0 ? property.images[0] : 'Image indisponible';
+  doc.text(`URL: ${mainImageUrl}`, 25, 112);
 
   // Key Specs Grid
   doc.setFillColor(241, 245, 249);
@@ -93,9 +94,9 @@ export function generatePropertyPDF(
 
   if (publicCustomFields.length > 0) {
     publicCustomFields.forEach((fieldDef) => {
-      const val = property.customFields[fieldDef.key];
+      const val = property.customFields?.[fieldDef.key];
       if (val !== undefined && val !== null && val !== '') {
-        const label = fieldDef.label['fr'] || fieldDef.label['en'] || fieldDef.key;
+        const label = (typeof fieldDef.label === 'string' ? fieldDef.label : (fieldDef.label?.fr || fieldDef.label?.en)) || fieldDef.key;
         doc.setFontSize(9);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(71, 85, 105);
@@ -126,7 +127,7 @@ export function generatePropertyPDF(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(51, 65, 85);
 
-  const splitDescription = doc.splitTextToSize(property.description, 180);
+  const splitDescription = doc.splitTextToSize(property.description || 'Description non renseignée.', 180);
   doc.text(splitDescription.slice(0, 4), 14, currentY);
 
   // Agent Contact Box Footer

@@ -2,6 +2,19 @@ import { ConciergeRequest, ConciergerieRequest, ConciergeRequestStatus, Property
 import { validateConciergerieRequest } from '../utils/conciergerieValidation';
 import { findMatchingProperties, PropertyMatchResult } from '../utils/propertyMatching';
 import { initialProperties } from '../data/mockData';
+import { getStoredToken } from './mysqlApi';
+
+function getAuthHeaders(includeJson = true): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (includeJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const token = getStoredToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 export interface SubmitConciergerieResponse {
   success: boolean;
@@ -78,9 +91,7 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
   try {
     const res = await fetch('/api/concierge-requests', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: getAuthHeaders(true),
       body: JSON.stringify({
         ...clientValidation.sanitized,
         matched_properties: matches
@@ -199,13 +210,21 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
  * Récupération de l'historique des demandes de conciergerie
  */
 export async function fetchConciergeRequests(): Promise<ConciergerieRequest[]> {
+  const token = getStoredToken();
+  if (!token) {
+    return getLocalStoredRequests();
+  }
   try {
-    const res = await fetch('/api/concierge-requests');
+    const res = await fetch('/api/concierge-requests', {
+      headers: getAuthHeaders(false)
+    });
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         return json.data;
       }
+    } else if (res.status === 401 || res.status === 403) {
+      return [];
     }
   } catch {}
 
@@ -224,15 +243,19 @@ export async function updateConciergeRequestFull(
   try {
     const res = await fetch(`/api/concierge-requests/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(true),
       body: JSON.stringify(updateData)
     });
+    const json = await res.json().catch(() => ({}));
     if (res.ok) {
-      const json = await res.json();
       if (json.success && json.data) {
         saveLocalStoredRequest(json.data);
         return { success: true, data: json.data };
       }
+      return { success: true, data: json.data };
+    }
+    if (res.status === 401 || res.status === 403 || res.status === 404 || res.status === 400) {
+      return { success: false, error: json.message || json.error || `Erreur HTTP ${res.status}` };
     }
   } catch {}
 
@@ -269,7 +292,7 @@ export async function updateConciergeRequestStatus(
   try {
     const res = await fetch(`/api/concierge-requests/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(true),
       body: JSON.stringify({
         status: newStatus,
         notesAdmin,
@@ -277,6 +300,9 @@ export async function updateConciergeRequestStatus(
       })
     });
     if (res.ok) return true;
+    if (res.status === 401 || res.status === 403 || res.status === 404 || res.status === 400) {
+      return false;
+    }
   } catch {}
 
   try {
@@ -304,14 +330,23 @@ export async function updateConciergeRequestStatus(
  * Récupération des visites immobilières (property_visits)
  */
 export async function fetchPropertyVisits(requestId?: string): Promise<PropertyVisitRecord[]> {
+  const token = getStoredToken();
+  if (!token) {
+    const local = getLocalStoredVisits();
+    return requestId ? local.filter((v) => v.request_id === requestId) : local;
+  }
   try {
     const url = requestId ? `/api/property-visits?request_id=${encodeURIComponent(requestId)}` : '/api/property-visits';
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      headers: getAuthHeaders(false)
+    });
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         return json.data;
       }
+    } else if (res.status === 401 || res.status === 403) {
+      return [];
     }
   } catch {}
 
@@ -340,15 +375,20 @@ export async function schedulePropertyVisit(
   try {
     const res = await fetch('/api/property-visits', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(true),
       body: JSON.stringify(record)
     });
+    const json = await res.json().catch(() => ({}));
     if (res.ok) {
-      const json = await res.json();
       if (json.success && json.data) {
         saveLocalStoredVisit(json.data);
         return { success: true, data: json.data };
       }
+      saveLocalStoredVisit(record);
+      return { success: true, data: record };
+    }
+    if (res.status === 401 || res.status === 403 || res.status === 400) {
+      return { success: false, error: json.message || json.error || `Accès refusé (HTTP ${res.status})` };
     }
   } catch {}
 
@@ -367,10 +407,13 @@ export async function updatePropertyVisitStatus(
   try {
     const res = await fetch(`/api/property-visits/${visitId}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(true),
       body: JSON.stringify({ status, notes })
     });
     if (res.ok) return true;
+    if (res.status === 401 || res.status === 403 || res.status === 404 || res.status === 400) {
+      return false;
+    }
   } catch {}
 
   try {
@@ -394,9 +437,13 @@ export async function updatePropertyVisitStatus(
 export async function deletePropertyVisit(visitId: string): Promise<boolean> {
   try {
     const res = await fetch(`/api/property-visits/${visitId}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: getAuthHeaders(false)
     });
     if (res.ok) return true;
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      return false;
+    }
   } catch {}
 
   try {

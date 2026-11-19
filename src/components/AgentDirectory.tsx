@@ -180,10 +180,10 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const matchName = a.name.toLowerCase().includes(q);
-      const matchEmail = a.email && a.email.toLowerCase().includes(q);
-      const matchSpec = a.specialties.some((s) => s.toLowerCase().includes(q));
-      const matchAgency = a.agencyName && a.agencyName.toLowerCase().includes(q);
+      const matchName = (a.name || '').toLowerCase().includes(q);
+      const matchEmail = Boolean(a.email && a.email.toLowerCase().includes(q));
+      const matchSpec = Array.isArray(a.specialties) && a.specialties.some((s) => String(s).toLowerCase().includes(q));
+      const matchAgency = Boolean(a.agencyName && a.agencyName.toLowerCase().includes(q));
       return matchName || matchEmail || matchSpec || matchAgency;
     }
     return true;
@@ -324,10 +324,10 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
-        agency.name.toLowerCase().includes(q) ||
-        agency.city.toLowerCase().includes(q) ||
-        agency.address.toLowerCase().includes(q) ||
-        agency.description.toLowerCase().includes(q)
+        (agency.name || '').toLowerCase().includes(q) ||
+        (agency.city || '').toLowerCase().includes(q) ||
+        (agency.address || '').toLowerCase().includes(q) ||
+        (agency.description || '').toLowerCase().includes(q)
       );
     }
     return true;
@@ -550,8 +550,8 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                   <div className="flex items-start gap-4">
                     <div className="relative shrink-0">
                       <img
-                        src={agent.avatar}
-                        alt={agent.name}
+                        src={agent.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80'}
+                        alt={agent.name || 'Agent Immobilier'}
                         className={`w-16 h-16 rounded-2xl object-cover ring-2 ${
                           isVerified
                             ? 'ring-emerald-500/60'
@@ -581,8 +581,8 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                     <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex items-center gap-1 text-amber-400 text-xs font-bold">
                         <Star className="w-3.5 h-3.5 fill-amber-400" />
-                        <span>{agent.rating}</span>
-                        <span className="text-slate-500 font-normal">({agent.reviewCount} avis)</span>
+                        <span>{agent.rating ?? 5.0}</span>
+                        <span className="text-slate-500 font-normal">({agent.reviewCount ?? 0} avis)</span>
                       </div>
 
                       <div className="flex items-center gap-2 flex-wrap">
@@ -653,7 +653,7 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                         )}
                       </div>
 
-                      <p className="text-xs text-emerald-400 font-medium">{agent.title}</p>
+                      <p className="text-xs text-emerald-400 font-medium">{agent.title || 'Agent Immobilier Agréé'}</p>
                       <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
                         <Building2 className="w-3 h-3 text-slate-500" />
                         {agent.agencyName || 'Indépendant Kinshasa'}
@@ -662,12 +662,15 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                   </div>
 
                   <p className="text-xs text-slate-300 leading-relaxed line-clamp-3 bg-slate-950/60 p-3 rounded-2xl border border-slate-800/60">
-                    "{agent.bio}"
+                    "{agent.bio || 'Agent immobilier partenaire certifié à Kinshasa.'}"
                   </p>
 
                   {/* Specialties */}
                   <div className="flex flex-wrap gap-1.5">
-                    {agent.specialties.map((s) => (
+                    {(Array.isArray(agent.specialties) && agent.specialties.length > 0
+                      ? agent.specialties
+                      : ['Résidentiel', 'Commercial', 'Conseil']
+                    ).map((s) => (
                       <span
                         key={s}
                         className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[10px] text-slate-300 font-medium"
@@ -793,7 +796,7 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                   className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col sm:flex-row gap-6 items-start relative group hover:border-slate-700 transition-all shadow-lg"
                 >
                   <img
-                    src={agency.logo}
+                    src={agency.logo || (agency as any).avatar || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80'}
                     alt={agency.name}
                     className="w-24 h-24 rounded-2xl object-cover ring-1 ring-slate-700 shrink-0"
                   />
@@ -845,22 +848,22 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                         )}
                       </div>
                     </div>
-                    <p className="text-slate-400">{agency.address}, {agency.city}</p>
-                    {agency.rccm && (
-                      <p className="text-[11px] font-mono text-emerald-400">RCCM: {agency.rccm}</p>
+                    <p className="text-slate-400">{agency.address || 'Kinshasa, RDC'}, {agency.city || 'Kinshasa'}</p>
+                    {(agency.rccm || (agency as any).rccmOrNif) && (
+                      <p className="text-[11px] font-mono text-emerald-400">RCCM: {agency.rccm || (agency as any).rccmOrNif}</p>
                     )}
-                    <p className="text-slate-300 leading-relaxed">{agency.description}</p>
+                    <p className="text-slate-300 leading-relaxed">{agency.description || 'Agence immobilière partenaire à Kinshasa. Gestion, vente et location.'}</p>
                     <div className="pt-2 text-slate-400 flex flex-wrap items-center gap-2.5">
                       <a
-                        href={`tel:${cleanPhoneNumberForTel(agency.phone)}`}
+                        href={`tel:${cleanPhoneNumberForTel(agency.phone || '+243810000000')}`}
                         target="_top"
                         className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
                       >
                         <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>{agency.phone}</span>
+                        <span>{agency.phone || '+243 81 000 00 00'}</span>
                       </a>
                       <a
-                        href={buildWhatsAppUrl(agency.whatsapp || agency.phone, `Bonjour l'équipe ${agency.name}, je vous contacte depuis Kinshasa Immobilier.`)}
+                        href={buildWhatsAppUrl(agency.whatsapp || agency.phone || '+243810000000', `Bonjour l'équipe ${agency.name}, je vous contacte depuis Kinshasa Immobilier.`)}
                         target="_top"
                         className="px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
                         title={`Contacter l'agence ${agency.name} sur WhatsApp`}
@@ -868,7 +871,7 @@ export const AgentDirectory: React.FC<AgentDirectoryProps> = ({ initialTab = 'ag
                         <MessageSquare className="w-3.5 h-3.5 fill-white" />
                         <span>WhatsApp</span>
                       </a>
-                      <span className="text-xs text-slate-400">👥 {agency.agentsCount} agents</span>
+                      <span className="text-xs text-slate-400">👥 {agency.agentsCount ?? 1} agents</span>
                       <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-200 font-semibold border border-slate-700 text-xs">
                         🏡 <strong className="text-white">{agencyListingsCount}</strong> annonces
                       </span>

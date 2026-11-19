@@ -535,7 +535,7 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
               </div>
 
               {/* 4. PRESTATIONS & ÉQUIPEMENTS */}
-              {selectedSlideDetails.details.amenities && selectedSlideDetails.details.amenities.length > 0 && (
+              {Array.isArray(selectedSlideDetails.details?.amenities) && selectedSlideDetails.details.amenities.length > 0 && (
                 <div className="space-y-2.5">
                   <h4 className="text-xs font-black uppercase text-slate-600 tracking-wider flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-emerald-600" />

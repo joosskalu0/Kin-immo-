@@ -3,6 +3,61 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * Sauvegarder une image base64 sur le disque local et retourner son URL publique
+ */
+function saveBase64Image(imgData, propertyId, index) {
+  if (!imgData || typeof imgData !== 'string') return imgData;
+  if (!imgData.startsWith('data:image')) return imgData;
+
+  try {
+    const matches = imgData.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return imgData;
+
+    const rawExt = matches[1].toLowerCase();
+    const ext = rawExt.includes('png') ? 'png' : rawExt.includes('webp') ? 'webp' : 'jpg';
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'images');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const cleanPropId = String(propertyId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `img_${cleanPropId}_${index}_${Date.now()}.${ext}`;
+    const filePath = path.join(uploadDir, filename);
+    fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
+    return `/uploads/images/${filename}`;
+  } catch (err) {
+    console.warn('[Property Controller] Warning saving image file:', err.message);
+    return imgData;
+  }
+}
+
+/**
+ * Sauvegarder une vidéo base64 sur le disque local et retourner son URL publique
+ */
+function saveBase64Video(videoUrl) {
+  if (!videoUrl || typeof videoUrl !== 'string') return null;
+  if (videoUrl.startsWith('data:video')) {
+    try {
+      const matches = videoUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const ext = matches[1].includes('webm') ? 'webm' : matches[1].includes('mov') ? 'mov' : 'mp4';
+        const filename = `video_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+        const uploadDir = path.join(__dirname, '..', 'uploads', 'videos');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(uploadDir, filename), Buffer.from(matches[2], 'base64'));
+        return `/uploads/videos/${filename}`;
+      }
+    } catch (videoSaveErr) {
+      console.warn('[Property Controller] Avertissement écriture vidéo base64:', videoSaveErr.message);
+      return null;
+    }
+  }
+  return videoUrl.length > 2048 ? videoUrl.substring(0, 2048) : videoUrl;
+}
+
+/**
  * Récupérer la liste des propriétés avec filtres Kinshasa
  * GET /api/properties
  */
@@ -19,9 +74,26 @@ async function getProperties(req, res, next) {
       featured,
       search,
       showSold,
+      includeUnpublished,
       limit = 50,
       offset = 0
     } = req.query;
+
+    const canSeeUnpublished = includeUnpublished === 'true' && req.user;
+    let whereClause = 'WHERE (p.published = TRUE OR p.published = 1 OR p.published IS NULL)';
+    const params = [];
+
+    if (canSeeUnpublished) {
+      if (req.user.role === 'admin') {
+        whereClause = 'WHERE 1=1';
+      } else if (req.user.agency_id) {
+        whereClause = 'WHERE (p.published = TRUE OR p.published = 1 OR p.agent_id = ? OR p.agency_id = ?)';
+        params.push(req.user.id, req.user.agency_id);
+      } else {
+        whereClause = 'WHERE (p.published = TRUE OR p.published = 1 OR p.agent_id = ?)';
+        params.push(req.user.id);
+      }
+    }
 
     let sql = `
       SELECT p.*,
@@ -36,10 +108,8 @@ async function getProperties(req, res, next) {
       FROM properties p
       LEFT JOIN users u ON p.agent_id = u.id
       LEFT JOIN agencies ag ON p.agency_id = ag.id
-      WHERE (p.published = TRUE OR p.published = 1 OR p.published IS NULL)
+      ${whereClause}
     `;
-
-    const params = [];
 
     // Règle Kinimmo : Les biens vendus sont masqués par défaut sur l'écran d'accueil public
     if (status) {
@@ -122,7 +192,7 @@ async function getProperties(req, res, next) {
       garages: row.garages,
       amenities: typeof row.amenities === 'string' ? JSON.parse(row.amenities) : (row.amenities || []),
       customFields: typeof row.custom_fields === 'string' ? JSON.parse(row.custom_fields) : (row.custom_fields || {}),
-      images: row.images_list || [],
+      images: Array.isArray(row.images_list) ? row.images_list.filter(Boolean) : [],
       videoUrl: row.video_url,
       virtualTourUrl: row.virtual_tour_url,
       agentId: row.agent_id,
@@ -302,7 +372,7 @@ async function createProperty(req, res, next) {
           const autoEmail = req.user.email || `${req.user.id}@kinimmo.com`;
           const autoRole = req.user.role || 'agent';
           await connection.execute(
-            'INSERT INTO users (id, name, email, password, role, is_verified) VALUES (?, ?, ?, ?, ?, TRUE)',
+            'INSERT INTO users (id, name, email, password_hash, role, is_verified) VALUES (?, ?, ?, ?, ?, TRUE)',
             [req.user.id, autoName, autoEmail, '$2a$10$DUMMY_RESTORED_USER_HASH', autoRole]
           );
           validAgentId = req.user.id;
@@ -322,31 +392,10 @@ async function createProperty(req, res, next) {
     }
 
     // Traitement sécurisé de l'URL vidéo (conversion base64 automatique si fournie)
-    let videoUrlToSave = p.videoUrl || null;
-    if (videoUrlToSave && typeof videoUrlToSave === 'string') {
-      if (videoUrlToSave.startsWith('data:video')) {
-        try {
-          const matches = videoUrlToSave.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-          if (matches && matches.length === 3) {
-            const ext = matches[1].includes('webm') ? 'webm' : matches[1].includes('mov') ? 'mov' : 'mp4';
-            const filename = `video_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
-            const uploadDir = path.join(__dirname, '..', 'uploads', 'videos');
-            if (!fs.existsSync(uploadDir)) {
-              fs.mkdirSync(uploadDir, { recursive: true });
-            }
-            fs.writeFileSync(path.join(uploadDir, filename), Buffer.from(matches[2], 'base64'));
-            videoUrlToSave = `/uploads/videos/${filename}`;
-          }
-        } catch (videoSaveErr) {
-          console.warn('[Property Controller] Avertissement écriture vidéo base64:', videoSaveErr.message);
-          videoUrlToSave = null;
-        }
-      } else if (videoUrlToSave.length > 255) {
-        videoUrlToSave = videoUrlToSave.substring(0, 255);
-      }
-    }
+    const videoUrlToSave = saveBase64Video(p.videoUrl);
 
-    const isPublished = p.published !== false ? 1 : 1;
+    const isPublished = (p.published !== false && p.fraudStatus !== 'suspect') ? 1 : 0;
+    const isFeatured = req.user?.role === 'admin' ? Boolean(p.featured) : false;
 
     // Insertion principale
     await connection.execute(
@@ -387,36 +436,10 @@ async function createProperty(req, res, next) {
         p.virtualTourUrl || null,
         validAgentId,
         validAgencyId,
-        Boolean(p.featured),
+        isFeatured,
         isPublished
       ]
     );
-
-function saveBase64Image(imgData, propertyId, index) {
-  if (!imgData || typeof imgData !== 'string') return imgData;
-  if (!imgData.startsWith('data:image')) return imgData;
-
-  try {
-    const matches = imgData.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) return imgData;
-
-    const rawExt = matches[1].toLowerCase();
-    const ext = rawExt.includes('png') ? 'png' : rawExt.includes('webp') ? 'webp' : 'jpg';
-    const uploadDir = path.join(__dirname, '..', 'uploads', 'images');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    const cleanPropId = String(propertyId).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = `img_${cleanPropId}_${index}_${Date.now()}.${ext}`;
-    const filePath = path.join(uploadDir, filename);
-    fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
-    return `/uploads/images/${filename}`;
-  } catch (err) {
-    console.warn('[Property Controller] Warning saving image file:', err.message);
-    return imgData;
-  }
-}
 
     // Insertion des images dans la table property_images
     if (Array.isArray(p.images) && p.images.length > 0) {
@@ -454,17 +477,32 @@ async function updateProperty(req, res, next) {
     const { id } = req.params;
     const p = req.body;
 
-    // Vérifier les droits (Seul le propriétaire ou l'administrateur peut modifier)
-    const [existing] = await connection.execute('SELECT agent_id FROM properties WHERE id = ?', [id]);
+    // Vérifier les droits (Propriétaire, Agence ou Administrateur)
+    const [existing] = await connection.execute('SELECT agent_id, agency_id FROM properties WHERE id = ?', [id]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, message: 'Propriété introuvable.' });
     }
 
-    if (existing[0].agent_id !== req.user.id && req.user.role !== 'admin') {
+    const propRow = existing[0];
+    const isOwner = propRow.agent_id === req.user.id;
+    const isSameAgencyManager = Boolean(
+      req.user.agency_id &&
+      propRow.agency_id === req.user.agency_id &&
+      req.user.role === 'agency'
+    );
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isSameAgencyManager && !isAdmin) {
       return res.status(403).json({ success: false, message: 'Vous n\'êtes pas autorisé à modifier cette annonce.' });
     }
 
     await connection.beginTransaction();
+
+    const videoUrlToSave = p.videoUrl !== undefined ? saveBase64Video(p.videoUrl) : null;
+    const nextFeatured = isAdmin && p.featured !== undefined ? (p.featured ? 1 : 0) : null;
+    const nextPublished = p.fraudStatus === 'suspect'
+      ? 0
+      : (p.published !== undefined ? (p.published ? 1 : 0) : null);
 
     await connection.execute(
       `UPDATE properties
@@ -472,14 +510,24 @@ async function updateProperty(req, res, next) {
            description = COALESCE(?, description),
            price = COALESCE(?, price),
            currency = COALESCE(?, currency),
-           status = COALESCE(?, status),
+           period = COALESCE(?, period),
            type = COALESCE(?, type),
+           status = COALESCE(?, status),
+           category = COALESCE(?, category),
+           address = COALESCE(?, address),
            commune = COALESCE(?, commune),
            quartier = COALESCE(?, quartier),
-           address = COALESCE(?, address),
+           avenue = COALESCE(?, avenue),
+           reference_point = COALESCE(?, reference_point),
+           zip_code = COALESCE(?, zip_code),
+           country = COALESCE(?, country),
+           lat = COALESCE(?, lat),
+           lng = COALESCE(?, lng),
            bedrooms = COALESCE(?, bedrooms),
            bathrooms = COALESCE(?, bathrooms),
            area = COALESCE(?, area),
+           year_built = COALESCE(?, year_built),
+           garages = COALESCE(?, garages),
            amenities = COALESCE(?, amenities),
            custom_fields = COALESCE(?, custom_fields),
            video_url = COALESCE(?, video_url),
@@ -488,24 +536,34 @@ async function updateProperty(req, res, next) {
            published = COALESCE(?, published)
        WHERE id = ?`,
       [
-        p.title || null,
-        p.description || null,
-        p.price || null,
-        p.currency || null,
-        p.status || null,
-        p.type || null,
-        p.commune || null,
-        p.quartier || null,
-        p.address || null,
+        p.title !== undefined ? p.title : null,
+        p.description !== undefined ? p.description : null,
+        p.price !== undefined ? p.price : null,
+        p.currency !== undefined ? p.currency : null,
+        p.period !== undefined ? p.period : null,
+        p.type !== undefined ? p.type : null,
+        p.status !== undefined ? p.status : null,
+        p.category !== undefined ? p.category : null,
+        p.address !== undefined ? p.address : null,
+        p.commune !== undefined ? p.commune : null,
+        p.quartier !== undefined ? p.quartier : null,
+        p.avenue !== undefined ? p.avenue : null,
+        p.referencePoint !== undefined ? p.referencePoint : null,
+        p.zipCode !== undefined ? p.zipCode : null,
+        p.country !== undefined ? p.country : null,
+        p.lat !== undefined ? p.lat : null,
+        p.lng !== undefined ? p.lng : null,
         p.bedrooms !== undefined ? p.bedrooms : null,
         p.bathrooms !== undefined ? p.bathrooms : null,
         p.area !== undefined ? p.area : null,
-        p.amenities ? JSON.stringify(p.amenities) : null,
-        p.customFields ? JSON.stringify(p.customFields) : null,
-        p.videoUrl !== undefined ? p.videoUrl : null,
+        p.yearBuilt !== undefined ? p.yearBuilt : null,
+        p.garages !== undefined ? p.garages : null,
+        p.amenities !== undefined ? JSON.stringify(p.amenities) : null,
+        p.customFields !== undefined ? JSON.stringify(p.customFields) : null,
+        p.videoUrl !== undefined ? videoUrlToSave : null,
         p.virtualTourUrl !== undefined ? p.virtualTourUrl : null,
-        p.featured !== undefined ? Boolean(p.featured) : null,
-        p.published !== undefined ? (p.published ? 1 : 0) : null,
+        nextFeatured,
+        nextPublished,
         id
       ]
     );
@@ -544,12 +602,21 @@ async function deleteProperty(req, res, next) {
   try {
     const { id } = req.params;
 
-    const [existing] = await pool.execute('SELECT agent_id FROM properties WHERE id = ?', [id]);
+    const [existing] = await pool.execute('SELECT agent_id, agency_id FROM properties WHERE id = ?', [id]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, message: 'Propriété introuvable.' });
     }
 
-    if (existing[0].agent_id !== req.user.id && req.user.role !== 'admin') {
+    const propRow = existing[0];
+    const isOwner = propRow.agent_id === req.user.id;
+    const isSameAgencyManager = Boolean(
+      req.user.agency_id &&
+      propRow.agency_id === req.user.agency_id &&
+      req.user.role === 'agency'
+    );
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isSameAgencyManager && !isAdmin) {
       return res.status(403).json({ success: false, message: 'Non autorisé à supprimer cette annonce.' });
     }
 

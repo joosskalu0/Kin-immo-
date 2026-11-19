@@ -53,15 +53,18 @@ router.get('/public/:targetType/:targetId', trustController.getPublicStatus);
 router.get('/badge/:targetType/:targetId', trustController.getPublicStatus);
 
 // -------------------------------------------------------------
-// 2. ROUTES DEMANDEURS (Authentification requise)
+// 2. ROUTES DEMANDEURS & UTILISATEURS (Authentification requise)
 // -------------------------------------------------------------
 
 // Soumettre une demande de vérification (protégée par limitation de débit)
 router.post('/apply', authenticateToken, sensitiveActionLimiter, trustController.submitApplication);
+router.post('/verifications', authenticateToken, sensitiveActionLimiter, trustController.submitApplication);
 
-// Consulter ses propres demandes
+// Consulter ses propres demandes ou toutes (si admin)
 router.get('/my-requests', authenticateToken, trustController.getMyRequests);
 router.get('/verifications/me', authenticateToken, trustController.getMyRequests);
+router.get('/verifications', authenticateToken, trustController.getVerifications);
+router.get('/verifications/:id', authenticateToken, trustController.getVerificationById);
 
 // Téléverser un justificatif sécurisé (stockage hors public + validation)
 router.post(
@@ -72,11 +75,19 @@ router.post(
   trustController.uploadDocument
 );
 
-// Consulter/télécharger un justificatif sécurisé (réservé à l'admin ou au propriétaire)
+// Consulter/télécharger un justificatif sécurisé & journaliser l'accès
 router.get('/documents/:id/secure-file', authenticateToken, trustController.serveDocumentFile);
+router.post('/documents/:id/access-log', authenticateToken, trustController.logDocumentAccess);
 
 // Consulter l'historique des décisions de son propre dossier
 router.get('/verifications/:id/history', authenticateToken, trustController.getVerificationHistory);
+
+// Confirmer la disponibilité réelle d'un bien (Agent propriétaire, Agence ou Admin)
+router.post('/availability/:propertyId', authenticateToken, trustController.confirmAvailability);
+
+// Notifications Kinimmo Trust de l'utilisateur connecté
+router.get('/notifications', authenticateToken, trustController.getNotifications);
+router.put('/notifications/:id/read', authenticateToken, trustController.markNotificationRead);
 
 // -------------------------------------------------------------
 // 3. ROUTES ADMINISTRATEURS (Rôle 'admin' obligatoire)
@@ -87,6 +98,18 @@ router.get('/admin/verifications', authenticateToken, requireAdmin, trustControl
 
 // Consulter le détail complet d'une demande avec pièces et contrôles
 router.get('/admin/verifications/:id', authenticateToken, requireAdmin, trustController.getAdminVerificationById);
+
+// Décision unifiée sur un dossier (frontend trustService.updateStatus)
+router.put('/verifications/:id/status', authenticateToken, requireAdmin, trustController.updateVerificationStatus);
+router.post('/verifications/:id/status', authenticateToken, requireAdmin, trustController.updateVerificationStatus);
+router.put('/verifications/:id/decision', authenticateToken, requireAdmin, trustController.updateVerificationStatus);
+
+// Contrôles d'audit et demande d'informations complémentaires
+router.post('/verifications/:id/checks', authenticateToken, requireAdmin, trustController.addCheck);
+router.post('/verifications/:id/request-info', authenticateToken, requireAdmin, trustController.requestMoreInfo);
+
+// Validation ou rejet d'une pièce justificative
+router.put('/documents/:id/status', authenticateToken, requireAdmin, trustController.updateDocumentStatus);
 
 // Approuver une demande (RÈGLE STRICTE : l'utilisateur ne peut jamais approuver sa propre demande)
 router.post('/admin/verifications/:id/approve', authenticateToken, requireAdmin, trustController.approveVerification);
@@ -100,7 +123,14 @@ router.post('/admin/verifications/:id/suspend', authenticateToken, requireAdmin,
 // Renouveler une vérification existante ou expirée
 router.post('/admin/verifications/:id/renew', authenticateToken, requireAdmin, trustController.renewVerification);
 
-// Consulter le journal d'audit immuable des administrateurs
+// Journal d'audit immuable des administrateurs (Lecture admin uniquement ; modification/suppression interdites -> 405)
 router.get('/admin/audit-logs', authenticateToken, requireAdmin, trustController.getAuditLogs);
+router.get('/audit-logs', authenticateToken, requireAdmin, trustController.getAuditLogs);
+router.put(['/audit-logs', '/audit-logs/:id', '/admin/audit-logs', '/admin/audit-logs/:id'], authenticateToken, requireAdmin, (_req, res) => {
+  res.status(405).json({ success: false, message: 'Journal d\'audit immuable : modification interdite.' });
+});
+router.delete(['/audit-logs', '/audit-logs/:id', '/admin/audit-logs', '/admin/audit-logs/:id'], authenticateToken, requireAdmin, (_req, res) => {
+  res.status(405).json({ success: false, message: 'Journal d\'audit immuable : suppression interdite.' });
+});
 
 module.exports = router;

@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { requireRoles, requireAdmin } = require('../middleware/roles');
 const { NotificationService } = require('../services/notificationService');
+const { handlers: visitHandlers } = require('./propertyVisits');
 
 // Whitelists strictes pour protection et validation
 const ALLOWED_STATUSES = [
@@ -204,6 +205,15 @@ router.get(['/', '/requests'], authenticateToken, requireRoles('admin', 'agent')
     res.status(500).json({ success: false, error: 'Erreur interne du serveur lors de la récupération des demandes.' });
   }
 });
+
+// ==========================================
+// 1b. VISITES IMMOBILIÈRES (/visits - AVANT /:id pour éviter le route shadowing !)
+// ==========================================
+router.get('/visits', authenticateToken, requireRoles('admin', 'agent', 'agency'), visitHandlers.listVisits);
+router.post('/visits', authenticateToken, requireRoles('admin', 'agent', 'agency'), visitHandlers.createVisit);
+router.patch('/visits/:id', authenticateToken, requireRoles('admin', 'agent', 'agency'), visitHandlers.updateVisit);
+router.put('/visits/:id', authenticateToken, requireRoles('admin', 'agent', 'agency'), visitHandlers.updateVisit);
+router.delete('/visits/:id', authenticateToken, requireRoles('admin', 'agent', 'agency'), visitHandlers.deleteVisit);
 
 /**
  * GET /api/concierge-requests/:id OU /api/concierge-requests/requests/:id
@@ -425,12 +435,34 @@ router.post(['/', '/requests'], optionalAuth, async (req, res) => {
 });
 
 /**
- * PATCH /api/concierge-requests/:id OU /api/concierge-requests/requests/:id
+ * PATCH / PUT /api/concierge-requests/:id OU /api/concierge-requests/requests/:id
  */
-router.patch(['/:id', '/requests/:id'], authenticateToken, requireAdmin, async (req, res) => {
+async function updateConciergeRequest(req, res) {
   try {
     const { id } = req.params;
-    const { status, assigned_agent_id, notesAdmin, project_type, property_type, commune, budget_max } = req.body;
+    const body = normalizeConciergeData(req.body);
+    const {
+      status,
+      assigned_agent_id,
+      notesAdmin,
+      project_type,
+      property_type,
+      commune,
+      quartier,
+      budget_min,
+      budget_max,
+      currency,
+      bedrooms,
+      bathrooms,
+      parking,
+      furnished,
+      services,
+      description,
+      full_name,
+      phone,
+      whatsapp,
+      email
+    } = body;
 
     // Vérifier l'existence de la demande
     const [existingRows] = await pool.query('SELECT * FROM concierge_requests WHERE id = ?', [id]);
@@ -456,7 +488,6 @@ router.patch(['/:id', '/requests/:id'], authenticateToken, requireAdmin, async (
     let agentToNotify = null;
     if (assigned_agent_id !== undefined) {
       if (assigned_agent_id) {
-        // Vérifier que l'agent existe
         const [agentRows] = await pool.query('SELECT id, name, email, phone, role FROM users WHERE id = ?', [assigned_agent_id]);
         if (agentRows.length === 0) {
           return res.status(400).json({ success: false, error: 'Agent introuvable.' });
@@ -470,26 +501,80 @@ router.patch(['/:id', '/requests/:id'], authenticateToken, requireAdmin, async (
     if (notesAdmin !== undefined) {
       updates.push('description = ?');
       params.push(String(notesAdmin).trim());
+    } else if (description !== undefined && req.body.description !== undefined) {
+      updates.push('description = ?');
+      params.push(description ? String(description).trim() : null);
     }
 
-    if (project_type !== undefined) {
+    if (req.body.project_type !== undefined || req.body.projet !== undefined) {
       updates.push('project_type = ?');
       params.push(String(project_type).trim());
     }
-
-    if (property_type !== undefined) {
+    if (req.body.property_type !== undefined || req.body.typeBien !== undefined) {
       updates.push('property_type = ?');
       params.push(String(property_type).trim());
     }
-
-    if (commune !== undefined) {
+    if (req.body.commune !== undefined || req.body.localisation !== undefined) {
       updates.push('commune = ?');
       params.push(String(commune).trim());
     }
-
+    if (quartier !== undefined && (req.body.quartier !== undefined || req.body.localisation !== undefined)) {
+      updates.push('quartier = ?');
+      params.push(quartier ? String(quartier).trim() : null);
+    }
+    if (budget_min !== undefined) {
+      updates.push('budget_min = ?');
+      params.push(budget_min !== null && budget_min !== '' ? Number(budget_min) : null);
+    }
     if (budget_max !== undefined) {
       updates.push('budget_max = ?');
       params.push(Number(budget_max) || 0);
+    }
+    if (req.body.currency !== undefined || req.body.devise !== undefined || req.body.budget !== undefined) {
+      updates.push('currency = ?');
+      params.push(['USD', 'CDF'].includes(currency) ? currency : 'USD');
+    }
+    if (bedrooms !== undefined) {
+      updates.push('bedrooms = ?');
+      params.push(bedrooms !== null && bedrooms !== '' ? Number(bedrooms) : null);
+    }
+    if (bathrooms !== undefined) {
+      updates.push('bathrooms = ?');
+      params.push(bathrooms !== null && bathrooms !== '' ? Number(bathrooms) : null);
+    }
+    if (parking !== undefined) {
+      updates.push('parking = ?');
+      params.push(parking ? 1 : 0);
+    }
+    if (furnished !== undefined) {
+      updates.push('furnished = ?');
+      params.push(furnished ? 1 : 0);
+    }
+    if (req.body.services !== undefined || req.body.caracteristiques !== undefined) {
+      updates.push('services = ?');
+      params.push(JSON.stringify(Array.isArray(services) ? services : []));
+    }
+    if (req.body.full_name !== undefined || req.body.client !== undefined) {
+      if (full_name) {
+        updates.push('full_name = ?');
+        params.push(String(full_name).trim());
+      }
+    }
+    if (req.body.phone !== undefined || req.body.client !== undefined) {
+      if (phone) {
+        updates.push('phone = ?');
+        params.push(String(phone).trim());
+      }
+    }
+    if (whatsapp !== undefined) {
+      updates.push('whatsapp = ?');
+      params.push(whatsapp ? String(whatsapp).trim() : null);
+    }
+    if (req.body.email !== undefined || req.body.client !== undefined) {
+      if (email) {
+        updates.push('email = ?');
+        params.push(String(email).trim().toLowerCase());
+      }
     }
 
     if (updates.length === 0) {
@@ -516,10 +601,13 @@ router.patch(['/:id', '/requests/:id'], authenticateToken, requireAdmin, async (
       data: updatedRequest
     });
   } catch (error) {
-    console.error('[MySQL concierge_requests PATCH error]', error);
+    console.error('[MySQL concierge_requests PATCH/PUT error]', error);
     res.status(500).json({ success: false, error: 'Erreur interne lors de la mise à jour de la demande.' });
   }
-});
+}
+
+router.patch(['/:id', '/requests/:id'], authenticateToken, requireAdmin, updateConciergeRequest);
+router.put(['/:id', '/requests/:id'], authenticateToken, requireAdmin, updateConciergeRequest);
 
 /**
  * DELETE /api/concierge-requests/:id OU /api/concierge-requests/requests/:id
@@ -532,243 +620,6 @@ router.delete(['/:id', '/requests/:id'], authenticateToken, requireAdmin, async 
   } catch (error) {
     console.error('[MySQL concierge_requests DELETE error]', error);
     res.status(500).json({ success: false, error: 'Erreur lors de la suppression.' });
-  }
-});
-
-// ==========================================
-// 2. VISITES IMMOBILIÈRES (property_visits)
-// ==========================================
-
-/**
- * GET /api/concierge/visits
- * SÉCURITÉ :
- * - Authentification requise
- * - Un agent ne peut accéder qu'aux visites qui lui sont attribuées
- */
-router.get('/visits', authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
-  try {
-    const user = req.user;
-    const { request_id, agent_id, property_id, status } = req.query;
-
-    let query = 'SELECT * FROM property_visits WHERE 1=1';
-    const params = [];
-
-    // CONTRÔLE D'ACCÈS AGENT : Ne voir que ses propres visites
-    if (user.role === 'agent') {
-      query += ' AND agent_id = ?';
-      params.push(user.id);
-    } else if (agent_id && user.role === 'admin') {
-      query += ' AND agent_id = ?';
-      params.push(agent_id);
-    }
-
-    if (request_id) {
-      query += ' AND request_id = ?';
-      params.push(request_id);
-    }
-    if (property_id) {
-      query += ' AND property_id = ?';
-      params.push(property_id);
-    }
-    if (status && ALLOWED_VISIT_STATUSES.includes(status)) {
-      query += ' AND status = ?';
-      params.push(status);
-    }
-
-    query += ' ORDER BY visit_date ASC, visit_time ASC';
-    const [rows] = await pool.query(query, params);
-
-    res.json({ success: true, count: rows.length, data: rows });
-  } catch (error) {
-    console.error('[MySQL property_visits GET error]', error);
-    res.status(500).json({ success: false, error: 'Erreur lors de la récupération des visites.' });
-  }
-});
-
-/**
- * POST /api/concierge/visits
- * Planification d'une visite
- * SÉCURITÉ :
- * - Authentification obligatoire (admin ou agent)
- * - Validation des données (date, format, statut)
- * - Déclencheurs de confirmation et de rappel de visite
- */
-router.post('/visits', authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
-  try {
-    const user = req.user;
-    const {
-      request_id,
-      property_id = null,
-      agent_id = null,
-      visit_date,
-      visit_time = null,
-      status = 'scheduled',
-      notes = null
-    } = req.body;
-
-    if (!request_id || !visit_date) {
-      return res.status(400).json({
-        success: false,
-        error: 'Champs obligatoires manquants (request_id, visit_date).'
-      });
-    }
-
-    // Si c'est un agent qui programme, il ne peut programmer que pour lui-même
-    const targetAgentId = user.role === 'agent' ? user.id : (agent_id || user.id);
-
-    // Vérifier la demande associée
-    const [reqRows] = await pool.query('SELECT * FROM concierge_requests WHERE id = ?', [request_id]);
-    if (reqRows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Demande associée introuvable.' });
-    }
-    const assocRequest = reqRows[0];
-
-    // Vérifier l'agent
-    let assocAgent = null;
-    if (targetAgentId) {
-      const [agentRows] = await pool.query('SELECT id, name, email, phone FROM users WHERE id = ?', [targetAgentId]);
-      if (agentRows.length > 0) assocAgent = agentRows[0];
-    }
-
-    const id = `pv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const validStatus = ALLOWED_VISIT_STATUSES.includes(status) ? status : 'scheduled';
-
-    const insertQuery = `
-      INSERT INTO property_visits (
-        id, request_id, property_id, agent_id, visit_date, visit_time, status, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    await pool.query(insertQuery, [
-      id,
-      request_id,
-      property_id,
-      targetAgentId,
-      visit_date,
-      visit_time ? String(visit_time).substring(0, 20) : null,
-      validStatus,
-      notes ? String(notes).trim().substring(0, 1000) : null
-    ]);
-
-    // Mettre à jour le statut de la demande en 'visit_scheduled'
-    await pool.query(
-      "UPDATE concierge_requests SET status = 'visit_scheduled' WHERE id = ? AND status IN ('new', 'searching', 'properties_found')",
-      [request_id]
-    );
-
-    const [createdRows] = await pool.query('SELECT * FROM property_visits WHERE id = ?', [id]);
-    const createdVisit = createdRows[0];
-
-    // ARCHITECTURE NOTIFICATIONS : Déclencher confirmation de visite au client et à l'agent
-    try {
-      await NotificationService.triggerVisitConfirmation(createdVisit, assocRequest, assocAgent);
-    } catch (notifErr) {
-      console.warn('[Notification Visit Trigger Warning]', notifErr.message);
-    }
-
-    res.status(201).json({
-      success: true,
-      message: 'Visite planifiée avec succès et notifications préparées dans la file.',
-      data: createdVisit
-    });
-  } catch (error) {
-    console.error('[MySQL property_visits POST error]', error);
-    res.status(500).json({ success: false, error: 'Erreur lors de la planification de la visite.' });
-  }
-});
-
-/**
- * PATCH /api/concierge/visits/:id
- * SÉCURITÉ :
- * - Un agent ne peut modifier que ses propres visites
- * - Un admin peut modifier toute visite
- */
-router.patch('/visits/:id', authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.user;
-    const { status, notes, visit_date, visit_time } = req.body;
-
-    const [existingRows] = await pool.query('SELECT * FROM property_visits WHERE id = ?', [id]);
-    if (existingRows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Visite introuvable.' });
-    }
-    const visit = existingRows[0];
-
-    // Contrôle d'accès agent
-    if (user.role === 'agent' && visit.agent_id !== user.id) {
-      return res.status(403).json({
-        success: false,
-        error: 'Accès interdit : vous ne pouvez modifier que les visites qui vous sont assignées.'
-      });
-    }
-
-    const updates = [];
-    const params = [];
-
-    if (status !== undefined) {
-      if (!ALLOWED_VISIT_STATUSES.includes(status)) {
-        return res.status(400).json({
-          success: false,
-          error: `Statut invalide. Statuts acceptés : ${ALLOWED_VISIT_STATUSES.join(', ')}`
-        });
-      }
-      updates.push('status = ?');
-      params.push(status);
-    }
-
-    if (notes !== undefined) {
-      updates.push('notes = ?');
-      params.push(String(notes).trim());
-    }
-    if (visit_date) {
-      updates.push('visit_date = ?');
-      params.push(visit_date);
-    }
-    if (visit_time !== undefined) {
-      updates.push('visit_time = ?');
-      params.push(visit_time);
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({ success: false, error: 'Aucun champ à modifier.' });
-    }
-
-    params.push(id);
-    await pool.query(`UPDATE property_visits SET ${updates.join(', ')} WHERE id = ?`, params);
-
-    const [updatedRows] = await pool.query('SELECT * FROM property_visits WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Visite mise à jour.', data: updatedRows[0] });
-  } catch (error) {
-    console.error('[MySQL property_visits PATCH error]', error);
-    res.status(500).json({ success: false, error: 'Erreur lors de la mise à jour de la visite.' });
-  }
-});
-
-/**
- * DELETE /api/concierge/visits/:id
- * SÉCURITÉ :
- * - Admin ou Agent assigné
- */
-router.delete('/visits/:id', authenticateToken, requireRoles('admin', 'agent'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.user;
-
-    const [rows] = await pool.query('SELECT * FROM property_visits WHERE id = ?', [id]);
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Visite introuvable.' });
-    }
-
-    if (user.role === 'agent' && rows[0].agent_id !== user.id) {
-      return res.status(403).json({ success: false, error: 'Accès interdit.' });
-    }
-
-    await pool.query('DELETE FROM property_visits WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Visite supprimée.' });
-  } catch (error) {
-    console.error('[MySQL property_visits DELETE error]', error);
-    res.status(500).json({ success: false, error: 'Erreur lors de la suppression de la visite.' });
   }
 });
 

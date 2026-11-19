@@ -379,7 +379,7 @@ export const SearchWidget: React.FC = () => {
                 {searchableCustomFields.map((field) => (
                   <div key={field.id}>
                     <label className="block text-slate-700 mb-1 font-semibold">
-                      {field.label['fr'] || field.key}
+                      {(typeof field.label === 'string' ? field.label : field.label?.fr) || field.key}
                     </label>
 
                     {field.type === 'select' ? (

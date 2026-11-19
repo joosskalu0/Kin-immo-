@@ -18,16 +18,6 @@ function getHeaders(): HeadersInit {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
-  
-  // Priorité à la session admin connectée
-  const adminSession = localStorage.getItem('kinimmo_admin_session');
-  if (adminSession) {
-    try {
-      const base64Token = btoa(unescape(encodeURIComponent(adminSession)));
-      headers['Authorization'] = `Bearer ${base64Token}`;
-      return headers;
-    } catch {}
-  }
 
   const token = getStoredToken();
   if (token) {

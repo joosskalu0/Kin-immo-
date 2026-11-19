@@ -529,7 +529,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Photos ({property.images.length})
+                Photos ({Array.isArray(property.images) ? property.images.length : 0})
               </button>
 
               {property.videoUrl && (
@@ -575,7 +575,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               <div className="space-y-3">
                 <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-md">
                   <img
-                    src={property.images[selectedImageIndex] || property.images[0]}
+                    src={(Array.isArray(property.images) && (property.images[selectedImageIndex] || property.images[0])) || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&auto=format&fit=crop&q=80'}
                     alt={property.title}
                     className="w-full h-full object-cover"
                   />
@@ -605,7 +605,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 </div>
 
                 {/* Thumbnails */}
-                {property.images.length > 1 && (
+                {Array.isArray(property.images) && property.images.length > 1 && (
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {property.images.map((img, idx) => (
                       <button
@@ -628,7 +628,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 <PropertyVideoPlayer
                   videoUrl={property.videoUrl || ''}
                   title={`Visite vidéo HD : ${property.title}`}
-                  posterImage={property.images[0]}
+                  posterImage={(Array.isArray(property.images) && property.images[0]) || undefined}
                   autoPlay={true}
                 />
                 <div className="flex items-center justify-between text-xs text-slate-600 px-1">
@@ -640,7 +640,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                     onClick={() => setActiveMediaTab('photos')}
                     className="hover:text-slate-900 underline font-medium"
                   >
-                    Retourner à la galerie photos ({property.images.length})
+                    Retourner à la galerie photos ({Array.isArray(property.images) ? property.images.length : 0})
                   </button>
                 </div>
               </div>
@@ -689,8 +689,10 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                 <div className="relative aspect-video rounded-2xl overflow-hidden border border-slate-200 group select-none">
                   <img
                     src={
-                      property.images[activeVirtualRoom % property.images.length] ||
-                      property.images[0]
+                      (Array.isArray(property.images) && property.images.length > 0 && (
+                        property.images[activeVirtualRoom % property.images.length] ||
+                        property.images[0]
+                      )) || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&auto=format&fit=crop&q=80'
                     }
                     alt="Visite 360"
                     className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
@@ -931,7 +933,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                   {customFields
                     .filter((f) => !f.isPrivate)
                     .map((field) => {
-                      const val = property.customFields[field.key];
+                      const val = property.customFields?.[field.key];
                       if (val === undefined || val === null || val === '') return null;
                       return (
                         <div
@@ -939,7 +941,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
                           className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs"
                         >
                           <span className="text-slate-600 font-medium">
-                            {field.label['fr'] || field.key}
+                            {(typeof field.label === 'string' ? field.label : field.label?.fr) || field.key}
                           </span>
                           <span className="font-bold text-slate-900">
                             {val} {field.unit || ''}
@@ -951,7 +953,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ onOpen
               </div>
 
               {/* Amenities */}
-              {property.amenities.length > 0 && (
+              {Array.isArray(property.amenities) && property.amenities.length > 0 && (
                 <div>
                   <h4 className="text-sm font-black text-slate-900 mb-3">Équipements & Prestations</h4>
                   <div className="flex flex-wrap gap-2">

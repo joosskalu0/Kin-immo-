@@ -142,10 +142,10 @@ export const CompareModal: React.FC = () => {
                   <tr key={field.id}>
                     <td className="p-3 font-semibold bg-slate-50 text-emerald-800 border border-slate-200 flex items-center gap-1">
                       <Zap className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                      {field.label['fr'] || field.key}
+                      {(typeof field.label === 'string' ? field.label : field.label?.fr) || field.key}
                     </td>
                     {comparedProperties.map((p) => {
-                      const val = p.customFields[field.key];
+                      const val = p.customFields?.[field.key];
                       return (
                         <td key={p.id} className="p-3 text-slate-800 border border-slate-200 font-semibold">
                           {val !== undefined && val !== null && val !== '' ? `${val} ${field.unit || ''}` : '-'}

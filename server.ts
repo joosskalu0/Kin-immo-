@@ -6,7 +6,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import { validateConciergerieRequest } from './src/utils/conciergerieValidation';
 import { findMatchingProperties } from './src/utils/propertyMatching';
-import { initialProperties } from './src/data/mockData';
+import { initialProperties, initialCustomFields, initialAgencies, initialAgents, initialLeads } from './src/data/mockData';
 import { ConciergerieRequest, PropertyVisitRecord, ConciergeRequestStatus } from './src/types/index';
 import { analyzePropertyForFraud, auditPropertyList } from './src/utils/suspiciousListingDetector';
 
@@ -44,6 +44,15 @@ const LOCAL_COLLABORATORS_FILE = path.join(__dirname, 'agency_collaborators.json
 const LOCAL_TRANSACTIONS_FILE = path.join(__dirname, 'agency_transactions.json');
 const LOCAL_TRUST_FILE = path.join(__dirname, 'trust_store.json');
 const LOCAL_USERS_FILE = path.join(__dirname, 'users_store.json');
+const LOCAL_CUSTOM_FIELDS_FILE = path.join(__dirname, 'custom_fields_store.json');
+const LOCAL_SETTINGS_FILE = path.join(__dirname, 'site_settings_store.json');
+const LOCAL_FAVORITES_FILE = path.join(__dirname, 'favorites_store.json');
+const LOCAL_MESSAGES_FILE = path.join(__dirname, 'messages_store.json');
+const LOCAL_ANALYTICS_FILE = path.join(__dirname, 'analytics_store.json');
+const LOCAL_CRM_LEADS_FILE = path.join(__dirname, 'crm_leads_store.json');
+const LOCAL_AGENCIES_FILE = path.join(__dirname, 'agencies_store.json');
+const LOCAL_AGENTS_FILE = path.join(__dirname, 'agents_store.json');
+const LOCAL_VIDEO_REPORTS_FILE = path.join(__dirname, 'video_reports_store.json');
 
 const INITIAL_PLANS = [
   {
@@ -461,13 +470,30 @@ let inMemoryOptions: any[] = loadLocalOptions();
 let inMemoryPaymentMethods: any[] = INITIAL_PAYMENT_METHODS;
 let inMemoryInvoices: any[] = loadLocalInvoices();
 
+function normalizePropertyRecord(p: any) {
+  if (!p || typeof p !== 'object') return p;
+  return {
+    ...p,
+    description: typeof p.description === 'string' ? p.description : '',
+    category: p.category || 'Résidentiel',
+    currency: p.currency || 'USD',
+    bedrooms: typeof p.bedrooms === 'number' ? p.bedrooms : Number(p.bedrooms) || 0,
+    bathrooms: typeof p.bathrooms === 'number' ? p.bathrooms : Number(p.bathrooms) || 0,
+    area: typeof p.area === 'number' ? p.area : Number(p.area) || 0,
+    images: Array.isArray(p.images) ? p.images : [],
+    labels: Array.isArray(p.labels) ? p.labels : [],
+    amenities: Array.isArray(p.amenities) ? p.amenities : [],
+    customFields: p.customFields && typeof p.customFields === 'object' && !Array.isArray(p.customFields) ? p.customFields : {},
+  };
+}
+
 // Store des propriétés avec statuts stricts et cycle de vie
 let inMemoryProperties: any[] = (() => {
   try {
     if (fs.existsSync(LOCAL_PROPERTIES_FILE)) {
       const raw = fs.readFileSync(LOCAL_PROPERTIES_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(normalizePropertyRecord);
     }
   } catch {}
   return (initialProperties || []).map((p) => {
@@ -1054,10 +1080,13 @@ export interface AuthUser {
   phone?: string;
   whatsapp?: string;
   role: 'admin' | 'agent' | 'agency' | 'user' | 'owner';
+  agencyId?: string;
   agencyName?: string;
   rccmOrNif?: string;
   avatar?: string;
   planId?: string;
+  isVerified?: boolean;
+  kinshasaBadgeVerified?: boolean;
 }
 
 interface StoredAccountRecord extends AuthUser {
@@ -1074,6 +1103,8 @@ const DEFAULT_USERS_SEED: StoredAccountRecord[] = [
     phone: '+243 84 529 4616',
     role: 'admin',
     agencyName: 'Kinimmo RDC',
+    isVerified: true,
+    kinshasaBadgeVerified: true,
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     createdAt: new Date().toISOString()
   },
@@ -1086,6 +1117,8 @@ const DEFAULT_USERS_SEED: StoredAccountRecord[] = [
     role: 'agent',
     agencyName: 'Cabinet Immobilier Gombe SARL',
     rccmOrNif: 'CD/KIN/RCCM/26-B-08420',
+    isVerified: true,
+    kinshasaBadgeVerified: true,
     avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80',
     createdAt: new Date().toISOString()
   },
@@ -1096,8 +1129,11 @@ const DEFAULT_USERS_SEED: StoredAccountRecord[] = [
     password: 'Password123!',
     phone: '+243 82 123 4567',
     role: 'agency',
+    agencyId: 'agency_prestige_01',
     agencyName: 'Agence Prestige Kinshasa SARL',
     rccmOrNif: 'CD/KIN/RCCM/24-B-01192',
+    isVerified: true,
+    kinshasaBadgeVerified: true,
     avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
     createdAt: new Date().toISOString()
   }
@@ -1136,6 +1172,7 @@ const createAuthToken = (user: AuthUser): string => {
     email: user.email,
     role: user.role,
     phone: user.phone || '',
+    agencyId: user.agencyId || (user.role === 'agency' ? user.id : undefined),
     agencyName: user.agencyName || '',
     iat: Date.now(),
     exp: Date.now() + 30 * 24 * 60 * 60 * 1000 // 30 jours
@@ -1145,65 +1182,52 @@ const createAuthToken = (user: AuthUser): string => {
 
 const getAuthUser = (req: Request): AuthUser | null => {
   const authHeader = req.headers['authorization'];
-  if (!authHeader) return null;
+  if (!authHeader || typeof authHeader !== 'string') return null;
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
   if (!token) return null;
 
   try {
-    // Si c'est un token JSON encodé en base64
     const decodedStr = Buffer.from(token, 'base64').toString('utf-8');
-    if (decodedStr.startsWith('{')) {
-      const parsed = JSON.parse(decodedStr);
-      if (parsed && parsed.id && parsed.role) {
-        // Optionnel : vérifier expiration
-        if (parsed.exp && parsed.exp < Date.now()) {
-          return null;
-        }
-        return {
-          id: parsed.id,
-          name: parsed.name,
-          email: parsed.email,
-          phone: parsed.phone,
-          whatsapp: parsed.whatsapp,
-          role: parsed.role,
-          agencyName: parsed.agencyName,
-          rccmOrNif: parsed.rccmOrNif,
-          avatar: parsed.avatar,
-          planId: parsed.planId
-        };
-      }
+    if (!decodedStr.startsWith('{')) return null;
+
+    const parsed = JSON.parse(decodedStr);
+    if (!parsed || !parsed.id || !parsed.role) return null;
+    if (parsed.exp && Number(parsed.exp) < Date.now()) {
+      return null;
     }
-  } catch {}
 
-  // Recherche dans les utilisateurs enregistrés en mémoire
-  const matchedUser = inMemoryUsers.find(u => u.id === token || u.email?.toLowerCase() === token.toLowerCase());
-  if (matchedUser) {
-    const { password, ...safeUser } = matchedUser;
-    return safeUser;
-  }
+    const storedUser = inMemoryUsers.find(u => u.id === parsed.id);
+    if (storedUser) {
+      const { password: _pwd, ...safeUser } = storedUser;
+      if (safeUser.role === 'agency' && !safeUser.agencyId) {
+        safeUser.agencyId = safeUser.id;
+      }
+      return safeUser;
+    }
 
-  // Session admin simulée ou JWT token standard
-  if (token.includes('admin') || token.startsWith('admin_')) {
+    // Rejeter toute usurpation de rôle admin si le compte n'existe pas dans inMemoryUsers
+    if (parsed.role === 'admin') {
+      return null;
+    }
+
     return {
-      id: 'admin_master',
-      name: 'Direction Kinimmo',
-      email: 'admin@kinimmo.cd',
-      role: 'admin',
-      agencyName: 'Kinimmo RDC'
+      id: String(parsed.id),
+      name: String(parsed.name || 'Utilisateur Kinimmo'),
+      email: String(parsed.email || ''),
+      phone: parsed.phone,
+      whatsapp: parsed.whatsapp,
+      role: parsed.role,
+      agencyId: parsed.agencyId || (parsed.role === 'agency' ? parsed.id : undefined),
+      agencyName: parsed.agencyName,
+      rccmOrNif: parsed.rccmOrNif,
+      avatar: parsed.avatar,
+      planId: parsed.planId,
+      isVerified: Boolean(parsed.isVerified),
+      kinshasaBadgeVerified: Boolean(parsed.kinshasaBadgeVerified)
     };
+  } catch {
+    return null;
   }
-
-  // Token agent simulé
-  if (token.startsWith('agent_') || token.includes('agent')) {
-    return {
-      id: token,
-      name: 'Agent Kinshasa',
-      email: `${token}@kinimmo.cd`,
-      role: 'agent'
-    };
-  }
-
-  return null;
 };
 
 // Handlers d'authentification (/auth/register, /auth/login, /auth/me)
@@ -1243,10 +1267,13 @@ const handleRegister = (req: Request, res: Response) => {
       password: password.trim(),
       phone: phone || '',
       role: userRole,
+      agencyId: userRole === 'agency' ? newId : undefined,
       agencyName: (userRole === 'agency' || userRole === 'agent') ? agencyName || 'Kinshasa Immobilier' : undefined,
       rccmOrNif: rccmOrNif || undefined,
       avatar: avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       planId: userRole === 'agency' ? 'agency' : userRole === 'agent' ? 'pro' : 'starter',
+      isVerified: false,
+      kinshasaBadgeVerified: false,
       createdAt: new Date().toISOString()
     };
 
@@ -1295,28 +1322,22 @@ const handleLogin = (req: Request, res: Response) => {
     const cleanIdentifier = email.trim().toLowerCase();
     const cleanPassword = password.trim();
 
-    // 1. Chercher par e-mail ou téléphone
-    let found = inMemoryUsers.find(
+    // 1. Chercher uniquement par e-mail exact ou téléphone exact
+    const found = inMemoryUsers.find(
       u => u.email.toLowerCase() === cleanIdentifier || (u.phone && u.phone.replace(/\s+/g, '') === cleanIdentifier.replace(/\s+/g, ''))
     );
 
-    // Si non trouvé et tentative avec mot de passe maître admin
-    if (!found && (cleanIdentifier === 'admin' || cleanIdentifier === 'admin@kinimmo.cd' || cleanIdentifier.includes('admin'))) {
-      found = inMemoryUsers.find(u => u.role === 'admin') || DEFAULT_USERS_SEED[0];
-    }
-
     if (!found) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
-        message: 'Aucun compte associé à cette adresse e-mail n\'a été trouvé.'
+        message: 'Identifiants incorrects. Veuillez vérifier votre adresse e-mail et mot de passe.'
       });
     }
 
-    // Vérification du mot de passe
-    const isMasterAdmin = (cleanPassword === 'AdminPassword2026!' || cleanPassword === 'admin2026' || cleanPassword === 'admin');
-    const isMatched = found.password ? found.password === cleanPassword : isMasterAdmin;
+    // Vérification stricte du mot de passe (aucun mot de passe maître ou bypass)
+    const isMatched = Boolean(found.password && found.password === cleanPassword);
 
-    if (!isMatched && !isMasterAdmin) {
+    if (!isMatched) {
       return res.status(401).json({
         success: false,
         message: 'Mot de passe incorrect pour cette adresse e-mail.'
@@ -1324,6 +1345,9 @@ const handleLogin = (req: Request, res: Response) => {
     }
 
     const { password: _pwd, ...safeUser } = found;
+    if (safeUser.role === 'agency' && !safeUser.agencyId) {
+      safeUser.agencyId = safeUser.id;
+    }
     const token = createAuthToken(safeUser);
 
     console.log(`[Auth] Connexion réussie pour ${safeUser.email} (${safeUser.role})`);
@@ -1370,8 +1394,12 @@ const handleUpdateProfile = (req: Request, res: Response) => {
     return res.status(404).json({ success: false, message: 'Compte introuvable.' });
   }
 
-  const updates = req.body;
-  delete updates.password; // Mot de passe non modifiable via profile
+  const updates = { ...req.body };
+  delete updates.password;
+  delete updates.role;
+  delete updates.id;
+  delete updates.isVerified;
+  delete updates.kinshasaBadgeVerified;
   inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...updates };
   saveLocalUsers(inMemoryUsers);
 
@@ -1492,8 +1520,8 @@ const handleCreateConciergeRequest = async (req: Request, res: Response) => {
       updatedAt: now.toISOString()
     };
 
-    // Correspondance automatique avec les annonces dès la création de la demande
-    const matches = findMatchingProperties(newRequest, initialProperties, { minScore: 20, limit: 10 });
+    // Correspondance automatique avec les annonces actives en mémoire
+    const matches = findMatchingProperties(newRequest, inMemoryProperties, { minScore: 20, limit: 10 });
     newRequest.matched_property_ids = matches.map((m) => m.property.id);
     newRequest.matched_count = matches.length;
     newRequest.top_match_score = matches[0]?.score || 0;
@@ -1543,17 +1571,28 @@ const handleCreateConciergeRequest = async (req: Request, res: Response) => {
 };
 
 app.post('/api/concierge-requests', handleCreateConciergeRequest);
+app.post('/api/concierge/requests', handleCreateConciergeRequest);
 app.post('/api/conciergerie', handleCreateConciergeRequest);
 
 // Route de consultation des correspondances automatiques pour une demande
 app.get('/api/concierge-requests/:id/matches', async (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    }
     const { id } = req.params;
     const foundReq = inMemoryRequests.find((r) => r.id === id);
     if (!foundReq) {
       return res.status(404).json({ success: false, error: 'Demande introuvable.' });
     }
-    const matches = findMatchingProperties(foundReq, initialProperties, { minScore: 15, limit: 15 });
+    if (user.role === 'agent' && foundReq.assigned_agent_id !== user.id) {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
+    if (user.role !== 'admin' && user.role !== 'agent') {
+      return res.status(403).json({ success: false, error: 'Accès réservé aux conseillers et administrateurs.' });
+    }
+    const matches = findMatchingProperties(foundReq, inMemoryProperties, { minScore: 15, limit: 15 });
     return res.json({ success: true, count: matches.length, data: matches });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message });
@@ -1561,24 +1600,28 @@ app.get('/api/concierge-requests/:id/matches', async (req: Request, res: Respons
 });
 
 // 2. Consultation des demandes (Table: concierge_requests)
-// SÉCURITÉ : Contrôle des rôles et non-exposition des données administratives au public
+// SÉCURITÉ : Authentification et contrôle strict des rôles
 const handleGetConciergeRequests = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
-    let list: ConciergerieRequest[] = [...inMemoryRequests];
-
-    // SÉCURITÉ : Vérifier qu'un agent ne peut accéder qu'aux données qui lui sont autorisées
-    if (user && user.role === 'agent') {
-      list = list.filter((r) => r.assigned_agent_id === user.id);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentification requise pour consulter les demandes de conciergerie.'
+      });
+    }
+    if (!['admin', 'agent'].includes(user.role)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Accès interdit : privilèges insuffisants.'
+      });
     }
 
-    // SÉCURITÉ : Ne jamais exposer les données administratives (notesAdmin) au frontend public
-    if (!user || user.role === 'user') {
-      list = list.map((r) => {
-        const sanitized = { ...r };
-        delete (sanitized as any).notesAdmin;
-        return sanitized;
-      });
+    let list: ConciergerieRequest[] = [...inMemoryRequests];
+
+    // SÉCURITÉ : Un agent ne peut accéder qu'aux demandes qui lui sont attribuées
+    if (user.role === 'agent') {
+      list = list.filter((r) => r.assigned_agent_id === user.id);
     }
 
     return res.json({
@@ -1592,6 +1635,7 @@ const handleGetConciergeRequests = async (req: Request, res: Response) => {
 };
 
 app.get('/api/concierge-requests', handleGetConciergeRequests);
+app.get('/api/concierge/requests', handleGetConciergeRequests);
 app.get('/api/conciergerie', handleGetConciergeRequests);
 
 // 3. Mise à jour de statut, agent ou modification complète de la demande
@@ -1599,9 +1643,15 @@ app.get('/api/conciergerie', handleGetConciergeRequests);
 const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentification requise pour modifier une demande de conciergerie.'
+      });
+    }
 
     // Contrôle strict des rôles : Seul l'administrateur peut modifier ou assigner les demandes
-    if (!user || user.role !== 'admin') {
+    if (user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         error: 'Accès interdit : Seul un administrateur habilité peut modifier ou réassigner les demandes de conciergerie.'
@@ -1692,13 +1742,36 @@ const handleUpdateConciergeRequest = async (req: Request, res: Response) => {
 
 app.patch('/api/concierge-requests/:id', handleUpdateConciergeRequest);
 app.put('/api/concierge-requests/:id', handleUpdateConciergeRequest);
+app.patch('/api/concierge/requests/:id', handleUpdateConciergeRequest);
+app.put('/api/concierge/requests/:id', handleUpdateConciergeRequest);
 app.patch('/api/conciergerie/:id', handleUpdateConciergeRequest);
 app.put('/api/conciergerie/:id', handleUpdateConciergeRequest);
 
+const handleDeleteConciergeRequest = (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const { id } = req.params;
+  const idx = inMemoryRequests.findIndex((r) => r.id === id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Demande introuvable.' });
+  inMemoryRequests.splice(idx, 1);
+  saveLocalRequests(inMemoryRequests);
+  return res.json({ success: true, message: 'Demande supprimée avec succès.' });
+};
+app.delete('/api/concierge-requests/:id', handleDeleteConciergeRequest);
+app.delete('/api/concierge/requests/:id', handleDeleteConciergeRequest);
+
 // 4. Table : property_visits (CRUD complet avec contrôle RBAC et Notifications)
-app.get('/api/property-visits', async (req: Request, res: Response) => {
+const handleGetPropertyVisits = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentification requise pour consulter les visites.' });
+    }
+    if (user.role !== 'admin' && user.role !== 'agent' && user.role !== 'agency') {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
+
     const { request_id } = req.query;
 
     let list: PropertyVisitRecord[] = [...inMemoryVisits];
@@ -1707,7 +1780,7 @@ app.get('/api/property-visits', async (req: Request, res: Response) => {
     }
 
     // SÉCURITÉ : Contrôle des rôles - Un agent ne peut accéder qu'aux visites qui lui sont autorisées
-    if (user && user.role === 'agent') {
+    if (user.role === 'agent') {
       list = list.filter((v) => v.agent_id === user.id);
     }
 
@@ -1715,16 +1788,24 @@ app.get('/api/property-visits', async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message });
   }
-});
+};
+app.get('/api/property-visits', handleGetPropertyVisits);
+app.get('/api/concierge/visits', handleGetPropertyVisits);
 
-app.post('/api/property-visits', async (req: Request, res: Response) => {
+const handleCreatePropertyVisit = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     // SÉCURITÉ : Authentification obligatoire pour planifier une visite
-    if (!user || (user.role !== 'admin' && user.role !== 'agent')) {
+    if (!user) {
       return res.status(401).json({
         success: false,
-        error: 'Accès non autorisé : Vous devez être authentifié en tant qu’administrateur ou agent pour planifier une visite.'
+        error: 'Accès non autorisé : Authentification requise pour planifier une visite.'
+      });
+    }
+    if (user.role !== 'admin' && user.role !== 'agent' && user.role !== 'agency') {
+      return res.status(403).json({
+        success: false,
+        error: 'Accès interdit : Seuls les administrateurs, agences ou agents peuvent planifier une visite.'
       });
     }
 
@@ -1809,13 +1890,18 @@ app.post('/api/property-visits', async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message });
   }
-});
+};
+app.post('/api/property-visits', handleCreatePropertyVisit);
+app.post('/api/concierge/visits', handleCreatePropertyVisit);
 
-app.patch('/api/property-visits/:id', async (req: Request, res: Response) => {
+const handlePatchPropertyVisit = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
-    if (!user || (user.role !== 'admin' && user.role !== 'agent')) {
+    if (!user) {
       return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    }
+    if (user.role !== 'admin' && user.role !== 'agent' && user.role !== 'agency') {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
     }
 
     const { id } = req.params;
@@ -1845,13 +1931,18 @@ app.patch('/api/property-visits/:id', async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message });
   }
-});
+};
+app.patch('/api/property-visits/:id', handlePatchPropertyVisit);
+app.patch('/api/concierge/visits/:id', handlePatchPropertyVisit);
 
-app.delete('/api/property-visits/:id', async (req: Request, res: Response) => {
+const handleDeletePropertyVisit = async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
-    if (!user || (user.role !== 'admin' && user.role !== 'agent')) {
+    if (!user) {
       return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    }
+    if (user.role !== 'admin' && user.role !== 'agent' && user.role !== 'agency') {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
     }
 
     const { id } = req.params;
@@ -1871,7 +1962,9 @@ app.delete('/api/property-visits/:id', async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message });
   }
-});
+};
+app.delete('/api/property-visits/:id', handleDeletePropertyVisit);
+app.delete('/api/concierge/visits/:id', handleDeletePropertyVisit);
 
 // ==========================================
 // 5. MODULE DE NOTIFICATIONS (Architecture Backend)
@@ -2063,6 +2156,9 @@ app.get('/api/billing/plans', (req: Request, res: Response) => {
 // Mise à jour d'un forfait / plan d'abonnement (Admin)
 app.put('/api/billing/plans/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const idx = inMemoryPlans.findIndex(p => p.id === id);
     if (idx !== -1) {
@@ -2096,6 +2192,9 @@ app.put('/api/billing/plans/:id', (req: Request, res: Response) => {
 // Création d'une nouvelle formule d'abonnement (Admin)
 app.post('/api/billing/plans', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const id = req.body.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const priceUsd = Number(req.body.price_usd ?? req.body.priceMonthly ?? 0);
     const priceCdf = Number(req.body.price_cdf ?? req.body.priceMonthlyCDF ?? (priceUsd * 2850));
@@ -2144,6 +2243,9 @@ app.post('/api/billing/plans', (req: Request, res: Response) => {
 // Suppression d'une formule (Admin)
 app.delete('/api/billing/plans/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     inMemoryPlans = inMemoryPlans.filter(p => p.id !== id);
     saveLocalPlans(inMemoryPlans);
@@ -2165,6 +2267,9 @@ app.get('/api/billing/visibility-options', (_req: Request, res: Response) => {
 // Mise à jour d'une option de visibilité (Admin)
 app.put('/api/billing/visibility-options/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const idx = inMemoryOptions.findIndex(o => o.id === id);
     if (idx !== -1) {
@@ -2194,6 +2299,9 @@ app.put('/api/billing/visibility-options/:id', (req: Request, res: Response) => 
 // Création d'une option de visibilité (Admin)
 app.post('/api/billing/visibility-options', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const id = req.body.id || `opt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const priceUsd = Number(req.body.price_usd ?? req.body.price ?? 10);
     const priceCdf = Number(req.body.price_cdf ?? req.body.priceCDF ?? (priceUsd * 2850));
@@ -2226,6 +2334,9 @@ app.post('/api/billing/visibility-options', (req: Request, res: Response) => {
 // Suppression d'une option de visibilité (Admin)
 app.delete('/api/billing/visibility-options/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     inMemoryOptions = inMemoryOptions.filter(o => o.id !== id);
     saveLocalOptions(inMemoryOptions);
@@ -2247,7 +2358,9 @@ app.get('/api/billing/payment-methods', (_req: Request, res: Response) => {
 // 5d. Création de facture de souscription forfait (POST /api/billing/invoices)
 app.post('/api/billing/invoices', (req: Request, res: Response) => {
   try {
-    const { planId, paymentMethodId, paymentGateway = 'manual_mobile_money', userId, userName, userEmail } = req.body;
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    const { planId, paymentMethodId, paymentGateway = 'manual_mobile_money', userName, userEmail } = req.body;
     const targetPlan = inMemoryPlans.find((p) => p.id === planId) || inMemoryPlans[0];
     const targetPayment = inMemoryPaymentMethods.find((pm) => pm.id === paymentMethodId) || inMemoryPaymentMethods[0];
 
@@ -2260,11 +2373,11 @@ app.post('/api/billing/invoices', (req: Request, res: Response) => {
       id: invoiceId,
       invoice_number: invoiceNumber,
       invoiceNumber,
-      user_id: userId || 'user_guest',
-      user_name: userName || 'Client Kinshasa',
-      user_email: userEmail || 'client@kinimmo.cd',
-      target_name: userName || targetPlan.name,
-      target_email: userEmail || 'client@kinimmo.cd',
+      user_id: user.id,
+      user_name: userName || user.name || 'Client Kinshasa',
+      user_email: userEmail || user.email || 'client@kinimmo.cd',
+      target_name: userName || user.name || targetPlan.name,
+      target_email: userEmail || user.email || 'client@kinimmo.cd',
       invoice_type: 'subscription',
       invoiceType: 'subscription',
       plan_id: targetPlan.id,
@@ -2285,6 +2398,7 @@ app.post('/api/billing/invoices', (req: Request, res: Response) => {
     };
 
     inMemoryInvoices.unshift(newInvoice);
+    saveLocalInvoices(inMemoryInvoices);
     return res.status(201).json({
       success: true,
       message: 'Facture générée avec succès.',
@@ -2298,12 +2412,17 @@ app.post('/api/billing/invoices', (req: Request, res: Response) => {
 // 5e. Commande de boost d'annonce à la carte (POST /api/billing/boost-order)
 app.post('/api/billing/boost-order', (req: Request, res: Response) => {
   try {
-    const { propertyId, optionId, paymentMethodId, paymentGateway = 'manual_mobile_money', userId, propertyTitle } = req.body;
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    const { propertyId, optionId, paymentMethodId, paymentGateway = 'manual_mobile_money', propertyTitle } = req.body;
 
     // Règle stricte Kinimmo : Empêcher les nouveaux boosts incompatibles avec le statut RENTED, SOLD, ARCHIVED
     if (propertyId) {
       const targetProperty = inMemoryProperties.find((p: any) => p.id === propertyId);
       if (targetProperty) {
+        if (!canManageProperty(user, targetProperty)) {
+          return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez booster que vos propres annonces.' });
+        }
         const rawStatus = String(targetProperty.listingStatus || targetProperty.status || '').toUpperCase();
         if (rawStatus === 'RENTED' || rawStatus === 'SOLD' || rawStatus === 'ARCHIVED' || targetProperty.status === 'sold') {
           return res.status(400).json({
@@ -2326,11 +2445,11 @@ app.post('/api/billing/boost-order', (req: Request, res: Response) => {
       id: invoiceId,
       invoice_number: invoiceNumber,
       invoiceNumber,
-      user_id: userId || 'user_agent_active',
-      user_name: 'Bailleur / Courtier Partenaire',
-      user_email: 'partenaire@kinimmo.cd',
-      target_name: 'Annonceur Kinshasa',
-      target_email: 'partenaire@kinimmo.cd',
+      user_id: user.id,
+      user_name: user.name || 'Bailleur / Courtier Partenaire',
+      user_email: user.email || 'partenaire@kinimmo.cd',
+      target_name: user.name || 'Annonceur Kinshasa',
+      target_email: user.email || 'partenaire@kinimmo.cd',
       invoice_type: 'boost',
       invoiceType: 'boost',
       property_id: propertyId,
@@ -2355,6 +2474,7 @@ app.post('/api/billing/boost-order', (req: Request, res: Response) => {
     };
 
     inMemoryInvoices.unshift(newInvoice);
+    saveLocalInvoices(inMemoryInvoices);
     return res.status(201).json({
       success: true,
       message: 'Commande de visibilité créée avec succès.',
@@ -2366,28 +2486,41 @@ app.post('/api/billing/boost-order', (req: Request, res: Response) => {
 });
 
 // 5f. Factures de l'utilisateur connecté (GET /api/billing/my-invoices)
-app.get('/api/billing/my-invoices', (_req: Request, res: Response) => {
-  return res.json({ success: true, count: inMemoryInvoices.length, invoices: inMemoryInvoices });
+app.get('/api/billing/my-invoices', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const list = user.role === 'admin' ? inMemoryInvoices : inMemoryInvoices.filter((inv) => inv.user_id === user.id);
+  return res.json({ success: true, count: list.length, invoices: list });
 });
 
 // 5g. Boosts actifs de l'utilisateur (GET /api/billing/my-boosts)
-app.get('/api/billing/my-boosts', (_req: Request, res: Response) => {
-  const boosts = inMemoryInvoices.filter((inv) => inv.invoice_type === 'boost');
+app.get('/api/billing/my-boosts', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const boosts = inMemoryInvoices.filter(
+    (inv) => inv.invoice_type === 'boost' && (user.role === 'admin' || inv.user_id === user.id)
+  );
   return res.json({ success: true, count: boosts.length, boosts });
 });
 
 // 5h. Transmission de la référence / preuve de paiement (PUT /api/billing/invoices/:id/pay)
 app.put('/api/billing/invoices/:id/pay', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
     const { id } = req.params;
     const { transactionReference, paymentMethodId } = req.body;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id);
     if (!inv) {
       return res.status(404).json({ success: false, error: 'Facture non trouvée' });
     }
+    if (user.role !== 'admin' && inv.user_id !== user.id) {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
     if (transactionReference) inv.transaction_reference = transactionReference;
     if (paymentMethodId) inv.payment_method_id = paymentMethodId;
     inv.updated_at = new Date().toISOString();
+    saveLocalInvoices(inMemoryInvoices);
     return res.json({ success: true, message: 'Référence de règlement enregistrée avec succès.', invoice: inv });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -2397,6 +2530,9 @@ app.put('/api/billing/invoices/:id/pay', (req: Request, res: Response) => {
 // 5i. Validation et approbation manuelle d'une facture / boost par l'administrateur (PUT /api/billing/invoices/:id/approve)
 app.put('/api/billing/invoices/:id/approve', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id);
     if (!inv) {
@@ -2450,6 +2586,9 @@ app.put('/api/billing/invoices/:id/approve', (req: Request, res: Response) => {
 // 5i-bis. Rejet manuel d'une facture / demande de boost par l'administrateur (PUT /api/billing/invoices/:id/reject)
 app.put('/api/billing/invoices/:id/reject', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const { reason = 'Paiement non reçu ou référence de transaction non confirmée.' } = req.body;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id);
@@ -2473,8 +2612,11 @@ app.put('/api/billing/invoices/:id/reject', (req: Request, res: Response) => {
 });
 
 // 5i-ter. Liste des demandes de boost pour l'administration (GET /api/billing/admin/boost-requests)
-app.get('/api/billing/admin/boost-requests', (_req: Request, res: Response) => {
+app.get('/api/billing/admin/boost-requests', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const boostInvoices = inMemoryInvoices.filter((inv) => inv.invoice_type === 'boost' || inv.property_id);
     const enriched = boostInvoices.map((inv) => {
       const prop = inMemoryProperties.find((p: any) => p.id === inv.property_id);
@@ -2523,6 +2665,9 @@ app.get('/api/billing/admin/boost-requests', (_req: Request, res: Response) => {
 // 5i-quater. Approbation directe d'un boost par l'administrateur
 const handleApproveBoostAction = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
     if (!inv) {
@@ -2530,8 +2675,8 @@ const handleApproveBoostAction = (req: Request, res: Response) => {
     }
 
     inv.status = 'paid';
-    inv.admin_id = 'admin';
-    inv.admin_name = 'Administrateur Kinimmo';
+    inv.admin_id = user.id;
+    inv.admin_name = user.name || 'Administrateur Kinimmo';
     inv.paid_at = new Date().toISOString();
     inv.reviewed_at = new Date().toISOString();
     inv.updated_at = new Date().toISOString();
@@ -2612,6 +2757,9 @@ app.put('/api/billing/admin/boost-requests/:id/approve', handleApproveBoostActio
 // 5i-quinquies. Rejet direct d'un boost par l'administrateur
 const handleRejectBoostAction = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const { reason = 'Demande non validée ou paiement non reçu.' } = req.body;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
@@ -2620,8 +2768,8 @@ const handleRejectBoostAction = (req: Request, res: Response) => {
     }
 
     inv.status = 'failed';
-    inv.admin_id = 'admin';
-    inv.admin_name = 'Administrateur Kinimmo';
+    inv.admin_id = user.id;
+    inv.admin_name = user.name || 'Administrateur Kinimmo';
     inv.rejection_reason = reason;
     inv.notes = `Demande rejetée : ${reason}`;
     inv.reviewed_at = new Date().toISOString();
@@ -2660,6 +2808,9 @@ app.put('/api/billing/admin/boost-requests/:id/reject', handleRejectBoostAction)
 // 5i-sexies. Suspension temporaire d'un boost avec gel du temps restant (Admin)
 const handleSuspendBoostAction = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
     if (!inv) {
@@ -2708,6 +2859,9 @@ app.put('/api/billing/admin/boost-requests/:id/suspend', handleSuspendBoostActio
 // 5i-septies. Réactivation d'une mise en avant suspendue avec dégeler le solde restant (Admin)
 const handleResumeBoostAction = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
     if (!inv) {
@@ -2758,6 +2912,9 @@ app.put('/api/billing/admin/boost-requests/:id/resume', handleResumeBoostAction)
 // 5i-octies. Modification manuelle de la durée ou prolongation (Admin)
 const handleUpdateBoostDurationAction = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const { durationDays, expiresAt } = req.body;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id || i.property_id === id);
@@ -2810,6 +2967,9 @@ app.put('/api/billing/admin/boost-requests/:id/duration', handleUpdateBoostDurat
 // 5i-nonies. Suppression d'une demande de boost (Admin)
 const handleDeleteBoostAction = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const idx = inMemoryInvoices.findIndex((i) => i.id === id || i.invoice_number === id || i.property_id === id);
     if (idx === -1) {
@@ -2840,8 +3000,11 @@ const handleDeleteBoostAction = (req: Request, res: Response) => {
 app.delete('/api/billing/admin/boost-requests/:id', handleDeleteBoostAction);
 
 // 5i-decies. Statistiques de la vitrine (Admin)
-app.get('/api/billing/admin/vitrine-stats', (_req: Request, res: Response) => {
+app.get('/api/billing/admin/vitrine-stats', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const boostInvoices = inMemoryInvoices.filter((i) => i.property_id || i.type === 'boost');
     const now = Date.now();
     const stats = {
@@ -2860,7 +3023,10 @@ app.get('/api/billing/admin/vitrine-stats', (_req: Request, res: Response) => {
 });
 
 // 5j. Consultation de toutes les factures côté administration (GET /api/admin/invoices)
-app.get('/api/admin/invoices', (_req: Request, res: Response) => {
+app.get('/api/admin/invoices', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
   return res.json({
     success: true,
     count: inMemoryInvoices.length,
@@ -2941,12 +3107,18 @@ app.post('/api/billing/advertisements/:id/impression', handleAdImpression);
 app.post('/api/ads/:campaignId/impression', handleAdImpression);
 
 // Administration des publicités
-app.get('/api/billing/admin/advertisements', (_req: Request, res: Response) => {
+app.get('/api/billing/admin/advertisements', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
   return res.json({ success: true, count: inMemoryAds.length, advertisements: inMemoryAds });
 });
 
 app.post('/api/billing/admin/advertisements', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const newAd = {
       id: req.body.id || `ad_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       title: req.body.title || 'Campagne Sponsor',
@@ -2976,6 +3148,9 @@ app.post('/api/billing/admin/advertisements', (req: Request, res: Response) => {
 
 app.put('/api/billing/admin/advertisements/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const idx = inMemoryAds.findIndex(a => a.id === id);
     if (idx !== -1) {
@@ -2991,6 +3166,9 @@ app.put('/api/billing/admin/advertisements/:id', (req: Request, res: Response) =
 
 app.delete('/api/billing/admin/advertisements/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     inMemoryAds = inMemoryAds.filter(a => a.id !== id);
     saveLocalAds(inMemoryAds);
@@ -3001,22 +3179,25 @@ app.delete('/api/billing/admin/advertisements/:id', (req: Request, res: Response
 });
 
 // Statistiques administratives de monétisation
-app.get('/api/billing/admin/monetization-stats', (_req: Request, res: Response) => {
+app.get('/api/billing/admin/monetization-stats', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
   const totalImpressions = inMemoryAds.reduce((acc, a) => acc + (a.impressions_count || 0), 0);
   const totalClicks = inMemoryAds.reduce((acc, a) => acc + (a.clicks_count || 0), 0);
   return res.json({
     success: true,
     data: {
       invoices: {
-        total_invoices: 14,
-        paid_invoices: 11,
-        pending_invoices: 3,
-        total_revenue_usd: 3450,
-        total_revenue_cdf: 9660000,
-        boost_invoices: 8,
-        subscription_invoices: 6
+        total_invoices: inMemoryInvoices.length,
+        paid_invoices: inMemoryInvoices.filter(i => i.status === 'paid').length,
+        pending_invoices: inMemoryInvoices.filter(i => i.status === 'pending').length,
+        total_revenue_usd: inMemoryInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.amount || 0), 0),
+        total_revenue_cdf: inMemoryInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.amount_cdf || 0), 0),
+        boost_invoices: inMemoryInvoices.filter(i => i.invoice_type === 'boost').length,
+        subscription_invoices: inMemoryInvoices.filter(i => i.invoice_type === 'subscription').length
       },
-      activeBoosts: 6,
+      activeBoosts: inMemoryInvoices.filter(i => i.invoice_type === 'boost' && i.status === 'paid').length,
       ads: {
         active_campaigns: inMemoryAds.filter(a => a.is_active !== false).length,
         total_impressions: totalImpressions,
@@ -3063,8 +3244,18 @@ app.get('/api/showcase', (_req: Request, res: Response) => {
   return res.json({ success: true, count: validSlides.length, slides: validSlides });
 });
 
-app.post('/api/showcase', (req: Request, res: Response) => {
+app.get('/api/showcase/admin', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  return res.json({ success: true, count: inMemorySlides.length, slides: inMemorySlides });
+});
+
+const handleCreateShowcaseSlide = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const newSlide = {
       ...req.body,
       id: req.body.id || `slide_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -3076,14 +3267,19 @@ app.post('/api/showcase', (req: Request, res: Response) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
-});
+};
+app.post('/api/showcase', handleCreateShowcaseSlide);
+app.post('/api/showcase/admin', handleCreateShowcaseSlide);
 
-app.put('/api/showcase/:id', (req: Request, res: Response) => {
+const handleUpdateShowcaseSlide = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const idx = inMemorySlides.findIndex(s => s.id === id);
     if (idx !== -1) {
-      inMemorySlides[idx] = { ...inMemorySlides[idx], ...req.body };
+      inMemorySlides[idx] = { ...inMemorySlides[idx], ...req.body, id };
       saveLocalSlides(inMemorySlides);
       return res.json({ success: true, slide: inMemorySlides[idx] });
     }
@@ -3091,10 +3287,15 @@ app.put('/api/showcase/:id', (req: Request, res: Response) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
-});
+};
+app.put('/api/showcase/:id', handleUpdateShowcaseSlide);
+app.put('/api/showcase/admin/:id', handleUpdateShowcaseSlide);
 
-app.delete('/api/showcase/:id', (req: Request, res: Response) => {
+const handleDeleteShowcaseSlide = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     inMemorySlides = inMemorySlides.filter(s => s.id !== id);
     saveLocalSlides(inMemorySlides);
@@ -3102,7 +3303,9 @@ app.delete('/api/showcase/:id', (req: Request, res: Response) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
-});
+};
+app.delete('/api/showcase/:id', handleDeleteShowcaseSlide);
+app.delete('/api/showcase/admin/:id', handleDeleteShowcaseSlide);
 
 // ==========================================
 // 7. DÉTECTION DES ANNONCES SUSPECTES & ANTI-FRAUDE
@@ -3159,17 +3362,20 @@ function saveLocalReports(list: any[]) {
 app.post('/api/fraud/analyze', (req: Request, res: Response) => {
   try {
     const property = req.body;
-    const analysis = analyzePropertyForFraud(property, initialProperties, inMemoryReports);
+    const analysis = analyzePropertyForFraud(property, inMemoryProperties, inMemoryReports);
     return res.json({ success: true, analysis });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
 });
 
-// Audit global de toutes les annonces
-app.get('/api/fraud/audit', (_req: Request, res: Response) => {
+// Audit global de toutes les annonces (Admin)
+app.get('/api/fraud/audit', (req: Request, res: Response) => {
   try {
-    const audit = auditPropertyList(initialProperties, inMemoryReports);
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+    const audit = auditPropertyList(inMemoryProperties, inMemoryReports);
     return res.json({
       success: true,
       stats: {
@@ -3216,14 +3422,20 @@ app.post('/api/fraud/report', (req: Request, res: Response) => {
   }
 });
 
-// Récupérer la liste des signalements
-app.get('/api/fraud/reports', (_req: Request, res: Response) => {
+// Récupérer la liste des signalements (Admin)
+app.get('/api/fraud/reports', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
   return res.json({ success: true, count: inMemoryReports.length, reports: inMemoryReports });
 });
 
-// Mettre à jour le statut d'un signalement
+// Mettre à jour le statut d'un signalement (Admin)
 app.put('/api/fraud/reports/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const { status } = req.body;
     const idx = inMemoryReports.findIndex(r => r.id === id);
@@ -3342,9 +3554,12 @@ app.get('/api/cloudinary/config', (_req: Request, res: Response) => {
   });
 });
 
-// Sauvegarder la configuration Cloudinary
+// Sauvegarder la configuration Cloudinary (Admin)
 app.post('/api/cloudinary/config', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     let { cloudName, apiKey, apiSecret, uploadPreset, autoOptimize, cloudinaryUrl } = req.body;
     
     // Si l'utilisateur a collé une CLOUDINARY_URL complète
@@ -3388,9 +3603,12 @@ app.post('/api/cloudinary/config', (req: Request, res: Response) => {
   }
 });
 
-// Tester la connexion Cloudinary
-app.post('/api/cloudinary/test', async (_req: Request, res: Response) => {
+// Tester la connexion Cloudinary (Admin)
+app.post('/api/cloudinary/test', async (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     serverCloudinaryConfig = loadCloudinaryConfig();
     applyCloudinarySettings(serverCloudinaryConfig);
 
@@ -3419,8 +3637,12 @@ app.post('/api/cloudinary/test', async (_req: Request, res: Response) => {
   }
 });
 
-// Téléverser une vidéo vers Cloudinary
-app.post('/api/cloudinary/upload', videoMulter.single('video'), async (req: Request, res: Response) => {
+// Téléverser une vidéo vers Cloudinary (Utilisateur authentifié)
+app.post('/api/cloudinary/upload', (req: Request, res: Response, next) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise pour téléverser une vidéo.' });
+  return next();
+}, videoMulter.single('video'), async (req: Request, res: Response) => {
   try {
     serverCloudinaryConfig = loadCloudinaryConfig();
     applyCloudinarySettings(serverCloudinaryConfig);
@@ -3586,12 +3808,121 @@ app.get('/api/videos', (req: Request, res: Response) => {
 app.get('/api/videos/my', (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req);
-    const userId = authUser?.id || (req.headers['x-user-id'] as string) || 'agent_current';
-    const userVideos = inMemoryVideos.filter(v => v.userId === userId || v.userId === 'agent_1' || authUser?.role === 'admin');
+    if (!authUser) {
+      return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    }
+    const userVideos = authUser.role === 'admin'
+      ? [...inMemoryVideos]
+      : inMemoryVideos.filter(v => v.userId === authUser.id);
     return res.json({
       success: true,
       count: userVideos.length,
       data: { videos: userVideos }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.2-bis Signalements vidéos (Admin) — placé avant /:id pour éviter collision de route
+let inMemoryVideoReports: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_VIDEO_REPORTS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_VIDEO_REPORTS_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+})();
+
+function saveLocalVideoReports(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_VIDEO_REPORTS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch {}
+}
+
+app.get('/api/videos/admin/reports', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  if (!authUser) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (authUser.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  return res.json({ success: true, count: inMemoryVideoReports.length, data: { reports: inMemoryVideoReports }, reports: inMemoryVideoReports });
+});
+
+app.patch('/api/videos/admin/reports/:id', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  if (!authUser) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (authUser.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const { id } = req.params;
+  const idx = inMemoryVideoReports.findIndex(r => r.id === id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Signalement introuvable.' });
+  inMemoryVideoReports[idx] = { ...inMemoryVideoReports[idx], ...req.body, updatedAt: new Date().toISOString() };
+  saveLocalVideoReports(inMemoryVideoReports);
+  return res.json({ success: true, data: { report: inMemoryVideoReports[idx] } });
+});
+
+// 9.9 Modérer les publications dans l’espace administrateur (placé avant /:id)
+app.get('/api/videos/admin/all', (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req);
+    if (!authUser) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (authUser.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+    const { status, search } = req.query;
+    let list = [...inMemoryVideos];
+
+    if (status && status !== 'all') {
+      list = list.filter(v => v.status === status);
+    }
+
+    if (search) {
+      const q = String(search).toLowerCase();
+      list = list.filter(v =>
+        (v.propertyTitle || '').toLowerCase().includes(q) ||
+        (v.agentName || '').toLowerCase().includes(q) ||
+        (v.propertyCommune || '').toLowerCase().includes(q)
+      );
+    }
+
+    return res.json({
+      success: true,
+      count: list.length,
+      data: { videos: list }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.10 Mettre à jour le statut de modération (approuver, refuser, suspendre)
+app.patch('/api/videos/admin/:id/status', (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req);
+    if (!authUser) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (authUser.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+    const { id } = req.params;
+    const { status, rejectionReason } = req.body;
+
+    const validStatuses = ['approved', 'rejected', 'pending', 'hidden', 'draft'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Statut de modération invalide.' });
+    }
+
+    const idx = inMemoryVideos.findIndex(v => v.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
+    }
+
+    inMemoryVideos[idx].status = status;
+    if (rejectionReason) {
+      inMemoryVideos[idx].rejectionReason = rejectionReason;
+    }
+    inMemoryVideos[idx].updatedAt = new Date().toISOString();
+
+    saveLocalVideos(inMemoryVideos);
+
+    return res.json({
+      success: true,
+      message: status === 'approved' ? 'Vidéo approuvée et visible dans le fil public.' : 'Statut mis à jour.',
+      data: { video: inMemoryVideos[idx] }
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -3606,6 +3937,12 @@ app.get('/api/videos/:id', (req: Request, res: Response) => {
     if (!video) {
       return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
     }
+    if (video.status !== 'approved') {
+      const authUser = getAuthUser(req);
+      if (!authUser || (authUser.role !== 'admin' && video.userId !== authUser.id)) {
+        return res.status(403).json({ success: false, error: 'Vidéo non encore approuvée.' });
+      }
+    }
     return res.json({ success: true, data: { video } });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -3616,23 +3953,29 @@ app.get('/api/videos/:id', (req: Request, res: Response) => {
 app.post('/api/videos', (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req);
+    if (!authUser) {
+      return res.status(401).json({ success: false, error: 'Authentification requise pour publier une vidéo.' });
+    }
     const { propertyId, videoUrl, thumbnailUrl, description, status = 'pending' } = req.body;
 
     if (!propertyId || !videoUrl) {
       return res.status(400).json({ success: false, error: 'L\'ID de l\'annonce et l\'URL de la vidéo sont obligatoires.' });
     }
 
-    // Récupérer les informations de la propriété
-    const linkedProp = initialProperties.find(p => p.id === propertyId);
+    // Récupérer les informations de la propriété depuis le store live
+    const linkedProp = inMemoryProperties.find(p => p.id === propertyId);
+    if (linkedProp && !canManageProperty(authUser, linkedProp)) {
+      return res.status(403).json({ success: false, error: 'Vous ne pouvez associer une vidéo qu\'à vos propres annonces.' });
+    }
 
     const newVideo = {
       id: `vid_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       propertyId,
-      userId: authUser?.id || (req.headers['x-user-id'] as string) || 'agent_current',
+      userId: authUser.id,
       videoUrl,
       thumbnailUrl: thumbnailUrl || linkedProp?.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&auto=format&fit=crop&q=80',
       description: description || '',
-      status: status === 'draft' ? 'draft' : 'pending',
+      status: status === 'draft' ? 'draft' : (authUser.role === 'admin' && status === 'approved' ? 'approved' : 'pending'),
       viewsCount: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -3647,11 +3990,11 @@ app.post('/api/videos', (req: Request, res: Response) => {
       propertyStatus: linkedProp?.status || 'for-sale',
       propertyBedrooms: linkedProp?.bedrooms,
       propertyBathrooms: linkedProp?.bathrooms,
-      agentName: linkedProp?.agencyName || 'Agent Immobilier Kinimmo',
-      agencyName: linkedProp?.agencyName,
-      agentPhone: linkedProp?.contactPhone,
-      agentWhatsapp: linkedProp?.contactPhone,
-      agentVerified: true
+      agentName: linkedProp?.agencyName || authUser.agencyName || authUser.name || 'Agent Immobilier Kinimmo',
+      agencyName: linkedProp?.agencyName || authUser.agencyName,
+      agentPhone: linkedProp?.contactPhone || authUser.phone,
+      agentWhatsapp: linkedProp?.contactPhone || authUser.whatsapp || authUser.phone,
+      agentVerified: Boolean(authUser.isVerified)
     };
 
     inMemoryVideos.unshift(newVideo);
@@ -3672,15 +4015,28 @@ app.post('/api/videos', (req: Request, res: Response) => {
 // 9.5 Modifier ses propres publications
 app.put('/api/videos/:id', (req: Request, res: Response) => {
   try {
+    const authUser = getAuthUser(req);
+    if (!authUser) return res.status(401).json({ success: false, error: 'Authentification requise.' });
     const { id } = req.params;
     const idx = inMemoryVideos.findIndex(v => v.id === id);
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
     }
+    if (authUser.role !== 'admin' && inMemoryVideos[idx].userId !== authUser.id) {
+      return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez modifier que vos propres vidéos.' });
+    }
+
+    const { status: reqStatus, ...safeBody } = req.body || {};
+    const nextStatus = authUser.role === 'admin' && reqStatus
+      ? reqStatus
+      : (reqStatus === 'draft' || reqStatus === 'pending' ? reqStatus : inMemoryVideos[idx].status);
 
     inMemoryVideos[idx] = {
       ...inMemoryVideos[idx],
-      ...req.body,
+      ...safeBody,
+      id,
+      userId: inMemoryVideos[idx].userId,
+      status: nextStatus,
       updatedAt: new Date().toISOString()
     };
     saveLocalVideos(inMemoryVideos);
@@ -3694,14 +4050,18 @@ app.put('/api/videos/:id', (req: Request, res: Response) => {
 // 9.6 Supprimer une vidéo
 app.delete('/api/videos/:id', (req: Request, res: Response) => {
   try {
+    const authUser = getAuthUser(req);
+    if (!authUser) return res.status(401).json({ success: false, error: 'Authentification requise.' });
     const { id } = req.params;
-    const initialLen = inMemoryVideos.length;
-    inMemoryVideos = inMemoryVideos.filter(v => v.id !== id);
-
-    if (inMemoryVideos.length === initialLen) {
+    const target = inMemoryVideos.find(v => v.id === id);
+    if (!target) {
       return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
     }
+    if (authUser.role !== 'admin' && target.userId !== authUser.id) {
+      return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez supprimer que vos propres vidéos.' });
+    }
 
+    inMemoryVideos = inMemoryVideos.filter(v => v.id !== id);
     saveLocalVideos(inMemoryVideos);
     return res.json({ success: true, message: 'Vidéo supprimée avec succès.' });
   } catch (err: any) {
@@ -3719,6 +4079,33 @@ app.post('/api/videos/:id/view', (req: Request, res: Response) => {
       saveLocalVideos(inMemoryVideos);
     }
     return res.json({ success: true, viewsCount: video?.viewsCount || 1 });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 9.7-bis Signaler une vidéo
+app.post('/api/videos/:id/report', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason, details, reporterName, reporterContact } = req.body || {};
+    if (!reason) return res.status(400).json({ success: false, error: 'Le motif du signalement est requis.' });
+    const video = inMemoryVideos.find(v => v.id === id);
+    const report = {
+      id: `vrep_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      videoId: id,
+      propertyId: video?.propertyId || null,
+      propertyTitle: video?.propertyTitle || 'Visite vidéo',
+      reason,
+      details: details || '',
+      reporterName: reporterName || 'Utilisateur',
+      reporterContact: reporterContact || '',
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+    inMemoryVideoReports.unshift(report);
+    saveLocalVideoReports(inMemoryVideoReports);
+    return res.status(201).json({ success: true, message: 'Signalement vidéo enregistré.', data: { report } });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
@@ -3765,78 +4152,39 @@ app.post('/api/videos/:id/visit-request', (req: Request, res: Response) => {
   }
 });
 
-// 9.9 Modérer les publications dans l’espace administrateur
-app.get('/api/videos/admin/all', (req: Request, res: Response) => {
-  try {
-    const { status, search } = req.query;
-    let list = [...inMemoryVideos];
-
-    if (status && status !== 'all') {
-      list = list.filter(v => v.status === status);
-    }
-
-    if (search) {
-      const q = String(search).toLowerCase();
-      list = list.filter(v =>
-        (v.propertyTitle || '').toLowerCase().includes(q) ||
-        (v.agentName || '').toLowerCase().includes(q) ||
-        (v.propertyCommune || '').toLowerCase().includes(q)
-      );
-    }
-
-    return res.json({
-      success: true,
-      count: list.length,
-      data: { videos: list }
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message });
-  }
-});
-
-// 9.10 Mettre à jour le statut de modération (approuver, refuser, suspendre)
-app.patch('/api/videos/admin/:id/status', (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { status, rejectionReason } = req.body;
-
-    const validStatuses = ['approved', 'rejected', 'pending', 'hidden', 'draft'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, error: 'Statut de modération invalide.' });
-    }
-
-    const idx = inMemoryVideos.findIndex(v => v.id === id);
-    if (idx === -1) {
-      return res.status(404).json({ success: false, error: 'Vidéo introuvable.' });
-    }
-
-    inMemoryVideos[idx].status = status;
-    if (rejectionReason) {
-      inMemoryVideos[idx].rejectionReason = rejectionReason;
-    }
-    inMemoryVideos[idx].updatedAt = new Date().toISOString();
-
-    saveLocalVideos(inMemoryVideos);
-
-    return res.json({
-      success: true,
-      message: status === 'approved' ? 'Vidéo approuvée et visible dans le fil public.' : 'Statut mis à jour.',
-      data: { video: inMemoryVideos[idx] }
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message });
-  }
-});
-
 // ==========================================
 // 10. API REST ANNONCES, STATUTS & CYCLES DE VIE
 // ==========================================
 
+// Helper ownership propriétés
+const canManageProperty = (user: AuthUser, prop: any): boolean => {
+  if (!user || !prop) return false;
+  if (user.role === 'admin') return true;
+  if (prop.agentId && prop.agentId === user.id) return true;
+  if (prop.userId && prop.userId === user.id) return true;
+  if (user.agencyId && prop.agencyId && prop.agencyId === user.agencyId) return true;
+  if (user.role === 'agency' && prop.agencyId === user.id) return true;
+  if (user.email && prop.contactEmail && prop.contactEmail.toLowerCase() === user.email.toLowerCase()) return true;
+  return false;
+};
+
 // 10.1 Récupérer les propriétés avec filtres
 app.get('/api/properties', (req: Request, res: Response) => {
   try {
-    const { commune, type, status, listingStatus, search, limit = '100', offset = '0' } = req.query;
+    const authUser = getAuthUser(req);
+    const { commune, type, status, listingStatus, search, limit = '100', offset = '0', include_unpublished } = req.query;
     let list = [...inMemoryProperties];
+
+    // Filtrer les biens non publiés sauf pour l'admin ou le propriétaire du bien
+    const allowUnpublished = include_unpublished === 'true' && authUser;
+    list = list.filter((p) => {
+      const ls = String(p.listingStatus || '').toUpperCase();
+      const isPublic = p.published !== false && ls !== 'DRAFT' && ls !== 'ARCHIVED' && ls !== 'PENDING_REVIEW';
+      if (isPublic) return true;
+      if (allowUnpublished && canManageProperty(authUser!, p)) return true;
+      if (authUser?.role === 'admin' && include_unpublished === 'true') return true;
+      return false;
+    });
 
     if (listingStatus && listingStatus !== 'all') {
       list = list.filter(p => (p.listingStatus || '').toUpperCase() === String(listingStatus).toUpperCase());
@@ -3864,7 +4212,7 @@ app.get('/api/properties', (req: Request, res: Response) => {
     }
 
     const total = list.length;
-    const paginated = list.slice(Number(offset), Number(offset) + Number(limit));
+    const paginated = list.slice(Number(offset), Number(offset) + Number(limit)).map(normalizePropertyRecord);
     return res.json({ success: true, count: total, properties: paginated, data: paginated });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -3890,7 +4238,13 @@ const videoUpload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }
 });
 
-app.post('/api/properties/upload-video', videoUpload.single('video'), (req: Request, res: Response) => {
+app.post('/api/properties/upload-video', (req: Request, res: Response, next) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ success: false, message: 'Authentification requise pour téléverser une vidéo.' });
+  }
+  return next();
+}, videoUpload.single('video'), (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Aucun fichier vidéo reçu.' });
   }
@@ -3909,17 +4263,25 @@ app.get('/api/properties/:id', (req: Request, res: Response) => {
   if (!prop) {
     return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
   }
-  return res.json({ success: true, property: prop });
+  const ls = String(prop.listingStatus || '').toUpperCase();
+  const isPublic = prop.published !== false && ls !== 'DRAFT' && ls !== 'ARCHIVED' && ls !== 'PENDING_REVIEW';
+  if (!isPublic) {
+    const authUser = getAuthUser(req);
+    if (!authUser || !canManageProperty(authUser, prop)) {
+      return res.status(403).json({ success: false, error: 'Cette annonce n\'est pas publique.' });
+    }
+  }
+  return res.json({ success: true, property: normalizePropertyRecord(prop) });
 });
 
 // 10.3 Créer une propriété
 app.post('/api/properties', (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
-    const body = req.body;
+    const body = req.body || {};
 
     // Règle métier : La publication d'un bien est strictement réservée aux utilisateurs connectés
-    if (!user && !body.agentId && !body.contactEmail) {
+    if (!user) {
       return res.status(401).json({
         success: false,
         error: 'Règle métier Kinimmo : Vous devez être connecté pour publier une annonce.'
@@ -3931,11 +4293,20 @@ app.post('/api/properties', (req: Request, res: Response) => {
     const listingStatus = (body.listingStatus || 'PUBLISHED').toUpperCase();
     const isAvailable = listingStatus === 'PUBLISHED';
 
-    const newProp = {
-      ...body,
+    const { trust_status: _ts, trust_score: _tsc, trust_verified_at: _tva, ...safeBody } = body;
+
+    const newProp = normalizePropertyRecord({
+      ...safeBody,
       id,
+      userId: user.id,
+      agentId: user.role === 'admin' && body.agentId ? body.agentId : user.id,
+      agencyId: user.role === 'agency' ? (user.agencyId || user.id) : (body.agencyId || user.agencyId),
+      agencyName: body.agencyName || user.agencyName,
+      contactEmail: body.contactEmail || user.email,
+      contactPhone: body.contactPhone || user.phone,
       listingStatus,
       isAvailable,
+      published: body.published !== false && listingStatus !== 'DRAFT' && listingStatus !== 'ARCHIVED',
       status: listingStatus === 'SOLD' ? 'sold' : (body.status || 'for-sale'),
       createdAt: body.createdAt || nowIso,
       updatedAt: nowIso,
@@ -3944,13 +4315,13 @@ app.post('/api/properties', (req: Request, res: Response) => {
           id: `hist_${Date.now()}`,
           fromStatus: 'NONE',
           toStatus: listingStatus,
-          changedByUserId: body.agentId || 'current_user',
-          changedByName: body.agentName || 'Agent Kinimmo',
+          changedByUserId: user.id,
+          changedByName: user.name || 'Agent Kinimmo',
           changedAt: nowIso,
           note: 'Création initiale de l\'annonce'
         }
       ]
-    };
+    });
 
     inMemoryProperties.unshift(newProp);
     saveLocalProperties(inMemoryProperties);
@@ -3963,6 +4334,11 @@ app.post('/api/properties', (req: Request, res: Response) => {
 // 10.4 Mettre à jour une propriété
 app.put('/api/properties/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentification requise pour modifier une annonce.' });
+    }
+
     const { id } = req.params;
     const idx = inMemoryProperties.findIndex(p => p.id === id);
     if (idx === -1) {
@@ -3970,9 +4346,21 @@ app.put('/api/properties/:id', (req: Request, res: Response) => {
     }
 
     const current = inMemoryProperties[idx];
-    const incoming = req.body;
+    if (!canManageProperty(user, current)) {
+      return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez modifier que vos propres annonces.' });
+    }
+
+    const incoming = req.body || {};
+    const {
+      trust_status: _ts,
+      trust_score: _tsc,
+      trust_verified_at: _tva,
+      trust_expires_at: _tea,
+      ...safeIncoming
+    } = incoming;
+
     const oldStatus = current.listingStatus || (current.status === 'sold' ? 'SOLD' : 'PUBLISHED');
-    const newStatus = incoming.listingStatus ? incoming.listingStatus.toUpperCase() : oldStatus;
+    const newStatus = safeIncoming.listingStatus ? String(safeIncoming.listingStatus).toUpperCase() : oldStatus;
 
     const history = Array.isArray(current.statusHistory) ? [...current.statusHistory] : [];
     if (newStatus !== oldStatus) {
@@ -3980,23 +4368,25 @@ app.put('/api/properties/:id', (req: Request, res: Response) => {
         id: `hist_${Date.now()}`,
         fromStatus: oldStatus,
         toStatus: newStatus,
-        changedByUserId: incoming.userId || incoming.agentId || current.agentId || 'current_user',
-        changedByName: incoming.userName || incoming.agentName || 'Utilisateur Kinimmo',
+        changedByUserId: user.id,
+        changedByName: user.name || 'Utilisateur Kinimmo',
         changedAt: new Date().toISOString(),
-        note: incoming.statusNote || `Mise à jour du statut vers ${newStatus}`
+        note: safeIncoming.statusNote || `Mise à jour du statut vers ${newStatus}`
       });
     }
 
-    const updated = {
+    const updated = normalizePropertyRecord({
       ...current,
-      ...incoming,
+      ...safeIncoming,
       id,
+      userId: current.userId || user.id,
+      agentId: user.role === 'admin' && safeIncoming.agentId ? safeIncoming.agentId : (current.agentId || user.id),
       listingStatus: newStatus,
       isAvailable: newStatus === 'PUBLISHED',
-      status: newStatus === 'SOLD' ? 'sold' : (incoming.status || current.status),
+      status: newStatus === 'SOLD' ? 'sold' : (safeIncoming.status || current.status),
       statusHistory: history,
       updatedAt: new Date().toISOString()
-    };
+    });
 
     inMemoryProperties[idx] = updated;
     saveLocalProperties(inMemoryProperties);
@@ -4006,11 +4396,40 @@ app.put('/api/properties/:id', (req: Request, res: Response) => {
   }
 });
 
+// 10.4-bis Supprimer une propriété
+app.delete('/api/properties/:id', (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentification requise pour supprimer une annonce.' });
+    }
+    const { id } = req.params;
+    const idx = inMemoryProperties.findIndex(p => p.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+    }
+    if (!canManageProperty(user, inMemoryProperties[idx])) {
+      return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez supprimer que vos propres annonces.' });
+    }
+
+    inMemoryProperties.splice(idx, 1);
+    saveLocalProperties(inMemoryProperties);
+    return res.json({ success: true, message: 'Annonce supprimée avec succès.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
 // 10.5 Mettre à jour le statut du cycle de vie (DRAFT, PENDING_REVIEW, PUBLISHED, RENTED, SOLD, ARCHIVED)
 const handlePropertyStatusUpdate = (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    }
+
     const { id } = req.params;
-    const { status, note, userId, userName } = req.body;
+    const { status, note } = req.body;
     const validStatuses = ['DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'RENTED', 'SOLD', 'ARCHIVED'];
     const targetStatus = String(status).toUpperCase();
 
@@ -4024,6 +4443,10 @@ const handlePropertyStatusUpdate = (req: Request, res: Response) => {
     }
 
     const current = inMemoryProperties[idx];
+    if (!canManageProperty(user, current)) {
+      return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez modifier que vos propres annonces.' });
+    }
+
     const oldStatus = current.listingStatus || (current.status === 'sold' ? 'SOLD' : 'PUBLISHED');
 
     const history = Array.isArray(current.statusHistory) ? [...current.statusHistory] : [];
@@ -4031,8 +4454,8 @@ const handlePropertyStatusUpdate = (req: Request, res: Response) => {
       id: `hist_${Date.now()}`,
       fromStatus: oldStatus,
       toStatus: targetStatus,
-      changedByUserId: userId || current.agentId || 'current_user',
-      changedByName: userName || current.agentName || 'Agent Kinimmo',
+      changedByUserId: user.id,
+      changedByName: user.name || 'Agent Kinimmo',
       changedAt: new Date().toISOString(),
       note: note || `Statut passé à ${targetStatus}`
     });
@@ -4069,11 +4492,20 @@ app.patch('/api/properties/:id/status', handlePropertyStatusUpdate);
 // 10.6 Attribuer un bien à un collaborateur
 app.patch('/api/properties/:id/assign', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    }
+
     const { id } = req.params;
     const { assignedAgentId, assignedAgentName } = req.body;
     const idx = inMemoryProperties.findIndex(p => p.id === id);
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+    }
+
+    if (!canManageProperty(user, inMemoryProperties[idx])) {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
     }
 
     inMemoryProperties[idx].assignedAgentId = assignedAgentId;
@@ -4089,9 +4521,16 @@ app.patch('/api/properties/:id/assign', (req: Request, res: Response) => {
 
 // 10.7 Historique des statuts d'une propriété
 app.get('/api/properties/:id/status-history', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  }
   const prop = inMemoryProperties.find(p => p.id === req.params.id);
   if (!prop) {
     return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+  }
+  if (!canManageProperty(user, prop)) {
+    return res.status(403).json({ success: false, error: 'Accès interdit.' });
   }
   return res.json({ success: true, history: prop.statusHistory || [] });
 });
@@ -4103,10 +4542,16 @@ app.get('/api/properties/:id/status-history', (req: Request, res: Response) => {
 // 11.1 Liste des collaborateurs
 app.get('/api/agency/collaborators', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin' && user.role !== 'agency' && user.role !== 'agent') {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
     const { agencyId } = req.query;
+    const effectiveAgencyId = user.role === 'admin' ? (agencyId ? String(agencyId) : null) : (user.agencyId || user.id);
     let list = inMemoryCollaborators;
-    if (agencyId) {
-      list = list.filter(c => c.agencyId === agencyId);
+    if (effectiveAgencyId) {
+      list = list.filter(c => c.agencyId === effectiveAgencyId);
     }
     return res.json({ success: true, count: list.length, collaborators: list });
   } catch (err: any) {
@@ -4117,14 +4562,21 @@ app.get('/api/agency/collaborators', (req: Request, res: Response) => {
 // 11.2 Inviter un collaborateur
 app.post('/api/agency/collaborators/invite', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin' && user.role !== 'agency') {
+      return res.status(403).json({ success: false, error: 'Seules les agences ou administrateurs peuvent inviter un collaborateur.' });
+    }
     const { agencyId, name, email, phone, whatsapp, role = 'agency_agent', permissions } = req.body;
     if (!name || !email) {
       return res.status(400).json({ success: false, error: 'Le nom et l\'adresse e-mail sont obligatoires.' });
     }
 
+    const targetAgencyId = user.role === 'admin' ? (agencyId || 'agency_default') : (user.agencyId || user.id);
+
     const newCollab = {
       id: `collab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      agencyId: agencyId || 'agency_default',
+      agencyId: targetAgencyId,
       userId: `usr_invited_${Date.now()}`,
       name,
       email,
@@ -4157,16 +4609,25 @@ app.post('/api/agency/collaborators/invite', (req: Request, res: Response) => {
 // 11.3 Mettre à jour un collaborateur
 app.patch('/api/agency/collaborators/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin' && user.role !== 'agency') {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
     const { id } = req.params;
     const idx = inMemoryCollaborators.findIndex(c => c.id === id);
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Collaborateur introuvable.' });
     }
+    if (user.role !== 'admin' && inMemoryCollaborators[idx].agencyId !== (user.agencyId || user.id)) {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
 
     inMemoryCollaborators[idx] = {
       ...inMemoryCollaborators[idx],
       ...req.body,
-      id
+      id,
+      agencyId: inMemoryCollaborators[idx].agencyId
     };
     saveLocalCollaborators(inMemoryCollaborators);
     return res.json({ success: true, message: 'Collaborateur mis à jour.', collaborator: inMemoryCollaborators[idx] });
@@ -4178,7 +4639,17 @@ app.patch('/api/agency/collaborators/:id', (req: Request, res: Response) => {
 // 11.4 Supprimer un collaborateur
 app.delete('/api/agency/collaborators/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin' && user.role !== 'agency') {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
     const { id } = req.params;
+    const target = inMemoryCollaborators.find(c => c.id === id);
+    if (!target) return res.status(404).json({ success: false, error: 'Collaborateur introuvable.' });
+    if (user.role !== 'admin' && target.agencyId !== (user.agencyId || user.id)) {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
     inMemoryCollaborators = inMemoryCollaborators.filter(c => c.id !== id);
     saveLocalCollaborators(inMemoryCollaborators);
     return res.json({ success: true, message: 'Collaborateur retiré de l\'agence.' });
@@ -4190,10 +4661,16 @@ app.delete('/api/agency/collaborators/:id', (req: Request, res: Response) => {
 // 11.5 Transactions et pipeline d'agence
 app.get('/api/agency/transactions', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin' && user.role !== 'agency' && user.role !== 'agent') {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
     const { agencyId } = req.query;
+    const effectiveAgencyId = user.role === 'admin' ? (agencyId ? String(agencyId) : null) : (user.agencyId || user.id);
     let list = inMemoryTransactions;
-    if (agencyId) {
-      list = list.filter(t => t.agencyId === agencyId);
+    if (effectiveAgencyId) {
+      list = list.filter(t => t.agencyId === effectiveAgencyId || t.agentId === user.id);
     }
     return res.json({ success: true, count: list.length, transactions: list });
   } catch (err: any) {
@@ -4204,14 +4681,19 @@ app.get('/api/agency/transactions', (req: Request, res: Response) => {
 // 11.6 Enregistrer une transaction d'agence
 app.post('/api/agency/transactions', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin' && user.role !== 'agency' && user.role !== 'agent') {
+      return res.status(403).json({ success: false, error: 'Accès interdit.' });
+    }
     const body = req.body;
     const newTx = {
       id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      agencyId: body.agencyId || 'agency_default',
+      agencyId: user.role === 'admin' ? (body.agencyId || 'agency_default') : (user.agencyId || user.id),
       propertyId: body.propertyId || '',
       propertyTitle: body.propertyTitle || 'Propriété Kinshasa',
-      agentId: body.agentId || 'agent_current',
-      agentName: body.agentName || 'Agent Immobilier',
+      agentId: user.role === 'admin' ? (body.agentId || user.id) : user.id,
+      agentName: body.agentName || user.name || 'Agent Immobilier',
       clientName: body.clientName || 'Client Particulier',
       clientContact: body.clientContact || '',
       type: body.type || 'sale',
@@ -4331,17 +4813,22 @@ app.get('/api/trust/badge/:targetType/:targetId', (req: Request, res: Response) 
 // 2. Liste des vérifications Kinimmo Trust (avec filtres)
 app.get('/api/trust/verifications', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, message: 'Authentification requise.' });
     const { target_type, status, applicant_id } = req.query;
     let list = [...inMemoryTrust.verifications];
+
+    if (user.role !== 'admin') {
+      list = list.filter((v) => v.applicantUserId === user.id);
+    } else if (applicant_id) {
+      list = list.filter((v) => v.applicantUserId === applicant_id);
+    }
 
     if (target_type) {
       list = list.filter((v) => v.targetType === target_type);
     }
     if (status) {
       list = list.filter((v) => v.trustStatus === status);
-    }
-    if (applicant_id) {
-      list = list.filter((v) => v.applicantUserId === applicant_id);
     }
 
     const enriched = list.map((v) => {
@@ -4363,10 +4850,15 @@ app.get('/api/trust/verifications', (req: Request, res: Response) => {
 // 3. Détail complet d'un dossier
 app.get('/api/trust/verifications/:id', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, message: 'Authentification requise.' });
     const { id } = req.params;
     const verification = inMemoryTrust.verifications.find((v) => v.id === id);
     if (!verification) {
       return res.status(404).json({ success: false, message: 'Dossier Kinimmo Trust introuvable.' });
+    }
+    if (user.role !== 'admin' && verification.applicantUserId !== user.id) {
+      return res.status(403).json({ success: false, message: 'Accès interdit à ce dossier de vérification.' });
     }
 
     const documents = inMemoryTrust.documents.filter((d) => d.verificationId === id);
@@ -4394,7 +4886,10 @@ app.get('/api/trust/verifications/:id', (req: Request, res: Response) => {
 // 4. Déposer une demande de vérification
 const handleApplyTrust = (req: Request, res: Response) => {
   try {
-    const user = getAuthUser(req) || { id: 'usr_guest', name: 'Utilisateur Kinimmo', email: 'guest@kinimmo.cd', role: 'user' };
+    const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Authentification requise pour soumettre une demande Kinimmo Trust.' });
+    }
     const { target_type, target_id, target_name, documents = [], applicant_phone } = req.body;
 
     if (!target_type || !target_id || !target_name) {
@@ -4409,25 +4904,18 @@ const handleApplyTrust = (req: Request, res: Response) => {
         return res.status(404).json({ success: false, message: 'Annonce immobilière ciblée introuvable.' });
       }
 
-      const isPublisher =
-        prop.agentId === user.id ||
-        prop.userId === user.id ||
-        (user.email && prop.contactEmail && prop.contactEmail.toLowerCase() === user.email.toLowerCase()) ||
-        (user.id === 'agent-1' && (prop.agentId === 'agent-1' || prop.agentId === 'collab_patrick')) ||
-        user.role === 'admin';
-
-      if (!isPublisher) {
+      if (!canManageProperty(user, prop)) {
         return res.status(403).json({
           success: false,
           message: 'Règle métier Kinimmo Trust : Vous pouvez uniquement certifier les biens immobiliers qui vous appartiennent (que vous avez vous-même publiés). Il est strictement interdit de demander la certification d’un bien appartenant à un tiers.'
         });
       }
-    } else if (target_type === 'agent') {
-      const isSelf = user.id === target_id || user.id === 'agent-1' || user.role === 'admin';
+    } else if (target_type === 'agent' || target_type === 'agency') {
+      const isSelf = user.id === target_id || (user.agencyId && user.agencyId === target_id) || user.role === 'admin';
       if (!isSelf) {
         return res.status(403).json({
           success: false,
-          message: 'Règle métier Kinimmo Trust : Vous ne pouvez soumettre une vérification que pour votre propre profil d’agent.'
+          message: 'Règle métier Kinimmo Trust : Vous ne pouvez soumettre une vérification que pour votre propre profil.'
         });
       }
     }
@@ -4518,8 +5006,10 @@ app.post('/api/trust/verifications', handleApplyTrust);
 // 5. Décision administrative sur une vérification
 const handleUpdateTrustStatus = (req: Request, res: Response) => {
   try {
-    const user = getAuthUser(req);
-    const admin = user || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    const admin = getAuthUser(req);
+    if (!admin) {
+      return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    }
     
     // SÉCURITÉ : Seules les personnes disposant du rôle administrateur peuvent prendre des décisions
     if (admin.role !== 'admin') {
@@ -4665,13 +5155,13 @@ app.put('/api/trust/verifications/:id/decision', handleUpdateTrustStatus);
 // 5b. Demande d'informations complémentaires par l'admin
 app.post('/api/trust/verifications/:id/request-info', (req: Request, res: Response) => {
   try {
-    const user = getAuthUser(req);
-    const admin = user || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    const admin = getAuthUser(req);
+    if (!admin) return res.status(401).json({ success: false, message: 'Authentification requise.' });
     if (admin.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Accès interdit : Rôle administrateur requis.' });
     }
     const { id } = req.params;
-    const { message, requested_fields } = req.body;
+    const { message } = req.body;
     if (!message || !message.trim()) {
       return res.status(400).json({ success: false, message: 'Le message détaillant les pièces manquantes est obligatoire.' });
     }
@@ -4724,7 +5214,9 @@ app.post('/api/trust/verifications/:id/request-info', (req: Request, res: Respon
 // 5c. Consigner la consultation sécurisée d'un justificatif sensible
 app.post('/api/trust/documents/:id/access-log', (req: Request, res: Response) => {
   try {
-    const user = getAuthUser(req) || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, message: 'Accès interdit.' });
     const { id } = req.params;
     const { verification_id, document_title } = req.body;
 
@@ -4767,7 +5259,9 @@ app.put('/api/trust/audit-logs*', (_req: Request, res: Response) => {
 // 6. Ajouter un contrôle d'audit
 app.post('/api/trust/verifications/:id/checks', (req: Request, res: Response) => {
   try {
-    const admin = getAuthUser(req) || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    const admin = getAuthUser(req);
+    if (!admin) return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    if (admin.role !== 'admin') return res.status(403).json({ success: false, message: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const { check_type, check_label, result = 'passed', evidence_notes } = req.body;
 
@@ -4812,7 +5306,9 @@ app.post('/api/trust/verifications/:id/checks', (req: Request, res: Response) =>
 // 7. Statut d'un document justificatif (approuver/refuser une pièce)
 app.put('/api/trust/documents/:id/status', (req: Request, res: Response) => {
   try {
-    const admin = getAuthUser(req) || { id: 'admin_master', name: 'Direction Kinimmo', email: 'admin@kinimmo.cd', role: 'admin' };
+    const admin = getAuthUser(req);
+    if (!admin) return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    if (admin.role !== 'admin') return res.status(403).json({ success: false, message: 'Accès réservé aux administrateurs.' });
     const { id } = req.params;
     const { status, rejection_note } = req.body; // status: 'approved' | 'rejected'
 
@@ -4841,13 +5337,17 @@ app.put('/api/trust/documents/:id/status', (req: Request, res: Response) => {
 // 8. Confirmer la disponibilité d'un bien
 app.post('/api/trust/availability/:propertyId', (req: Request, res: Response) => {
   try {
-    const user = getAuthUser(req) || { id: 'usr_author', name: 'Agent Certifié', email: 'agent@kinimmo.cd', role: 'agent' };
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, message: 'Authentification requise.' });
     const { propertyId } = req.params;
     const { availability_status = 'available', confirmation_method = 'agent_statement', notes } = req.body;
 
     const prop = inMemoryProperties.find((p: any) => p.id === propertyId);
     if (!prop) {
       return res.status(404).json({ success: false, message: 'Bien immobilier introuvable.' });
+    }
+    if (!canManageProperty(user, prop)) {
+      return res.status(403).json({ success: false, message: 'Accès interdit : vous ne pouvez confirmer la disponibilité que pour vos propres annonces.' });
     }
 
     const isAvailable = availability_status === 'available';
@@ -4899,8 +5399,11 @@ app.post('/api/trust/availability/:propertyId', (req: Request, res: Response) =>
 });
 
 // 9. Journal d'audit complet des administrateurs
-app.get('/api/trust/audit-logs', (_req: Request, res: Response) => {
+app.get('/api/trust/audit-logs', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, message: 'Accès réservé aux administrateurs.' });
     return res.json({ success: true, count: inMemoryTrust.auditLogs.length, data: inMemoryTrust.auditLogs });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -4911,10 +5414,10 @@ app.get('/api/trust/audit-logs', (_req: Request, res: Response) => {
 app.get('/api/trust/notifications', (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
-    let list = inMemoryTrust.notifications;
-    if (user && user.id) {
-      list = list.filter((n) => n.userId === user.id || n.userId === 'all');
-    }
+    if (!user) return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    const list = inMemoryTrust.notifications.filter(
+      (n) => n.userId === user.id || (user.role === 'admin' && n.userId === 'all')
+    );
     return res.json({ success: true, count: list.length, data: list });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -4923,9 +5426,14 @@ app.get('/api/trust/notifications', (req: Request, res: Response) => {
 
 app.put('/api/trust/notifications/:id/read', (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, message: 'Authentification requise.' });
     const { id } = req.params;
     const notif = inMemoryTrust.notifications.find((n) => n.id === id);
     if (notif) {
+      if (user.role !== 'admin' && notif.userId !== user.id && notif.userId !== 'all') {
+        return res.status(403).json({ success: false, message: 'Accès interdit.' });
+      }
       notif.isRead = true;
       saveLocalTrust(inMemoryTrust);
     }
@@ -4936,9 +5444,871 @@ app.put('/api/trust/notifications/:id/read', (req: Request, res: Response) => {
 });
 
 
+// ==========================================
+// 12. PARITÉ API COMPLÈTE (CHAMPS, PARAMÈTRES, ADMIN, AGENTS, AGENCES, FAVORIS, MESSAGES, ANALYTICS, LEADS)
+// ==========================================
+
+// 12.1 Custom Fields
+let inMemoryCustomFields: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_CUSTOM_FIELDS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_CUSTOM_FIELDS_FILE, 'utf-8'));
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return Array.isArray(initialCustomFields) ? [...initialCustomFields] : [];
+})();
+
+function saveLocalCustomFields(list: any[]) {
+  try { fs.writeFileSync(LOCAL_CUSTOM_FIELDS_FILE, JSON.stringify(list, null, 2), 'utf-8'); } catch {}
+}
+
+app.get('/api/custom-fields', (_req: Request, res: Response) => {
+  const publicFields = inMemoryCustomFields.filter((f) => !f.isPrivate);
+  return res.json({ success: true, count: publicFields.length, fields: publicFields });
+});
+
+app.get('/api/admin/custom-fields', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  return res.json({ success: true, count: inMemoryCustomFields.length, fields: inMemoryCustomFields });
+});
+
+app.post('/api/admin/custom-fields', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const body = req.body || {};
+  if (!body.key) return res.status(400).json({ success: false, error: 'La clé du champ est obligatoire.' });
+  const newField = {
+    id: body.id || `cf_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    key: String(body.key).trim(),
+    label: body.label || { fr: body.labelFr || body.key, en: body.labelEn || body.key },
+    type: body.type || 'text',
+    unit: body.unit || undefined,
+    options: Array.isArray(body.options) ? body.options : undefined,
+    required: Boolean(body.required),
+    isPrivate: Boolean(body.isPrivate),
+    filterable: body.filterable !== false,
+    showInCard: Boolean(body.showInCard),
+    order: Number(body.order) || inMemoryCustomFields.length + 1
+  };
+  inMemoryCustomFields.push(newField);
+  saveLocalCustomFields(inMemoryCustomFields);
+  return res.status(201).json({ success: true, field: newField });
+});
+
+app.put('/api/admin/custom-fields/:id', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const idx = inMemoryCustomFields.findIndex((f) => f.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Champ introuvable.' });
+  inMemoryCustomFields[idx] = { ...inMemoryCustomFields[idx], ...req.body, id: req.params.id };
+  saveLocalCustomFields(inMemoryCustomFields);
+  return res.json({ success: true, field: inMemoryCustomFields[idx] });
+});
+
+app.delete('/api/admin/custom-fields/:id', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const initialLen = inMemoryCustomFields.length;
+  inMemoryCustomFields = inMemoryCustomFields.filter((f) => f.id !== req.params.id);
+  if (inMemoryCustomFields.length === initialLen) return res.status(404).json({ success: false, error: 'Champ introuvable.' });
+  saveLocalCustomFields(inMemoryCustomFields);
+  return res.json({ success: true, message: 'Champ supprimé.' });
+});
+
+// 12.2 Paramètres du site & VIP Conciergerie
+const DEFAULT_SETTINGS = {
+  site_name: 'Kinimmo RDC',
+  contact_email: 'contact@kinimmo.cd',
+  support_phone: '+243 84 529 4616',
+  support_whatsapp: '+243 84 529 4616',
+  office_address: 'Boulevard du 30 Juin, Gombe, Kinshasa',
+  working_hours: 'Lun - Sam : 08h30 - 18h00',
+  exchange_rate_usd_cdf: 2850,
+  auto_approve_properties: true,
+  vip_enabled: true,
+  vip_title: 'Conciergerie Privée & VIP Kinshasa',
+  vip_subtitle: 'Accompagnement sur mesure pour résidences et investissements',
+  vip_phone: '+243 84 529 4616',
+  vip_whatsapp: '+243 84 529 4616',
+  vip_email: 'vip@kinimmo.cd',
+  vip_message: 'Bonjour, je souhaite bénéficier du service de conciergerie VIP Kinimmo.',
+  vip_description: 'Visites privées, vérifications juridiques et négociation clé en main.'
+};
+
+let inMemorySettings: Record<string, any> = (() => {
+  try {
+    if (fs.existsSync(LOCAL_SETTINGS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_SETTINGS_FILE, 'utf-8'));
+      if (parsed && typeof parsed === 'object') return { ...DEFAULT_SETTINGS, ...parsed };
+    }
+  } catch {}
+  return { ...DEFAULT_SETTINGS };
+})();
+
+function saveLocalSettings(settings: Record<string, any>) {
+  try { fs.writeFileSync(LOCAL_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8'); } catch {}
+}
+
+app.get('/api/settings/contact', (_req: Request, res: Response) => {
+  return res.json({ success: true, settings: inMemorySettings });
+});
+app.get('/api/settings', (_req: Request, res: Response) => {
+  return res.json({ success: true, settings: inMemorySettings });
+});
+app.get('/api/admin/settings', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  return res.json({ success: true, settings: inMemorySettings });
+});
+app.put('/api/admin/settings', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  inMemorySettings = { ...inMemorySettings, ...(req.body || {}), updated_at: new Date().toISOString() };
+  saveLocalSettings(inMemorySettings);
+  return res.json({ success: true, message: 'Paramètres mis à jour.', settings: inMemorySettings });
+});
+
+// 12.3 Agents & Agences
+let inMemoryAgencies: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_AGENCIES_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_AGENCIES_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return Array.isArray(initialAgencies) ? [...initialAgencies] : [];
+})();
+function saveLocalAgencies(list: any[]) {
+  try { fs.writeFileSync(LOCAL_AGENCIES_FILE, JSON.stringify(list, null, 2), 'utf-8'); } catch {}
+}
+
+let inMemoryAgents: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_AGENTS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_AGENTS_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return Array.isArray(initialAgents) ? [...initialAgents] : [];
+})();
+function saveLocalAgents(list: any[]) {
+  try { fs.writeFileSync(LOCAL_AGENTS_FILE, JSON.stringify(list, null, 2), 'utf-8'); } catch {}
+}
+
+const normalizeAgentRecord = (a: any) => ({
+  ...a,
+  name: a.name || 'Agent Immobilier',
+  title: a.title || 'Agent Immobilier Agréé',
+  avatar: a.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+  phone: a.phone || '+243 81 000 0000',
+  whatsapp: a.whatsapp || a.phone || '+243 81 000 0000',
+  bio: a.bio || 'Agent immobilier partenaire certifié à Kinshasa.',
+  rating: typeof a.rating === 'number' ? a.rating : 5.0,
+  reviewCount: typeof a.reviewCount === 'number' ? a.reviewCount : 1,
+  specialties: Array.isArray(a.specialties) ? a.specialties : ['Résidentiel', 'Commercial', 'Conseil Immobilier'],
+  languages: Array.isArray(a.languages) ? a.languages : ['Français', 'Lingala'],
+});
+
+const normalizeAgencyRecord = (ag: any) => ({
+  ...ag,
+  name: ag.name || ag.agencyName || 'Agence Immobilière',
+  logo: ag.logo || ag.avatar || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
+  address: ag.address || 'Kinshasa, RDC',
+  city: ag.city || 'Kinshasa',
+  phone: ag.phone || '+243 81 000 00 00',
+  whatsapp: ag.whatsapp || ag.phone || '+243 81 000 00 00',
+  rccm: ag.rccm || ag.rccmOrNif,
+  description: ag.description || 'Agence immobilière partenaire à Kinshasa.',
+  specialties: Array.isArray(ag.specialties) ? ag.specialties : ['Achat & Vente', 'Location', 'Conseil'],
+  agentsCount: typeof ag.agentsCount === 'number' ? ag.agentsCount : 1,
+});
+
+const getMergedAgents = () => {
+  const byId = new Map<string, any>();
+  inMemoryAgents.forEach((a) => byId.set(a.id, normalizeAgentRecord(a)));
+  inMemoryUsers
+    .filter((u) => u.role === 'agent')
+    .forEach((u) => {
+      const { password: _p, ...safe } = u;
+      const existing = byId.get(u.id) || {};
+      byId.set(u.id, normalizeAgentRecord({
+        ...safe,
+        ...existing,
+        id: u.id,
+        name: existing.name || u.name,
+        email: u.email,
+        phone: existing.phone || u.phone,
+        whatsapp: existing.whatsapp || u.whatsapp || u.phone,
+        agencyName: existing.agencyName || u.agencyName,
+        isVerified: Boolean(u.isVerified ?? existing.isVerified),
+        listingsCount: inMemoryProperties.filter((p) => p.agentId === u.id || p.userId === u.id).length
+      }));
+    });
+  return Array.from(byId.values());
+};
+
+const getMergedAgencies = () => {
+  const byId = new Map<string, any>();
+  inMemoryAgencies.forEach((ag) => byId.set(ag.id, normalizeAgencyRecord(ag)));
+  inMemoryUsers
+    .filter((u) => u.role === 'agency')
+    .forEach((u) => {
+      const { password: _p, ...safe } = u;
+      const agId = u.agencyId || u.id;
+      const existing = byId.get(agId) || {};
+      byId.set(agId, normalizeAgencyRecord({
+        ...safe,
+        ...existing,
+        id: agId,
+        userId: u.id,
+        name: existing.name || u.agencyName || u.name,
+        email: existing.email || u.email,
+        phone: existing.phone || u.phone,
+        whatsapp: existing.whatsapp || u.whatsapp || u.phone,
+        rccmOrNif: existing.rccmOrNif || u.rccmOrNif,
+        isVerified: Boolean(u.isVerified ?? existing.isVerified),
+        listingsCount: inMemoryProperties.filter((p) => p.agencyId === agId || p.userId === u.id).length
+      }));
+    });
+  return Array.from(byId.values());
+};
+
+app.get('/api/agents', (_req: Request, res: Response) => {
+  const agents = getMergedAgents();
+  return res.json({ success: true, count: agents.length, agents });
+});
+
+app.get('/api/agents/:id', (req: Request, res: Response) => {
+  const agent = getMergedAgents().find((a) => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ success: false, error: 'Agent introuvable.' });
+  return res.json({ success: true, agent });
+});
+
+app.put('/api/agents/profile', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const { password: _p, role: _r, isVerified: _v, kinshasaBadgeVerified: _k, id: _id, ...safeBody } = req.body || {};
+  const uIdx = inMemoryUsers.findIndex((u) => u.id === user.id);
+  if (uIdx !== -1) {
+    inMemoryUsers[uIdx] = { ...inMemoryUsers[uIdx], ...safeBody };
+    saveLocalUsers(inMemoryUsers);
+  }
+  const aIdx = inMemoryAgents.findIndex((a) => a.id === user.id);
+  if (aIdx !== -1) {
+    inMemoryAgents[aIdx] = { ...inMemoryAgents[aIdx], ...safeBody };
+  } else {
+    inMemoryAgents.push({ id: user.id, name: user.name, email: user.email, ...safeBody });
+  }
+  saveLocalAgents(inMemoryAgents);
+  return res.json({ success: true, message: 'Profil agent mis à jour.', agent: getMergedAgents().find((a) => a.id === user.id) });
+});
+
+app.get('/api/agencies', (_req: Request, res: Response) => {
+  const agencies = getMergedAgencies();
+  return res.json({ success: true, count: agencies.length, agencies });
+});
+
+app.get('/api/agencies/:id', (req: Request, res: Response) => {
+  const agency = getMergedAgencies().find((a) => a.id === req.params.id || a.userId === req.params.id);
+  if (!agency) return res.status(404).json({ success: false, error: 'Agence introuvable.' });
+  return res.json({ success: true, agency });
+});
+
+app.put('/api/agencies/:id', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const { id } = req.params;
+  if (user.role !== 'admin' && user.id !== id && user.agencyId !== id) {
+    return res.status(403).json({ success: false, error: 'Accès interdit.' });
+  }
+  const { password: _p, role: _r, isVerified: _v, kinshasaBadgeVerified: _k, ...safeBody } = req.body || {};
+  const idx = inMemoryAgencies.findIndex((a) => a.id === id);
+  if (idx !== -1) {
+    inMemoryAgencies[idx] = { ...inMemoryAgencies[idx], ...safeBody, id };
+  } else {
+    inMemoryAgencies.push({ id, ...safeBody });
+  }
+  saveLocalAgencies(inMemoryAgencies);
+  return res.json({ success: true, message: 'Agence mise à jour.', agency: getMergedAgencies().find((a) => a.id === id) });
+});
+
+// 12.4 Favoris utilisateur
+let inMemoryFavorites: Record<string, string[]> = (() => {
+  try {
+    if (fs.existsSync(LOCAL_FAVORITES_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_FAVORITES_FILE, 'utf-8'));
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch {}
+  return {};
+})();
+function saveLocalFavorites(map: Record<string, string[]>) {
+  try { fs.writeFileSync(LOCAL_FAVORITES_FILE, JSON.stringify(map, null, 2), 'utf-8'); } catch {}
+}
+
+app.get('/api/favorites', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const propIds = inMemoryFavorites[user.id] || [];
+  const favorites = inMemoryProperties.filter((p) => propIds.includes(p.id));
+  return res.json({ success: true, count: favorites.length, propertyIds: propIds, favorites });
+});
+
+app.post('/api/favorites/:propertyId', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const { propertyId } = req.params;
+  const current = new Set(inMemoryFavorites[user.id] || []);
+  current.add(propertyId);
+  inMemoryFavorites[user.id] = Array.from(current);
+  saveLocalFavorites(inMemoryFavorites);
+  return res.json({ success: true, propertyIds: inMemoryFavorites[user.id] });
+});
+
+app.delete('/api/favorites/:propertyId', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const { propertyId } = req.params;
+  inMemoryFavorites[user.id] = (inMemoryFavorites[user.id] || []).filter((id) => id !== propertyId);
+  saveLocalFavorites(inMemoryFavorites);
+  return res.json({ success: true, propertyIds: inMemoryFavorites[user.id] });
+});
+
+app.get('/api/favorites/check/:propertyId', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const isFavorite = (inMemoryFavorites[user.id] || []).includes(req.params.propertyId);
+  return res.json({ success: true, isFavorite });
+});
+
+// 12.5 Messages & Leads CRM
+let inMemoryMessages: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_MESSAGES_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_MESSAGES_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+})();
+function saveLocalMessages(list: any[]) {
+  try { fs.writeFileSync(LOCAL_MESSAGES_FILE, JSON.stringify(list, null, 2), 'utf-8'); } catch {}
+}
+
+let inMemoryCrmLeads: any[] = (() => {
+  try {
+    if (fs.existsSync(LOCAL_CRM_LEADS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_CRM_LEADS_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return Array.isArray(initialLeads) ? [...initialLeads] : [];
+})();
+function saveLocalCrmLeads(list: any[]) {
+  try { fs.writeFileSync(LOCAL_CRM_LEADS_FILE, JSON.stringify(list, null, 2), 'utf-8'); } catch {}
+}
+
+app.post('/api/messages', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  const body = req.body || {};
+  const { propertyId, agentId, senderName, senderEmail, senderPhone, message, type = 'info', visitDate } = body;
+  if (!senderName || !message) {
+    return res.status(400).json({ success: false, error: 'Nom et message requis.' });
+  }
+  const prop = propertyId ? inMemoryProperties.find((p) => p.id === propertyId) : null;
+  const record = {
+    id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    propertyId: propertyId || null,
+    propertyTitle: prop?.title || body.propertyTitle || null,
+    agentId: agentId || prop?.agentId || prop?.userId || null,
+    agencyId: prop?.agencyId || null,
+    senderUserId: authUser?.id || null,
+    senderName,
+    senderEmail: senderEmail || '',
+    senderPhone: senderPhone || '',
+    message,
+    type,
+    visitDate: visitDate || null,
+    status: 'new',
+    createdAt: new Date().toISOString()
+  };
+  inMemoryMessages.unshift(record);
+  saveLocalMessages(inMemoryMessages);
+  inMemoryCrmLeads.unshift({
+    id: record.id,
+    propertyId: record.propertyId,
+    propertyTitle: record.propertyTitle,
+    agentId: record.agentId,
+    agencyId: record.agencyId,
+    name: senderName,
+    email: senderEmail || '',
+    phone: senderPhone || '',
+    message,
+    type: type === 'tour' ? 'visit' : 'inquiry',
+    status: 'new',
+    createdAt: record.createdAt
+  });
+  saveLocalCrmLeads(inMemoryCrmLeads);
+  return res.status(201).json({ success: true, message: 'Message envoyé avec succès.', data: record });
+});
+
+app.get('/api/messages/inbox', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  let list = [...inMemoryMessages];
+  if (user.role !== 'admin') {
+    list = list.filter((m) => m.agentId === user.id || m.agencyId === (user.agencyId || user.id) || m.senderUserId === user.id);
+  }
+  return res.json({ success: true, count: list.length, messages: list });
+});
+
+app.put('/api/messages/:id/status', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const idx = inMemoryMessages.findIndex((m) => m.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Message introuvable.' });
+  const msg = inMemoryMessages[idx];
+  if (user.role !== 'admin' && msg.agentId !== user.id && msg.agencyId !== (user.agencyId || user.id)) {
+    return res.status(403).json({ success: false, error: 'Accès interdit.' });
+  }
+  inMemoryMessages[idx].status = req.body?.status || 'read';
+  inMemoryMessages[idx].updatedAt = new Date().toISOString();
+  saveLocalMessages(inMemoryMessages);
+  return res.json({ success: true, data: inMemoryMessages[idx] });
+});
+
+app.get('/api/leads', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  let list = [...inMemoryCrmLeads];
+  if (user.role !== 'admin') {
+    list = list.filter((l) => l.agentId === user.id || l.agencyId === (user.agencyId || user.id));
+  }
+  return res.json({ success: true, count: list.length, leads: list, data: list });
+});
+
+app.post('/api/leads', (req: Request, res: Response) => {
+  const body = req.body || {};
+  const lead = {
+    id: body.id || `lead_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    ...body,
+    status: body.status || 'new',
+    createdAt: body.createdAt || new Date().toISOString()
+  };
+  inMemoryCrmLeads.unshift(lead);
+  saveLocalCrmLeads(inMemoryCrmLeads);
+  return res.status(201).json({ success: true, lead, data: lead });
+});
+
+app.put('/api/leads/:id', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const idx = inMemoryCrmLeads.findIndex((l) => l.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Lead introuvable.' });
+  if (user.role !== 'admin' && inMemoryCrmLeads[idx].agentId !== user.id && inMemoryCrmLeads[idx].agencyId !== (user.agencyId || user.id)) {
+    return res.status(403).json({ success: false, error: 'Accès interdit.' });
+  }
+  inMemoryCrmLeads[idx] = { ...inMemoryCrmLeads[idx], ...(req.body || {}), id: req.params.id, updatedAt: new Date().toISOString() };
+  saveLocalCrmLeads(inMemoryCrmLeads);
+  return res.json({ success: true, lead: inMemoryCrmLeads[idx], data: inMemoryCrmLeads[idx] });
+});
+
+app.get('/api/invoices', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const list = user.role === 'admin' ? inMemoryInvoices : inMemoryInvoices.filter((i) => i.user_id === user.id);
+  return res.json({ success: true, count: list.length, invoices: list, data: list });
+});
+
+// 12.6 Analytics
+let inMemoryAnalytics: Record<string, { views: number; whatsapp: number; phone: number; shares: number; favorites: number }> = (() => {
+  try {
+    if (fs.existsSync(LOCAL_ANALYTICS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_ANALYTICS_FILE, 'utf-8'));
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch {}
+  return {};
+})();
+function saveLocalAnalytics(data: typeof inMemoryAnalytics) {
+  try { fs.writeFileSync(LOCAL_ANALYTICS_FILE, JSON.stringify(data, null, 2), 'utf-8'); } catch {}
+}
+
+app.post('/api/analytics/track', (req: Request, res: Response) => {
+  const { propertyId, eventType = 'view' } = req.body || {};
+  if (!propertyId) return res.status(400).json({ success: false, error: 'propertyId requis.' });
+  if (!inMemoryAnalytics[propertyId]) {
+    inMemoryAnalytics[propertyId] = { views: 0, whatsapp: 0, phone: 0, shares: 0, favorites: 0 };
+  }
+  if (eventType === 'view') inMemoryAnalytics[propertyId].views += 1;
+  else if (eventType === 'whatsapp') inMemoryAnalytics[propertyId].whatsapp += 1;
+  else if (eventType === 'phone') inMemoryAnalytics[propertyId].phone += 1;
+  else if (eventType === 'share') inMemoryAnalytics[propertyId].shares += 1;
+  else if (eventType === 'favorite') inMemoryAnalytics[propertyId].favorites += 1;
+  saveLocalAnalytics(inMemoryAnalytics);
+
+  if (eventType === 'view') {
+    const pIdx = inMemoryProperties.findIndex((p) => p.id === propertyId);
+    if (pIdx !== -1) {
+      inMemoryProperties[pIdx].viewsCount = (inMemoryProperties[pIdx].viewsCount || 0) + 1;
+      saveLocalProperties(inMemoryProperties);
+    }
+  }
+  return res.json({ success: true, stats: inMemoryAnalytics[propertyId] });
+});
+
+app.get('/api/analytics/property/:id', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const prop = inMemoryProperties.find((p) => p.id === req.params.id);
+  if (prop && !canManageProperty(user, prop)) {
+    return res.status(403).json({ success: false, error: 'Accès interdit.' });
+  }
+  const stats = inMemoryAnalytics[req.params.id] || { views: prop?.viewsCount || 0, whatsapp: 0, phone: 0, shares: 0, favorites: 0 };
+  return res.json({ success: true, stats });
+});
+
+app.get('/api/analytics/my-performance', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const myProps = inMemoryProperties.filter((p) => canManageProperty(user, p));
+  const summary = myProps.reduce(
+    (acc, p) => {
+      const s = inMemoryAnalytics[p.id] || { views: p.viewsCount || 0, whatsapp: 0, phone: 0, shares: 0, favorites: 0 };
+      acc.views += s.views || p.viewsCount || 0;
+      acc.whatsapp += s.whatsapp || 0;
+      acc.phone += s.phone || 0;
+      acc.shares += s.shares || 0;
+      acc.favorites += s.favorites || 0;
+      return acc;
+    },
+    { propertiesCount: myProps.length, views: 0, whatsapp: 0, phone: 0, shares: 0, favorites: 0 }
+  );
+  return res.json({ success: true, summary });
+});
+
+// 12.7 Utilisateurs (/api/users)
+const sanitizeUser = (u: StoredAccountRecord) => {
+  const { password: _pwd, ...safe } = u;
+  return safe;
+};
+
+app.get('/api/users', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const users = inMemoryUsers.map(sanitizeUser);
+  return res.json({ success: true, count: users.length, users, data: users });
+});
+
+app.get('/api/users/:id', (req: Request, res: Response) => {
+  const target = inMemoryUsers.find((u) => u.id === req.params.id);
+  if (!target) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
+  const authUser = getAuthUser(req);
+  if (authUser && (authUser.id === target.id || authUser.role === 'admin')) {
+    return res.json({ success: true, user: sanitizeUser(target) });
+  }
+  return res.json({
+    success: true,
+    user: {
+      id: target.id,
+      name: target.name,
+      role: target.role,
+      agencyName: target.agencyName,
+      avatar: target.avatar,
+      isVerified: Boolean(target.isVerified)
+    }
+  });
+});
+
+app.put('/api/users/:id', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  if (!authUser) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (authUser.role !== 'admin' && authUser.id !== req.params.id) {
+    return res.status(403).json({ success: false, error: 'Accès interdit.' });
+  }
+  const idx = inMemoryUsers.findIndex((u) => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
+
+  const body = req.body || {};
+  if (authUser.role !== 'admin') {
+    const { password: _p, role: _r, id: _id, isVerified: _v, kinshasaBadgeVerified: _k, ...safeBody } = body;
+    inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...safeBody, id: req.params.id };
+  } else {
+    const { id: _id, ...adminBody } = body;
+    inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...adminBody, id: req.params.id };
+  }
+  saveLocalUsers(inMemoryUsers);
+  return res.json({ success: true, user: sanitizeUser(inMemoryUsers[idx]) });
+});
+
+// 12.8 Console d'Administration (/api/admin/*)
+app.get('/api/admin/stats', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+
+  const communeMap = new Map<string, number>();
+  inMemoryProperties.forEach((p) => {
+    const c = p.commune || 'Kinshasa';
+    communeMap.set(c, (communeMap.get(c) || 0) + 1);
+  });
+  const topCommunes = Array.from(communeMap.entries())
+    .map(([commune, count]) => ({ commune, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  return res.json({
+    success: true,
+    stats: {
+      totalUsers: inMemoryUsers.length,
+      totalProperties: inMemoryProperties.length,
+      activeProperties: inMemoryProperties.filter((p) => p.published !== false && p.status !== 'sold').length,
+      soldProperties: inMemoryProperties.filter((p) => p.status === 'sold' || p.listingStatus === 'SOLD').length,
+      totalAgents: getMergedAgents().length,
+      totalAgencies: getMergedAgencies().length,
+      totalMessages: inMemoryMessages.length,
+      totalRevenueUsd: inMemoryInvoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + Number(i.amount || 0), 0),
+      topCommunes
+    }
+  });
+});
+
+app.get('/api/admin/users', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  return res.json({ success: true, count: inMemoryUsers.length, users: inMemoryUsers.map(sanitizeUser) });
+});
+
+app.post('/api/admin/users', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const { name, email, password, phone, role = 'user', agencyName, rccmOrNif } = req.body || {};
+  if (!email || !password) return res.status(400).json({ success: false, error: 'Email et mot de passe requis.' });
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (inMemoryUsers.some((u) => u.email.toLowerCase() === cleanEmail)) {
+    return res.status(409).json({ success: false, error: 'Cet email est déjà utilisé.' });
+  }
+  const newId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const record: StoredAccountRecord = {
+    id: newId,
+    name: name || cleanEmail.split('@')[0],
+    email: cleanEmail,
+    password: String(password).trim(),
+    phone: phone || '',
+    role,
+    agencyId: role === 'agency' ? newId : undefined,
+    agencyName: agencyName || undefined,
+    rccmOrNif: rccmOrNif || undefined,
+    isVerified: false,
+    kinshasaBadgeVerified: false,
+    createdAt: new Date().toISOString()
+  };
+  inMemoryUsers.unshift(record);
+  saveLocalUsers(inMemoryUsers);
+  return res.status(201).json({ success: true, user: sanitizeUser(record) });
+});
+
+app.put('/api/admin/users/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const idx = inMemoryUsers.findIndex((u) => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
+  const { id: _id, ...updates } = req.body || {};
+  inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...updates, id: req.params.id };
+  saveLocalUsers(inMemoryUsers);
+  return res.json({ success: true, user: sanitizeUser(inMemoryUsers[idx]) });
+});
+
+app.put('/api/admin/users/:id/role', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const idx = inMemoryUsers.findIndex((u) => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
+  const { role } = req.body || {};
+  if (!['admin', 'agent', 'agency', 'user', 'owner'].includes(role)) {
+    return res.status(400).json({ success: false, error: 'Rôle invalide.' });
+  }
+  inMemoryUsers[idx].role = role;
+  if (role === 'agency' && !inMemoryUsers[idx].agencyId) {
+    inMemoryUsers[idx].agencyId = inMemoryUsers[idx].id;
+  }
+  saveLocalUsers(inMemoryUsers);
+  return res.json({ success: true, user: sanitizeUser(inMemoryUsers[idx]) });
+});
+
+app.put('/api/admin/users/:id/verify', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const idx = inMemoryUsers.findIndex((u) => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
+  const verified = req.body?.isVerified !== undefined ? Boolean(req.body.isVerified) : true;
+  inMemoryUsers[idx].isVerified = verified;
+  inMemoryUsers[idx].kinshasaBadgeVerified = verified;
+  saveLocalUsers(inMemoryUsers);
+  return res.json({ success: true, user: sanitizeUser(inMemoryUsers[idx]) });
+});
+
+app.put('/api/admin/users/:id/reset-password', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const idx = inMemoryUsers.findIndex((u) => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
+  const newPassword = req.body?.newPassword || req.body?.password;
+  if (!newPassword || String(newPassword).length < 6) {
+    return res.status(400).json({ success: false, error: 'Le nouveau mot de passe doit contenir au moins 6 caractères.' });
+  }
+  inMemoryUsers[idx].password = String(newPassword).trim();
+  saveLocalUsers(inMemoryUsers);
+  return res.json({ success: true, message: 'Mot de passe réinitialisé avec succès.' });
+});
+
+app.delete('/api/admin/users/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  if (req.params.id === admin.id) {
+    return res.status(400).json({ success: false, error: 'Impossible de supprimer votre propre compte administrateur actif.' });
+  }
+  const initialLen = inMemoryUsers.length;
+  inMemoryUsers = inMemoryUsers.filter((u) => u.id !== req.params.id);
+  if (inMemoryUsers.length === initialLen) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
+  saveLocalUsers(inMemoryUsers);
+  return res.json({ success: true, message: 'Utilisateur supprimé.' });
+});
+
+app.get('/api/admin/properties', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  return res.json({ success: true, count: inMemoryProperties.length, properties: inMemoryProperties });
+});
+
+app.put('/api/admin/properties/:id/status', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const idx = inMemoryProperties.findIndex((p) => p.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+  const { status, published, featured } = req.body || {};
+  if (status !== undefined) {
+    inMemoryProperties[idx].status = status;
+    if (String(status).toUpperCase() === 'PUBLISHED') inMemoryProperties[idx].listingStatus = 'PUBLISHED';
+    else if (String(status).toUpperCase() === 'ARCHIVED') inMemoryProperties[idx].listingStatus = 'ARCHIVED';
+    else if (String(status).toUpperCase() === 'SOLD') inMemoryProperties[idx].listingStatus = 'SOLD';
+  }
+  if (published !== undefined) inMemoryProperties[idx].published = Boolean(published);
+  if (featured !== undefined) inMemoryProperties[idx].featured = Boolean(featured);
+  inMemoryProperties[idx].updatedAt = new Date().toISOString();
+  saveLocalProperties(inMemoryProperties);
+  return res.json({ success: true, property: inMemoryProperties[idx] });
+});
+
+app.delete('/api/admin/properties/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const initialLen = inMemoryProperties.length;
+  inMemoryProperties = inMemoryProperties.filter((p) => p.id !== req.params.id);
+  if (inMemoryProperties.length === initialLen) return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+  saveLocalProperties(inMemoryProperties);
+  return res.json({ success: true, message: 'Propriété supprimée.' });
+});
+
+app.get('/api/admin/agents', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const agents = getMergedAgents();
+  return res.json({ success: true, count: agents.length, agents });
+});
+
+app.put('/api/admin/agents/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const { id } = req.params;
+  const uIdx = inMemoryUsers.findIndex((u) => u.id === id);
+  if (uIdx !== -1) {
+    inMemoryUsers[uIdx] = { ...inMemoryUsers[uIdx], ...(req.body || {}), id };
+    saveLocalUsers(inMemoryUsers);
+  }
+  const aIdx = inMemoryAgents.findIndex((a) => a.id === id);
+  if (aIdx !== -1) {
+    inMemoryAgents[aIdx] = { ...inMemoryAgents[aIdx], ...(req.body || {}), id };
+    saveLocalAgents(inMemoryAgents);
+  }
+  return res.json({ success: true, agent: getMergedAgents().find((a) => a.id === id) });
+});
+
+app.delete('/api/admin/agents/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  inMemoryAgents = inMemoryAgents.filter((a) => a.id !== req.params.id);
+  inMemoryUsers = inMemoryUsers.filter((u) => u.id !== req.params.id);
+  saveLocalAgents(inMemoryAgents);
+  saveLocalUsers(inMemoryUsers);
+  return res.json({ success: true, message: 'Agent supprimé.' });
+});
+
+app.get('/api/admin/agencies', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const agencies = getMergedAgencies();
+  return res.json({ success: true, count: agencies.length, agencies });
+});
+
+app.put('/api/admin/agencies/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  const { id } = req.params;
+  const agIdx = inMemoryAgencies.findIndex((a) => a.id === id);
+  if (agIdx !== -1) {
+    inMemoryAgencies[agIdx] = { ...inMemoryAgencies[agIdx], ...(req.body || {}), id };
+  } else {
+    inMemoryAgencies.push({ id, ...(req.body || {}) });
+  }
+  saveLocalAgencies(inMemoryAgencies);
+  const uIdx = inMemoryUsers.findIndex((u) => u.id === id || u.agencyId === id);
+  if (uIdx !== -1) {
+    inMemoryUsers[uIdx] = { ...inMemoryUsers[uIdx], ...(req.body || {}), id: inMemoryUsers[uIdx].id };
+    saveLocalUsers(inMemoryUsers);
+  }
+  return res.json({ success: true, agency: getMergedAgencies().find((a) => a.id === id) });
+});
+
+app.delete('/api/admin/agencies/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+  inMemoryAgencies = inMemoryAgencies.filter((a) => a.id !== req.params.id);
+  inMemoryUsers = inMemoryUsers.filter((u) => u.id !== req.params.id && u.agencyId !== req.params.id);
+  saveLocalAgencies(inMemoryAgencies);
+  saveLocalUsers(inMemoryUsers);
+  return res.json({ success: true, message: 'Agence supprimée.' });
+});
+
 // Health check
 app.get('/api/health', (_req, res) => {
   res.json({
+    success: true,
     status: 'ok',
     service: 'Kinimmo Conciergerie & Cloudinary Video API',
     cloudinary: {

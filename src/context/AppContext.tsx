@@ -83,7 +83,7 @@ import {
   listenToAuthChanges,
   logOutFromFirebase
 } from '../lib/kinimmoStore';
-import { mysqlApi } from '../services/mysqlApi';
+import { mysqlApi, getStoredToken } from '../services/mysqlApi';
 import { getAdminCredentials, saveAdminCredentials } from '../lib/adminCredentials';
 import { parsePropertyIdFromUrl, updateBrowserUrlForProperty } from '../utils/shareUtils';
 
@@ -115,7 +115,7 @@ interface AppContextType {
   properties: Property[];
   addProperty: (property: Property) => Promise<void> | void;
   updateProperty: (property: Property) => Promise<void> | void;
-  deleteProperty: (id: string) => void;
+  deleteProperty: (id: string) => Promise<void> | void;
   updatePropertyListingStatus: (propertyId: string, status: ListingLifecycleStatus, note?: string) => Promise<{ success: boolean; message?: string }>;
   assignPropertyToAgent: (propertyId: string, assignedAgentId: string, assignedAgentName: string) => Promise<void>;
 
@@ -279,8 +279,8 @@ const defaultFilters: PropertyFilters = {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const DURABLE_PROPERTIES_KEY = 'immocraft_durable_published_properties';
-const DELETED_PROPERTIES_KEY = 'immocraft_deleted_properties_registry';
+const DURABLE_PROPERTIES_KEY = 'kinimmo_durable_published_properties';
+const DELETED_PROPERTIES_KEY = 'kinimmo_deleted_properties_registry';
 
 const getDurableLocalProperties = (): Property[] => {
   try {
@@ -373,11 +373,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   }, []);
 
-  // Écouter les changements d'état d'authentification utilisateur
+  // Écouter les changements d'état d'authentification utilisateur et valider la session stockée
   useEffect(() => {
     const unsub = listenToAuthChanges((currentUser) => {
       setUser(currentUser);
     });
+
+    const token = getStoredToken();
+    if (token) {
+      mysqlApi.getMe().then((res) => {
+        const liveUser = res.user || res.data?.user;
+        if (res.success && liveUser) {
+          setUser((prev) => ({ ...(prev || {}), ...liveUser }));
+          try {
+            localStorage.setItem('kinimmo_user', JSON.stringify(liveUser));
+          } catch {}
+        } else if (res.status === 401 || res.status === 403) {
+          try {
+            localStorage.removeItem('kinimmo_admin_session');
+          } catch {}
+          logOutFromFirebase();
+        }
+      }).catch(() => {});
+    }
+
     return () => unsub();
   }, []);
 
@@ -429,7 +448,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
 
   // Signalements utilisateurs & Anti-Fraude
-  const REPORTS_STORAGE_KEY = 'immocraft_property_user_reports';
+  const REPORTS_STORAGE_KEY = 'kinimmo_property_user_reports';
   const [reports, setReports] = useState<PropertyUserReport[]>(() => {
     try {
       const raw = localStorage.getItem(REPORTS_STORAGE_KEY);
@@ -460,6 +479,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveReportsLocally(updated);
       return updated;
     });
+
+    mysqlApi.submitPropertyReport({
+      propertyId: reportData.propertyId,
+      reporterName: reportData.reporterName,
+      reporterContact: reportData.reporterContact,
+      reason: reportData.reason,
+      comment: reportData.comment
+    }).catch(() => {});
 
     // Mettre à jour l'annonce concernée pour ré-exécuter l'analyse anti-fraude
     setProperties((prev) => {
@@ -568,32 +595,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       agentVerified: user?.isVerified || false
     };
 
-    // Tenter la persistance via l'API MySQL
-    try {
-      await mysqlApi.createVideo(videoData);
-    } catch (e) {
-      console.warn('MySQL API createVideo fallback to local storage:', e);
+    // Persister d'abord via l'API backend
+    const res = await mysqlApi.createVideo(videoData);
+    if (!res.success && res.status) {
+      throw new Error(res.message || res.error || 'Vous devez être connecté et autorisé pour publier cette vidéo.');
     }
 
+    const savedVideo: PropertyVideo = (res.success && (res.data?.video || res.video))
+      ? (res.data?.video || res.video)
+      : newVideo;
+
     setPropertyVideos((prev) => {
-      const updated = [newVideo, ...prev];
+      const updated = [savedVideo, ...prev.filter((v) => v.id !== savedVideo.id)];
       saveVideosLocally(updated);
       return updated;
     });
 
     return {
       success: true,
-      message: newVideo.status === 'draft'
+      message: savedVideo.status === 'draft'
         ? 'Brouillon de vidéo enregistré avec succès.'
         : 'Vidéo soumise à validation administrative avec succès.'
     };
   };
 
   const updatePropertyVideoStatus = async (id: string, status: PropertyVideoStatus, reason?: string) => {
-    try {
-      await mysqlApi.adminModerateVideo(id, status, reason);
-    } catch (e) {
-      console.warn('MySQL API adminModerateVideo fallback to local state:', e);
+    const res = await mysqlApi.adminModerateVideo(id, status, reason);
+    if (!res.success && res.status) {
+      throw new Error(res.message || res.error || 'Action réservée aux administrateurs.');
     }
 
     setPropertyVideos((prev) => {
@@ -606,10 +635,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deletePropertyVideo = async (id: string) => {
-    try {
-      await mysqlApi.deleteVideo(id);
-    } catch (e) {
-      console.warn('MySQL API deleteVideo fallback to local state:', e);
+    const res = await mysqlApi.deleteVideo(id);
+    if (!res.success && res.status) {
+      throw new Error(res.message || res.error || 'Suppression refusée.');
     }
 
     setPropertyVideos((prev) => {
@@ -875,7 +903,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...p,
             labels: Array.isArray(p.labels) ? p.labels : [],
             amenities: Array.isArray(p.amenities) ? p.amenities : [],
-            images: Array.isArray(p.images) ? p.images : []
+            images: Array.isArray(p.images) ? p.images : [],
+            customFields: p.customFields && typeof p.customFields === 'object' ? p.customFields : {},
+            category: p.category || 'Résidentiel',
+            currency: p.currency || 'USD',
+            description: p.description || '',
+            bedrooms: typeof p.bedrooms === 'number' ? p.bedrooms : Number(p.bedrooms) || 0,
+            bathrooms: typeof p.bathrooms === 'number' ? p.bathrooms : Number(p.bathrooms) || 0,
+            area: typeof p.area === 'number' ? p.area : Number(p.area) || 0,
           });
 
           // 1. Charger les propriétés de base et locales
@@ -911,7 +946,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...p,
             labels: Array.isArray(p.labels) ? p.labels : [],
             amenities: Array.isArray(p.amenities) ? p.amenities : [],
-            images: Array.isArray(p.images) ? p.images : []
+            images: Array.isArray(p.images) ? p.images : [],
+            customFields: p.customFields && typeof p.customFields === 'object' ? p.customFields : {},
+            category: p.category || 'Résidentiel',
+            currency: p.currency || 'USD',
+            description: p.description || '',
+            bedrooms: typeof p.bedrooms === 'number' ? p.bedrooms : Number(p.bedrooms) || 0,
+            bathrooms: typeof p.bathrooms === 'number' ? p.bathrooms : Number(p.bathrooms) || 0,
+            area: typeof p.area === 'number' ? p.area : Number(p.area) || 0,
           });
           currentLocalProps.forEach((p) => {
             if (!deleted.has(p.id)) propsMap.set(p.id, sanitizeProp(p));
@@ -977,7 +1019,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     // Synchronize custom fields from MySQL API (Hostinger backend)
-    mysqlApi.getCustomFields().then((apiFields) => {
+    mysqlApi.getCustomFields().then((res: any) => {
+      const apiFields = Array.isArray(res) ? res : (Array.isArray(res?.fields) ? res.fields : res?.data?.fields);
       if (Array.isArray(apiFields) && apiFields.length > 0) {
         setCustomFields(apiFields as CustomFieldDefinition[]);
       }
@@ -986,11 +1029,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Synchronize agencies from MySQL API backend
     mysqlApi.getAgencies().then((res) => {
       if (res && res.success && Array.isArray(res.agencies) && res.agencies.length > 0) {
+        const sanitizeAgency = (a: any): Agency => ({
+          ...a,
+          name: a.name || a.agencyName || 'Agence Immobilière',
+          logo: a.logo || a.avatar || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&auto=format&fit=crop&q=80',
+          address: a.address || 'Kinshasa, RDC',
+          city: a.city || 'Kinshasa',
+          phone: a.phone || '+243 81 000 00 00',
+          whatsapp: a.whatsapp || a.phone || '+243 81 000 00 00',
+          description: a.description || 'Agence immobilière partenaire à Kinshasa.',
+          specialties: Array.isArray(a.specialties) ? a.specialties : ['Achat & Vente', 'Location', 'Conseil'],
+          agentsCount: typeof a.agentsCount === 'number' ? a.agentsCount : 1,
+        });
         setAgencies((prev) => {
           const map = new Map<string, Agency>();
-          res.agencies.forEach((a: Agency) => map.set(a.id, a));
+          res.agencies.forEach((a: Agency) => map.set(a.id, sanitizeAgency(a)));
           prev.forEach((a) => {
-            if (!map.has(a.id)) map.set(a.id, a);
+            if (!map.has(a.id)) map.set(a.id, sanitizeAgency(a));
           });
           return Array.from(map.values());
         });
@@ -1000,11 +1055,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Synchronize agents from MySQL API backend
     mysqlApi.getAgents().then((res) => {
       if (res && res.success && Array.isArray(res.agents) && res.agents.length > 0) {
+        const sanitizeAgent = (a: any): Agent => ({
+          ...a,
+          name: a.name || 'Agent Immobilier',
+          title: a.title || 'Agent Immobilier Agréé',
+          avatar: a.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+          phone: a.phone || '+243 81 000 0000',
+          whatsapp: a.whatsapp || a.phone || '+243 81 000 0000',
+          bio: a.bio || 'Agent immobilier partenaire certifié à Kinshasa.',
+          rating: typeof a.rating === 'number' ? a.rating : 5.0,
+          reviewCount: typeof a.reviewCount === 'number' ? a.reviewCount : 1,
+          specialties: Array.isArray(a.specialties) ? a.specialties : ['Résidentiel', 'Commercial', 'Conseil Immobilier'],
+          languages: Array.isArray(a.languages) ? a.languages : ['Français', 'Lingala'],
+        });
         setAgents((prev) => {
           const map = new Map<string, Agent>();
-          res.agents.forEach((a: Agent) => map.set(a.id, a));
+          res.agents.forEach((a: Agent) => map.set(a.id, sanitizeAgent(a)));
           prev.forEach((a) => {
-            if (!map.has(a.id)) map.set(a.id, a);
+            if (!map.has(a.id)) map.set(a.id, sanitizeAgent(a));
           });
           return Array.from(map.values());
         });
@@ -1078,26 +1146,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       published: fraudAnalysis.verdict !== 'suspect' && (property.published !== false)
     };
 
+    // Enregistrement d'abord dans le backend via l'API REST
+    const res = await mysqlApi.createProperty(enrichedProperty);
+    if (!res.success && res.status) {
+      throw new Error(res.message || res.error || "Erreur lors de la publication de l'annonce.");
+    }
+
+    const savedProperty: Property = (res.success && (res.property || res.data?.property))
+      ? (res.property || res.data?.property)
+      : enrichedProperty;
+
     setProperties((prev) => {
-      const exists = prev.some((p) => p.id === enrichedProperty.id);
-      const next = exists ? prev.map((p) => (p.id === enrichedProperty.id ? enrichedProperty : p)) : [enrichedProperty, ...prev];
+      const exists = prev.some((p) => p.id === savedProperty.id);
+      const next = exists ? prev.map((p) => (p.id === savedProperty.id ? savedProperty : p)) : [savedProperty, ...prev];
       saveDurableLocalProperties(next);
       return next;
     });
-    // Enregistrement direct dans MySQL via l'API REST
-    try {
-      const res = await mysqlApi.createProperty(enrichedProperty);
-      if (!res.success && res.message && !res.message.includes('Impossible de joindre')) {
-        throw new Error(res.message);
-      }
-    } catch (apiErr: any) {
-      if (apiErr.message && !apiErr.message.includes('Impossible de joindre')) {
-        throw apiErr;
-      }
-    }
 
     try {
-      await savePropertyToFirestore(enrichedProperty);
+      await savePropertyToFirestore(savedProperty);
     } catch (err) {
       console.warn('Firestore save property notice (retained in durable storage):', err);
     }
@@ -1120,31 +1187,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       published: fraudAnalysis.verdict !== 'suspect' && (property.published !== false)
     };
 
+    const res = await mysqlApi.updateProperty(enrichedProperty.id, enrichedProperty);
+    if (!res.success && res.status) {
+      throw new Error(res.message || res.error || "Erreur lors de la mise à jour de l'annonce.");
+    }
+
+    const savedProperty: Property = (res.success && (res.property || res.data?.property))
+      ? (res.property || res.data?.property)
+      : enrichedProperty;
+
     setProperties((prev) => {
-      const next = prev.map((p) => (p.id === enrichedProperty.id ? enrichedProperty : p));
+      const next = prev.map((p) => (p.id === savedProperty.id ? savedProperty : p));
       saveDurableLocalProperties(next);
       return next;
     });
 
     try {
-      const res = await mysqlApi.updateProperty(enrichedProperty.id, enrichedProperty);
-      if (!res.success && res.message && !res.message.includes('Impossible de joindre')) {
-        throw new Error(res.message);
-      }
-    } catch (apiErr: any) {
-      if (apiErr.message && !apiErr.message.includes('Impossible de joindre')) {
-        throw apiErr;
-      }
-    }
-
-    try {
-      await savePropertyToFirestore(enrichedProperty);
+      await savePropertyToFirestore(savedProperty);
     } catch (err) {
       console.warn('Firestore update property notice:', err);
     }
   };
 
-  const deleteProperty = (id: string) => {
+  const deleteProperty = async (id: string) => {
+    const res = await mysqlApi.deleteProperty(id);
+    if (!res.success && res.status) {
+      console.warn('Suppression refusée par le serveur:', res.message || res.error);
+      return;
+    }
+
     markPropertyAsDeletedLocally(id);
     setProperties((prev) => {
       const next = prev.filter((p) => p.id !== id);
@@ -1157,10 +1228,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Règles des annonces : Mise à jour du statut du cycle de vie
   const updatePropertyListingStatus = async (propertyId: string, status: ListingLifecycleStatus, note?: string) => {
     // 1. Enregistrer le nouveau statut côté serveur
-    try {
-      await mysqlApi.updatePropertyListingStatus(propertyId, status, note);
-    } catch (e) {
-      console.warn('MySQL API status update notice (fallback local durable):', e);
+    const res = await mysqlApi.updatePropertyListingStatus(propertyId, status, note);
+    if (!res.success && res.status) {
+      return {
+        success: false,
+        message: res.message || res.error || 'Vous n\'êtes pas autorisé à modifier le statut de cette annonce.'
+      };
     }
 
     // 2. Mettre à jour immédiatement les données du tableau de bord

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const propertiesController = require('../controllers/propertiesController');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { requireProfessional } = require('../middleware/roles');
 
 const path = require('path');
@@ -34,7 +34,7 @@ const upload = multer({
 });
 
 // Routes publiques
-router.get('/', propertiesController.getProperties);
+router.get('/', optionalAuth, propertiesController.getProperties);
 router.get('/:id', propertiesController.getPropertyById);
 
 // Routes protégées (Création réservée aux agents, agences ou administrateurs)

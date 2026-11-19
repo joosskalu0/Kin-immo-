@@ -309,7 +309,7 @@ async function getProperties(req, res, next) {
       params.push(commune);
     }
     if (isFeatured !== undefined) {
-      sql += ' AND p.is_featured = ?';
+      sql += ' AND p.featured = ?';
       params.push(isFeatured === 'true' ? 1 : 0);
     }
     if (search) {
@@ -333,18 +333,19 @@ async function getProperties(req, res, next) {
 async function updatePropertyStatus(req, res, next) {
   try {
     const { id } = req.params;
-    const { status, published, isFeatured } = req.body;
+    const { status, published, isFeatured, featured } = req.body;
+    const featuredVal = featured !== undefined ? featured : isFeatured;
 
     await pool.execute(
       `UPDATE properties
        SET status = COALESCE(?, status),
            published = COALESCE(?, published),
-           is_featured = COALESCE(?, is_featured)
+           featured = COALESCE(?, featured)
        WHERE id = ?`,
       [
         status || null,
         published !== undefined ? Boolean(published) : null,
-        isFeatured !== undefined ? Boolean(isFeatured) : null,
+        featuredVal !== undefined ? Boolean(featuredVal) : null,
         id
       ]
     );

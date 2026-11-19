@@ -276,19 +276,27 @@ class VideosController {
   }
 
   /**
-   * 1c. POST /api/videos/:id/visit
+   * 1c. POST /api/videos/:id/visit (et /:id/visit-request)
    * Enregistrer une demande de visite réelle pour le bien de cette vidéo
    * RÈGLE : Enregistrement réel dans MySQL sans fausse confirmation
    */
   async scheduleVideoVisit(req, res, next) {
     try {
       const { id } = req.params;
-      const { name, email, phone, visitDate, visitTime, notes } = req.body;
+      const body = req.body || {};
+      const name = String(body.name || body.clientName || '').trim();
+      const phone = String(body.phone || body.clientPhone || '').trim();
+      const rawEmail = String(body.email || body.clientEmail || '').trim();
+      const cleanDigits = phone.replace(/[^0-9]/g, '') || 'client';
+      const email = rawEmail ? rawEmail.toLowerCase() : `${cleanDigits}@client.kinimmo.com`;
+      const visitDate = String(body.visitDate || body.preferredDate || new Date().toISOString().split('T')[0]).trim();
+      const visitTime = String(body.visitTime || body.preferredTimeSlot || '10:00').trim();
+      const notes = body.notes ? String(body.notes).trim() : '';
 
-      if (!name || !email || !phone || !visitDate) {
+      if (!name || (!phone && !rawEmail)) {
         return res.status(400).json({
           success: false,
-          message: 'Votre nom, e-mail, téléphone et la date souhaitée sont obligatoires pour planifier une visite.'
+          message: 'Votre nom et un contact (téléphone ou e-mail) sont obligatoires pour planifier une visite.'
         });
       }
 
@@ -325,24 +333,28 @@ class VideosController {
           messageId,
           propertyId,
           senderId,
-          targetAgentId || null,
-          name.trim(),
-          email.trim().toLowerCase(),
-          phone.trim(),
-          notes ? notes.trim() : `Demande de visite planifiée depuis Kinimmo Visites pour le bien "${video.title}"`,
+          targetAgentId || 'admin_master',
+          name,
+          email,
+          phone || null,
+          notes || `Demande de visite planifiée depuis Kinimmo Visites pour le bien "${video.title}"`,
           visitDate,
-          visitTime || '10:00'
+          visitTime
         ]
       );
 
-      // 3. Enregistrer également dans property_analytics (+1 tour_requests)
-      const today = new Date().toISOString().split('T')[0];
-      await pool.execute(
-        `INSERT INTO property_analytics (property_id, date, tour_requests)
-         VALUES (?, ?, 1)
-         ON DUPLICATE KEY UPDATE tour_requests = tour_requests + 1`,
-        [propertyId, today]
-      );
+      // 3. Enregistrer également dans property_analytics (+1 tour_requests) si la table existe
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        await pool.execute(
+          `INSERT INTO property_analytics (property_id, date, tour_requests)
+           VALUES (?, ?, 1)
+           ON DUPLICATE KEY UPDATE tour_requests = tour_requests + 1`,
+          [propertyId, today]
+        );
+      } catch (analyticsErr) {
+        console.warn('[VideosController] Analytics tour increment warning:', analyticsErr.message);
+      }
 
       res.status(201).json({
         success: true,
@@ -351,7 +363,7 @@ class VideosController {
           visitRequestId: messageId,
           propertyId,
           visitDate,
-          visitTime: visitTime || '10:00',
+          visitTime,
           propertyTitle: video.title
         }
       });
@@ -824,20 +836,42 @@ class VideosController {
       }
 
       const reportId = `rep_${uuidv4()}`;
-
-      await pool.execute(
-        `INSERT INTO property_reports 
+      const insertSql = `INSERT INTO property_reports 
           (id, property_id, reporter_name, reporter_contact, reason, comment, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-        [
-          reportId,
-          propertyId,
-          reporterName ? reporterName.trim() : null,
-          reporterContact ? reporterContact.trim() : null,
-          reason,
-          comment ? comment.trim() : null
-        ]
-      );
+         VALUES (?, ?, ?, ?, ?, ?, 'pending')`;
+      const insertParams = [
+        reportId,
+        propertyId,
+        reporterName ? reporterName.trim() : null,
+        reporterContact ? reporterContact.trim() : null,
+        reason,
+        comment ? comment.trim() : null
+      ];
+
+      try {
+        await pool.execute(insertSql, insertParams);
+      } catch (dbErr) {
+        if (dbErr.code === 'ER_NO_SUCH_TABLE' || (dbErr.message && dbErr.message.includes("doesn't exist"))) {
+          await pool.query(`
+            CREATE TABLE IF NOT EXISTS property_reports (
+              id VARCHAR(64) NOT NULL PRIMARY KEY,
+              property_id VARCHAR(64) NOT NULL,
+              reporter_name VARCHAR(255) DEFAULT NULL,
+              reporter_contact VARCHAR(100) DEFAULT NULL,
+              reason VARCHAR(100) NOT NULL,
+              comment TEXT DEFAULT NULL,
+              status ENUM('pending', 'resolved', 'dismissed') NOT NULL DEFAULT 'pending',
+              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              INDEX idx_prop_reports_property (property_id),
+              INDEX idx_prop_reports_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+          `);
+          await pool.execute(insertSql, insertParams);
+        } else {
+          throw dbErr;
+        }
+      }
 
       res.status(201).json({
         success: true,

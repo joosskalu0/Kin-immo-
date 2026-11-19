@@ -122,7 +122,7 @@ export const ScheduleVisitModal: React.FC<ScheduleVisitModalProps> = ({
           {/* Property Snippet */}
           <div className="flex items-center gap-3 p-3 bg-slate-950/60 rounded-2xl border border-slate-800">
             <img
-              src={property.images[0] || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=200'}
+              src={property.images?.[0] || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=200'}
               alt={property.title}
               className="w-14 h-14 rounded-xl object-cover shrink-0"
             />

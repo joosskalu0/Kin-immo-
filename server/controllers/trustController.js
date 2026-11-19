@@ -19,6 +19,20 @@ const ALLOWED_MIME_TYPES = [
   'image/webp'
 ];
 
+const VALID_DOC_TYPES = [
+  'cni', 'passport', 'voter_card', 'rccm', 'id_nat', 'nif',
+  'certificat_enregistrement', 'livret_logeur', 'acte_vente',
+  'mandat_exclusif', 'mandat_simple', 'attestation_localisation', 'other'
+];
+
+const VALID_CHECK_TYPES = [
+  'identity_validation',
+  'rccm_guichet_unique',
+  'cadastre_conservation_titres',
+  'physical_site_inspection',
+  'phone_video_interview'
+];
+
 /**
  * 1. Soumettre une demande de vérification Kinimmo Trust
  * Accessible à tout utilisateur authentifié pour son propre compte, son agence ou ses annonces.
@@ -32,7 +46,8 @@ exports.submitApplication = async (req, res, next) => {
       target_type,
       target_id,
       target_name,
-      applicant_phone
+      applicant_phone,
+      documents
     } = req.body;
 
     const applicant_user_id = req.user.id;
@@ -42,24 +57,29 @@ exports.submitApplication = async (req, res, next) => {
 
     // Validation des champs
     if (!target_type || !['agent', 'agency', 'property'].includes(target_type)) {
+      await connection.rollback();
       return res.status(400).json({ success: false, message: 'Le paramètre target_type est invalide (doit être "agent", "agency" ou "property").' });
     }
     if (!target_id || typeof target_id !== 'string' || target_id.trim().length === 0) {
+      await connection.rollback();
       return res.status(400).json({ success: false, message: 'Identifiant cible (target_id) obligatoire.' });
     }
     if (!target_name || typeof target_name !== 'string' || target_name.trim().length === 0) {
+      await connection.rollback();
       return res.status(400).json({ success: false, message: 'Nom de la cible (target_name) obligatoire.' });
     }
 
     // Vérification de propriété : l'utilisateur a-t-il le droit de demander pour cette cible ?
     if (target_type === 'property') {
-      const [props] = await connection.execute('SELECT id, user_id, agent_id FROM properties WHERE id = ?', [target_id]);
+      const [props] = await connection.execute('SELECT id, agent_id, agency_id FROM properties WHERE id = ?', [target_id]);
       if (props.length === 0) {
         await connection.rollback();
         return res.status(404).json({ success: false, message: 'L\'annonce immobilière ciblée est introuvable.' });
       }
       const prop = props[0];
-      const isOwner = prop.user_id === applicant_user_id || prop.agent_id === applicant_user_id || req.user.role === 'admin';
+      const isOwner = prop.agent_id === applicant_user_id ||
+        (req.user.agency_id && prop.agency_id === req.user.agency_id && req.user.role === 'agency') ||
+        req.user.role === 'admin';
       if (!isOwner) {
         await connection.rollback();
         return res.status(403).json({ success: false, message: 'Vous n\'avez pas les droits pour demander la vérification de cette annonce.' });
@@ -101,13 +121,41 @@ exports.submitApplication = async (req, res, next) => {
       [verificationId, target_type, target_id, target_name.trim(), applicant_user_id, applicant_name, applicant_email, phone]
     );
 
-    // Mettre à jour l'entité cible en statut 'pending'
-    if (target_type === 'property') {
-      await connection.execute('UPDATE properties SET trust_status = "pending", trust_score = 25 WHERE id = ?', [target_id]);
-    } else if (target_type === 'agent') {
-      await connection.execute('UPDATE agents SET trust_status = "pending", trust_score = 25 WHERE id = ?', [target_id]);
-    } else if (target_type === 'agency') {
-      await connection.execute('UPDATE agencies SET trust_status = "pending", trust_score = 25 WHERE id = ?', [target_id]);
+    // Enregistrer les documents joints dans le payload JSON si fournis
+    if (Array.isArray(documents) && documents.length > 0) {
+      for (const doc of documents) {
+        if (!doc || !doc.title || !doc.file_url) continue;
+        const docId = `doc_${crypto.randomUUID()}`;
+        const safeDocType = VALID_DOC_TYPES.includes(doc.doc_type) ? doc.doc_type : 'other';
+        await connection.execute(
+          `INSERT INTO trust_documents 
+            (id, verification_id, doc_type, title, document_number, file_url, file_size, file_mime_type, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+          [
+            docId,
+            verificationId,
+            safeDocType,
+            String(doc.title).trim().slice(0, 255),
+            doc.document_number ? String(doc.document_number).trim().slice(0, 100) : null,
+            String(doc.file_url),
+            doc.file_size ? String(doc.file_size).slice(0, 50) : null,
+            doc.file_mime_type ? String(doc.file_mime_type).slice(0, 100) : null
+          ]
+        );
+      }
+    }
+
+    // Mettre à jour l'entité cible en statut 'pending' (sans bloquer si colonne trust_status absente sur une vieille table)
+    try {
+      if (target_type === 'property') {
+        await connection.execute('UPDATE properties SET trust_status = "pending", trust_score = 25 WHERE id = ?', [target_id]);
+      } else if (target_type === 'agent') {
+        await connection.execute('UPDATE agents SET trust_status = "pending", trust_score = 25 WHERE id = ?', [target_id]);
+      } else if (target_type === 'agency') {
+        await connection.execute('UPDATE agencies SET trust_status = "pending", trust_score = 25 WHERE id = ?', [target_id]);
+      }
+    } catch (colErr) {
+      console.warn('[Trust submitApplication] Optional entity trust_status sync skipped:', colErr.message);
     }
 
     // Journal d'audit protégé
@@ -130,6 +178,7 @@ exports.submitApplication = async (req, res, next) => {
         target_id,
         target_name: target_name.trim(),
         trust_status: 'pending',
+        status: 'pending',
         trust_score: 25,
         submitted_at: new Date().toISOString()
       }
@@ -962,6 +1011,528 @@ exports.getAuditLogs = async (req, res, next) => {
       count: logs.length,
       data: logs
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 14. Route unifiée GET /api/trust/verifications (Admin = tout, Utilisateur = ses propres dossiers)
+ */
+exports.getVerifications = async (req, res, next) => {
+  try {
+    const { target_type, status, applicant_id, search } = req.query;
+    const isAdmin = req.user.role === 'admin';
+
+    let query = `
+      SELECT v.*,
+        (SELECT COUNT(*) FROM trust_documents d WHERE d.verification_id = v.id) as documents_count,
+        (SELECT COUNT(*) FROM trust_checks c WHERE c.verification_id = v.id) as checks_count
+      FROM trust_verifications v
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (!isAdmin) {
+      query += ' AND v.applicant_user_id = ?';
+      params.push(req.user.id);
+    } else if (applicant_id) {
+      query += ' AND v.applicant_user_id = ?';
+      params.push(applicant_id);
+    }
+
+    if (target_type) {
+      query += ' AND v.target_type = ?';
+      params.push(target_type);
+    }
+    if (status) {
+      query += ' AND v.trust_status = ?';
+      params.push(status);
+    }
+    if (search) {
+      query += ' AND (v.target_name LIKE ? OR v.applicant_name LIKE ? OR v.applicant_email LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s, s);
+    }
+
+    query += ' ORDER BY v.created_at DESC';
+    const [rows] = await pool.execute(query, params);
+
+    const verifIds = rows.map(r => r.id);
+    const docsByVerif = {};
+    const checksByVerif = {};
+
+    if (verifIds.length > 0) {
+      const placeholders = verifIds.map(() => '?').join(',');
+      const [docs] = await pool.query(
+        `SELECT * FROM trust_documents WHERE verification_id IN (${placeholders}) ORDER BY created_at ASC`,
+        verifIds
+      );
+      docs.forEach(d => {
+        if (!docsByVerif[d.verification_id]) docsByVerif[d.verification_id] = [];
+        docsByVerif[d.verification_id].push({
+          ...d,
+          download_url: `/api/trust/documents/${d.id}/secure-file`
+        });
+      });
+
+      const [checks] = await pool.query(
+        `SELECT * FROM trust_checks WHERE verification_id IN (${placeholders}) ORDER BY conducted_at ASC`,
+        verifIds
+      );
+      checks.forEach(c => {
+        if (!checksByVerif[c.verification_id]) checksByVerif[c.verification_id] = [];
+        checksByVerif[c.verification_id].push(c);
+      });
+    }
+
+    const enriched = rows.map(r => ({
+      ...r,
+      status: r.trust_status,
+      trustStatus: r.trust_status,
+      targetType: r.target_type,
+      targetId: r.target_id,
+      targetName: r.target_name,
+      target_title: r.target_name,
+      trustScore: r.trust_score,
+      score: r.trust_score,
+      documents: docsByVerif[r.id] || [],
+      checks: checksByVerif[r.id] || []
+    }));
+
+    res.json({ success: true, count: enriched.length, data: enriched });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 15. Route unifiée GET /api/trust/verifications/:id (Admin ou propriétaire du dossier)
+ */
+exports.getVerificationById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [verifs] = await pool.execute('SELECT * FROM trust_verifications WHERE id = ?', [id]);
+    if (verifs.length === 0) {
+      return res.status(404).json({ success: false, message: 'Dossier introuvable.' });
+    }
+    const verif = verifs[0];
+    if (req.user.role !== 'admin' && verif.applicant_user_id !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Accès refusé à ce dossier.' });
+    }
+    return exports.getAdminVerificationById(req, res, next);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 16. Route unifiée PUT/POST /api/trust/verifications/:id/status (Admin uniquement)
+ */
+exports.updateVerificationStatus = async (req, res, next) => {
+  const { status } = req.body;
+  if (['identity_verified', 'pro_verified', 'property_verified'].includes(status)) {
+    return exports.approveVerification(req, res, next);
+  }
+  if (status === 'rejected') {
+    if (!req.body.rejection_reason && req.body.admin_notes) {
+      req.body.rejection_reason = req.body.admin_notes;
+    }
+    return exports.rejectVerification(req, res, next);
+  }
+  if (status === 'suspended') {
+    if (!req.body.suspension_reason && req.body.admin_notes) {
+      req.body.suspension_reason = req.body.admin_notes;
+    }
+    return exports.suspendVerification(req, res, next);
+  }
+
+  const allowedMidStatuses = ['unverified', 'pending', 'in_progress', 'expired'];
+  if (!allowedMidStatuses.includes(status)) {
+    return res.status(400).json({ success: false, message: `Statut Trust invalide : "${status}".` });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+    const { admin_notes, trust_score } = req.body;
+    const admin = req.user;
+
+    const [verifs] = await connection.execute('SELECT * FROM trust_verifications WHERE id = ?', [id]);
+    if (verifs.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Dossier introuvable.' });
+    }
+    const verif = verifs[0];
+    const prevStatus = verif.trust_status;
+
+    await connection.execute(
+      `UPDATE trust_verifications SET 
+        trust_status = ?,
+        trust_score = COALESCE(?, trust_score),
+        admin_notes = COALESCE(?, admin_notes),
+        reviewed_at = NOW(),
+        assigned_admin_id = ?,
+        assigned_admin_name = ?
+      WHERE id = ?`,
+      [status, trust_score !== undefined ? Number(trust_score) : null, admin_notes || null, admin.id, admin.name, id]
+    );
+
+    try {
+      if (verif.target_type === 'property') {
+        await connection.execute('UPDATE properties SET trust_status = ? WHERE id = ?', [status, verif.target_id]);
+      } else if (verif.target_type === 'agent') {
+        await connection.execute('UPDATE agents SET trust_status = ? WHERE id = ?', [status, verif.target_id]);
+      } else if (verif.target_type === 'agency') {
+        await connection.execute('UPDATE agencies SET trust_status = ? WHERE id = ?', [status, verif.target_id]);
+      }
+    } catch {}
+
+    await connection.execute(
+      `INSERT INTO trust_audit_logs 
+      (id, verification_id, target_type, target_id, admin_user_id, admin_name, admin_email, action, previous_status, new_status, reason_or_notes, ip_address)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'STATUS_UPDATED', ?, ?, ?, ?)`,
+      [
+        `audit_${crypto.randomUUID()}`,
+        id,
+        verif.target_type,
+        verif.target_id,
+        admin.id,
+        admin.name,
+        admin.email,
+        prevStatus,
+        status,
+        admin_notes || `Statut modifié vers ${status}`,
+        req.ip || '127.0.0.1'
+      ]
+    );
+
+    await connection.commit();
+    res.json({ success: true, message: `Statut mis à jour vers "${status}".`, data: { id, trust_status: status } });
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * 17. Ajouter un contrôle d'audit (Admin)
+ * POST /api/trust/verifications/:id/checks
+ */
+exports.addCheck = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { check_type, check_label, result = 'passed', evidence_notes } = req.body;
+    const admin = req.user;
+
+    const [verifs] = await pool.execute('SELECT id, target_type, target_id FROM trust_verifications WHERE id = ?', [id]);
+    if (verifs.length === 0) {
+      return res.status(404).json({ success: false, message: 'Dossier introuvable.' });
+    }
+    const verif = verifs[0];
+
+    const safeCheckType = VALID_CHECK_TYPES.includes(check_type) ? check_type : 'identity_validation';
+    const safeResult = ['passed', 'failed', 'pending', 'waived'].includes(result) ? result : 'pending';
+    const checkId = `chk_${crypto.randomUUID()}`;
+
+    await pool.execute(
+      `INSERT INTO trust_checks 
+        (id, verification_id, check_type, check_label, result, evidence_notes, conducted_by_user_id, conducted_by_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        checkId,
+        id,
+        safeCheckType,
+        String(check_label || safeCheckType).trim().slice(0, 255),
+        safeResult,
+        evidence_notes || null,
+        admin.id,
+        admin.name
+      ]
+    );
+
+    await pool.execute(
+      `INSERT INTO trust_audit_logs 
+        (id, verification_id, target_type, target_id, admin_user_id, admin_name, admin_email, action, reason_or_notes, ip_address)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'CHECK_RECORDED', ?, ?)`,
+      [
+        `audit_${crypto.randomUUID()}`,
+        id,
+        verif.target_type,
+        verif.target_id,
+        admin.id,
+        admin.name,
+        admin.email,
+        `Contrôle "${check_label || safeCheckType}" -> ${safeResult}`,
+        req.ip || '127.0.0.1'
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Contrôle d\'audit enregistré avec succès.',
+      data: { id: checkId, verification_id: id, check_type: safeCheckType, check_label, result: safeResult, evidence_notes }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 18. Demander des pièces/informations complémentaires (Admin)
+ * POST /api/trust/verifications/:id/request-info
+ */
+exports.requestMoreInfo = async (req, res, next) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+    const { message, requested_fields } = req.body;
+    const admin = req.user;
+
+    if (!message || String(message).trim().length === 0) {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: 'Veuillez préciser les compléments attendus.' });
+    }
+
+    const [verifs] = await connection.execute('SELECT * FROM trust_verifications WHERE id = ?', [id]);
+    if (verifs.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Dossier introuvable.' });
+    }
+    const verif = verifs[0];
+
+    await connection.execute(
+      `UPDATE trust_verifications SET trust_status = 'in_progress', admin_notes = ?, reviewed_at = NOW(), assigned_admin_id = ?, assigned_admin_name = ? WHERE id = ?`,
+      [String(message).trim(), admin.id, admin.name, id]
+    );
+
+    await connection.execute(
+      `INSERT INTO trust_audit_logs 
+        (id, verification_id, target_type, target_id, admin_user_id, admin_name, admin_email, action, previous_status, new_status, reason_or_notes, ip_address)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'INFO_REQUESTED', ?, 'in_progress', ?, ?)`,
+      [
+        `audit_${crypto.randomUUID()}`,
+        id,
+        verif.target_type,
+        verif.target_id,
+        admin.id,
+        admin.name,
+        admin.email,
+        verif.trust_status,
+        `${String(message).trim()}${Array.isArray(requested_fields) && requested_fields.length ? ` (${requested_fields.join(', ')})` : ''}`,
+        req.ip || '127.0.0.1'
+      ]
+    );
+
+    await connection.execute(
+      `INSERT INTO trust_notifications (id, user_id, title, message, type, target_type, target_id)
+       VALUES (?, ?, 'Complément demandé - Kinimmo Trust', ?, 'doc_required', ?, ?)`,
+      [`notif_${crypto.randomUUID()}`, verif.applicant_user_id, String(message).trim(), verif.target_type, verif.target_id]
+    );
+
+    await connection.commit();
+    res.json({ success: true, message: 'Demande de complément transmise au demandeur.' });
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * 19. Valider ou rejeter une pièce justificative (Admin)
+ * PUT /api/trust/documents/:id/status
+ */
+exports.updateDocumentStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, rejection_note } = req.body;
+    const admin = req.user;
+
+    if (!['approved', 'rejected', 'pending'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Statut de document invalide.' });
+    }
+
+    const [docs] = await pool.execute('SELECT * FROM trust_documents WHERE id = ?', [id]);
+    if (docs.length === 0) {
+      return res.status(404).json({ success: false, message: 'Document introuvable.' });
+    }
+    const doc = docs[0];
+
+    await pool.execute(
+      `UPDATE trust_documents SET 
+        status = ?, rejection_note = ?, verified_by_user_id = ?, verified_by_name = ?, verified_at = NOW()
+       WHERE id = ?`,
+      [status, rejection_note || null, admin.id, admin.name, id]
+    );
+
+    await pool.execute(
+      `INSERT INTO trust_audit_logs 
+        (id, verification_id, target_type, target_id, admin_user_id, admin_name, admin_email, action, reason_or_notes, ip_address)
+       VALUES (?, ?, 'system', ?, ?, ?, ?, 'DOCUMENT_REVIEWED', ?, ?)`,
+      [
+        `audit_${crypto.randomUUID()}`,
+        doc.verification_id,
+        id,
+        admin.id,
+        admin.name,
+        admin.email,
+        `Pièce "${doc.title}" -> ${status}${rejection_note ? ` (${rejection_note})` : ''}`,
+        req.ip || '127.0.0.1'
+      ]
+    );
+
+    res.json({ success: true, message: `Pièce justificative marquée "${status}".` });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 20. Journaliser la consultation d'un justificatif sécurisé
+ * POST /api/trust/documents/:id/access-log
+ */
+exports.logDocumentAccess = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { verification_id, document_title } = req.body || {};
+
+    const [docs] = await pool.execute(
+      `SELECT d.id, d.verification_id, d.title, v.applicant_user_id, v.target_type, v.target_id
+       FROM trust_documents d
+       JOIN trust_verifications v ON d.verification_id = v.id
+       WHERE d.id = ? LIMIT 1`,
+      [id]
+    );
+    if (docs.length === 0) {
+      return res.status(404).json({ success: false, message: 'Document introuvable.' });
+    }
+    const doc = docs[0];
+    if (req.user.role !== 'admin' && doc.applicant_user_id !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Accès interdit.' });
+    }
+
+    await pool.execute(
+      `INSERT INTO trust_audit_logs 
+        (id, verification_id, target_type, target_id, admin_user_id, admin_name, admin_email, action, reason_or_notes, ip_address)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'DOCUMENT_VIEWED', ?, ?)`,
+      [
+        `audit_${crypto.randomUUID()}`,
+        verification_id || doc.verification_id,
+        doc.target_type || 'system',
+        doc.target_id || id,
+        req.user.id,
+        req.user.name || 'Utilisateur',
+        req.user.email || '',
+        `Consultation du document "${document_title || doc.title}" (${id})`,
+        req.ip || '127.0.0.1'
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 21. Confirmer la disponibilité réelle d'un bien
+ * POST /api/trust/availability/:propertyId
+ */
+exports.confirmAvailability = async (req, res, next) => {
+  try {
+    const { propertyId } = req.params;
+    const { availability_status = 'available', confirmation_method = 'agent_statement', notes } = req.body;
+
+    const [props] = await pool.execute('SELECT id, title, agent_id, agency_id FROM properties WHERE id = ? LIMIT 1', [propertyId]);
+    if (props.length === 0) {
+      return res.status(404).json({ success: false, message: 'Propriété introuvable.' });
+    }
+    const prop = props[0];
+
+    const isAllowed =
+      req.user.role === 'admin' ||
+      prop.agent_id === req.user.id ||
+      (req.user.agency_id && prop.agency_id === req.user.agency_id && req.user.role === 'agency');
+
+    if (!isAllowed) {
+      return res.status(403).json({ success: false, message: 'Non autorisé à confirmer la disponibilité de ce bien.' });
+    }
+
+    const validStatuses = ['available', 'under_option', 'reserved', 'rented', 'sold', 'withdrawn'];
+    const safeStatus = validStatuses.includes(availability_status) ? availability_status : 'available';
+    const validMethods = ['agent_statement', 'physical_visit', 'admin_audit', 'client_feedback'];
+    const safeMethod = validMethods.includes(confirmation_method) ? confirmation_method : 'agent_statement';
+    const isAvailable = safeStatus === 'available' || safeStatus === 'under_option' ? 1 : 0;
+
+    const availId = `avail_${crypto.randomUUID()}`;
+    await pool.execute(
+      `INSERT INTO trust_property_availability
+        (id, property_id, property_title, is_available, availability_status, last_confirmed_at, last_confirmed_by_id, last_confirmed_by_name, confirmation_method, notes)
+       VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+        is_available = VALUES(is_available),
+        availability_status = VALUES(availability_status),
+        last_confirmed_at = NOW(),
+        last_confirmed_by_id = VALUES(last_confirmed_by_id),
+        last_confirmed_by_name = VALUES(last_confirmed_by_name),
+        confirmation_method = VALUES(confirmation_method),
+        notes = VALUES(notes)`,
+      [availId, propertyId, prop.title, isAvailable, safeStatus, req.user.id, req.user.name || 'Agent', safeMethod, notes || null]
+    );
+
+    try {
+      await pool.execute('UPDATE properties SET availability_confirmed_at = NOW() WHERE id = ?', [propertyId]);
+    } catch {}
+
+    res.json({
+      success: true,
+      message: 'Disponibilité réelle confirmée.',
+      data: {
+        property_id: propertyId,
+        is_available: Boolean(isAvailable),
+        availability_status: safeStatus,
+        last_confirmed_at: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 22. Récupérer les notifications Kinimmo Trust de l'utilisateur
+ * GET /api/trust/notifications
+ */
+exports.getNotifications = async (req, res, next) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM trust_notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50',
+      [req.user.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 23. Marquer une notification comme lue
+ * PUT /api/trust/notifications/:id/read
+ */
+exports.markNotificationRead = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await pool.execute(
+      'UPDATE trust_notifications SET is_read = 1 WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
+    );
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }

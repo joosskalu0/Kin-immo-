@@ -34,8 +34,10 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
       // Authentification sécurisée via l'API REST MySQL côté serveur
       const res = await mysqlApi.login({ email: email.trim(), password });
 
-      if (res.success && res.data?.user) {
-        const loggedUser = res.data.user;
+      const loggedUser = res.user || res.data?.user;
+      const authToken = res.token || res.data?.token;
+
+      if (res.success && loggedUser) {
         // Vérification stricte des permissions : Seul le rôle 'admin' est autorisé
         if (loggedUser.role !== 'admin') {
           setIsLoading(false);
@@ -43,11 +45,11 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
           return;
         }
 
-        if (res.data.token) {
-          setStoredToken(res.data.token);
+        if (authToken) {
+          setStoredToken(authToken);
         }
 
-        // Sauvegarder la session admin chiffrée
+        // Sauvegarder la session admin et synchroniser l'utilisateur courant
         try {
           localStorage.setItem('kinimmo_admin_session', JSON.stringify({
             id: loggedUser.id,
@@ -56,6 +58,8 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
             role: loggedUser.role,
             loginTime: new Date().toISOString()
           }));
+          localStorage.setItem('kinimmo_user', JSON.stringify(loggedUser));
+          window.dispatchEvent(new CustomEvent('kinimmo_auth_change', { detail: loggedUser }));
         } catch {}
 
         onLoginSuccess(loggedUser);

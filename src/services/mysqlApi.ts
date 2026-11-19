@@ -378,26 +378,36 @@ const DEFAULT_PAYMENT_METHODS = [
 // Clé unique canonique pour le stockage du jeton d'authentification
 export const AUTH_TOKEN_KEY = 'kinimmo_token';
 
-// Récupérer le token d'authentification stocké
+// Récupérer le token d'authentification stocké (avec migration douce des anciennes clés)
 export const getStoredToken = (): string | null => {
   try {
-    return (
-      localStorage.getItem(AUTH_TOKEN_KEY) ||
+    const canonical = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (canonical) return canonical;
+
+    const legacy =
       localStorage.getItem('kinimmo_jwt_token') ||
       localStorage.getItem('kinimmo_auth_token') ||
-      localStorage.getItem('token')
-    );
+      localStorage.getItem('token');
+    if (legacy) {
+      localStorage.setItem(AUTH_TOKEN_KEY, legacy);
+      localStorage.removeItem('kinimmo_jwt_token');
+      localStorage.removeItem('kinimmo_auth_token');
+      localStorage.removeItem('token');
+      return legacy;
+    }
+    return null;
   } catch {
     return null;
   }
 };
 
-// Sauvegarder le token (avec clé unique et miroirs de compatibilité)
+// Sauvegarder le token sous la clé unique canonique
 export const setStoredToken = (token: string): void => {
   try {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
-    localStorage.setItem('kinimmo_jwt_token', token);
-    localStorage.setItem('kinimmo_auth_token', token);
+    localStorage.removeItem('kinimmo_jwt_token');
+    localStorage.removeItem('kinimmo_auth_token');
+    localStorage.removeItem('token');
   } catch (e) {
     console.error('Impossible de stocker le token', e);
   }
@@ -416,9 +426,9 @@ export const clearStoredToken = (): void => {
 };
 
 // Wrapper générique fetch pour les requêtes à l'API
-async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}): Promise<{ success: boolean; data?: T; message?: string; error?: string; [key: string]: any }> {
+async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}): Promise<{ success: boolean; status?: number; data?: T; message?: string; error?: string; [key: string]: any }> {
   const token = getStoredToken();
-  
+
   const headers: Record<string, string> = {
     ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string> || {})
@@ -434,19 +444,26 @@ async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}):
       headers
     });
 
-    const data = await response.json();
+    let data: any = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
 
     if (!response.ok) {
       return {
+        ...data,
         success: false,
-        message: data.message || `Erreur serveur HTTP ${response.status}`,
-        error: data.error,
-        ...data
+        status: response.status,
+        message: data.message || data.error || `Erreur serveur HTTP ${response.status}`,
+        error: data.error || data.message
       };
     }
 
     return {
       success: true,
+      status: response.status,
       data,
       ...data
     };
@@ -1584,7 +1601,7 @@ export const mysqlApi = {
     thumbnailUrl?: string;
     description?: string;
     status?: PropertyVideoStatus;
-  }): Promise<{ success: boolean; message?: string; data?: { video: PropertyVideo }; error?: string }> {
+  }): Promise<{ success: boolean; status?: number; message?: string; video?: PropertyVideo; data?: { video: PropertyVideo }; error?: string }> {
     return apiRequest('/videos', {
       method: 'POST',
       body: JSON.stringify(payload)
@@ -1594,7 +1611,7 @@ export const mysqlApi = {
   /**
    * Met à jour une vidéo existante
    */
-  async updateVideo(id: string, payload: Partial<PropertyVideo>): Promise<{ success: boolean; message?: string; error?: string }> {
+  async updateVideo(id: string, payload: Partial<PropertyVideo>): Promise<{ success: boolean; status?: number; message?: string; error?: string }> {
     return apiRequest(`/videos/${id}`, {
       method: 'PUT',
       body: JSON.stringify(payload)
@@ -1604,7 +1621,7 @@ export const mysqlApi = {
   /**
    * Supprime une vidéo
    */
-  async deleteVideo(id: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  async deleteVideo(id: string): Promise<{ success: boolean; status?: number; message?: string; error?: string }> {
     return apiRequest(`/videos/${id}`, {
       method: 'DELETE'
     });
@@ -1651,7 +1668,7 @@ export const mysqlApi = {
   /**
    * Administration : Approuve, refuse, suspend ou masque une vidéo
    */
-  async adminModerateVideo(id: string, status: PropertyVideoStatus, rejectionReason?: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  async adminModerateVideo(id: string, status: PropertyVideoStatus, rejectionReason?: string): Promise<{ success: boolean; status?: number; message?: string; error?: string }> {
     return apiRequest(`/videos/admin/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status, rejectionReason })

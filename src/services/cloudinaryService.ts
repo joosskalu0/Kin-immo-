@@ -27,6 +27,8 @@ export interface CloudinaryUploadResult {
   message?: string;
 }
 
+import { getStoredToken } from './mysqlApi';
+
 const API_BASE = '/api';
 
 /**
@@ -58,14 +60,18 @@ export async function saveCloudinaryConfig(config: {
   uploadPreset?: string;
   autoOptimize?: boolean;
 }): Promise<{ success: boolean; message: string; config?: CloudinaryConfig }> {
+  const token = getStoredToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const res = await fetch(`${API_BASE}/cloudinary/config`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(config)
   });
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.error || 'Erreur lors de la sauvegarde de la configuration Cloudinary');
+    throw new Error(data.message || data.error || 'Erreur lors de la sauvegarde de la configuration Cloudinary');
   }
   return data;
 }
@@ -75,9 +81,13 @@ export async function saveCloudinaryConfig(config: {
  */
 export async function testCloudinaryConnection(): Promise<{ success: boolean; message: string }> {
   try {
+    const token = getStoredToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     const res = await fetch(`${API_BASE}/cloudinary/test`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers
     });
     return await res.json();
   } catch (err: any) {
@@ -102,6 +112,10 @@ export function uploadVideoWithProgress(
     formData.append('video', file);
 
     xhr.open('POST', `${API_BASE}/cloudinary/upload`, true);
+    const token = getStoredToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
 
     // Progression de l'upload
     if (xhr.upload && onProgress) {

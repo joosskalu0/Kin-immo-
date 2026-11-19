@@ -41,6 +41,7 @@ import {
 import { SAMPLE_REAL_ESTATE_VIDEOS, detectVideoType } from '../utils/videoHelpers';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
 import { analyzePropertyForFraud } from '../utils/suspiciousListingDetector';
+import { getStoredToken } from '../services/mysqlApi';
 
 export const PropertyFormModal: React.FC = () => {
   const {
@@ -135,7 +136,7 @@ export const PropertyFormModal: React.FC = () => {
       setTitle(editingProperty.title);
       setDescription(editingProperty.description);
       setPrice(editingProperty.price);
-      setCurrency(editingProperty.currency || 'EUR');
+      setCurrency(editingProperty.currency || 'USD');
       setPeriod(editingProperty.period || 'total');
       setType(editingProperty.type);
       setStatus(editingProperty.status);
@@ -338,7 +339,7 @@ export const PropertyFormModal: React.FC = () => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/properties/upload-video', true);
 
-    const token = localStorage.getItem('kinimmo_auth_token');
+    const token = getStoredToken();
     if (token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
@@ -1085,7 +1086,7 @@ export const PropertyFormModal: React.FC = () => {
                     .map((field) => (
                       <div key={field.id} className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
                         <label className="block font-semibold text-slate-200 mb-1">
-                          {field.label['fr'] || field.key}{' '}
+                          {(typeof field.label === 'string' ? field.label : field.label?.fr) || field.key}{' '}
                           {field.unit && <span className="text-emerald-400">({field.unit})</span>}
                           {field.required && <span className="text-rose-400"> *</span>}
                         </label>

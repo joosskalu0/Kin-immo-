@@ -149,7 +149,7 @@ export const FieldsBuilderModal: React.FC = () => {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-sm text-white">
-                          {field.label['fr'] || field.key}
+                          {(typeof field.label === 'string' ? field.label : field.label?.fr) || field.key}
                         </span>
                         {field.isPrivate && (
                           <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold flex items-center gap-1 border border-amber-500/30">
