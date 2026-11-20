@@ -5,16 +5,39 @@ const path = require('path');
 /**
  * Sauvegarder une image base64 sur le disque local et retourner son URL publique
  */
+function parseJsonSafe(val, fallback) {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val !== 'string') return val;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return fallback;
+  }
+}
+
 function saveBase64Image(imgData, propertyId, index) {
   if (!imgData || typeof imgData !== 'string') return imgData;
-  if (!imgData.startsWith('data:image')) return imgData;
+  const trimmed = imgData.trim();
+  if (!trimmed.startsWith('data:image')) {
+    // Si l'image vient déjà de notre propre dossier /uploads/images/, conserver le chemin relatif propre
+    const uploadsMatch = trimmed.match(/^https?:\/\/[^/]+(\/uploads\/images\/[^?#]+)$/i);
+    return uploadsMatch ? uploadsMatch[1] : trimmed;
+  }
 
   try {
-    const matches = imgData.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) return imgData;
+    const matches = trimmed.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/s);
+    if (!matches || matches.length !== 3) return trimmed;
 
     const rawExt = matches[1].toLowerCase();
-    const ext = rawExt.includes('png') ? 'png' : rawExt.includes('webp') ? 'webp' : 'jpg';
+    const ext = rawExt.includes('png')
+      ? 'png'
+      : rawExt.includes('webp')
+      ? 'webp'
+      : rawExt.includes('gif')
+      ? 'gif'
+      : rawExt.includes('avif')
+      ? 'avif'
+      : 'jpg';
     const uploadDir = path.join(__dirname, '..', 'uploads', 'images');
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
@@ -27,7 +50,7 @@ function saveBase64Image(imgData, propertyId, index) {
     return `/uploads/images/${filename}`;
   } catch (err) {
     console.warn('[Property Controller] Warning saving image file:', err.message);
-    return imgData;
+    return trimmed;
   }
 }
 
@@ -98,13 +121,7 @@ async function getProperties(req, res, next) {
     let sql = `
       SELECT p.*,
              u.name as agent_name, u.email as agent_email, u.phone as agent_phone, u.whatsapp as agent_whatsapp,
-             ag.name as agency_title, ag.logo as agency_logo,
-             (
-               SELECT JSON_ARRAYAGG(image_url)
-               FROM property_images
-               WHERE property_id = p.id
-               ORDER BY display_order ASC
-             ) as images_list
+             ag.name as agency_title, ag.logo as agency_logo
       FROM properties p
       LEFT JOIN users u ON p.agent_id = u.id
       LEFT JOIN agencies ag ON p.agency_id = ag.id
@@ -164,6 +181,24 @@ async function getProperties(req, res, next) {
 
     const [rows] = await pool.query(sql, params);
 
+    // Récupérer toutes les images associées dans l'ordre exact (évite les bugs JSON_ARRAYAGG sur MariaDB/MySQL)
+    const propIds = rows.map((r) => r.id).filter(Boolean);
+    const imagesByPropId = new Map();
+    if (propIds.length > 0) {
+      const placeholders = propIds.map(() => '?').join(',');
+      const [imgRows] = await pool.query(
+        `SELECT property_id, image_url FROM property_images WHERE property_id IN (${placeholders}) ORDER BY display_order ASC, id ASC`,
+        propIds
+      );
+      for (const imgRow of imgRows) {
+        if (!imgRow || !imgRow.image_url) continue;
+        if (!imagesByPropId.has(imgRow.property_id)) {
+          imagesByPropId.set(imgRow.property_id, []);
+        }
+        imagesByPropId.get(imgRow.property_id).push(imgRow.image_url);
+      }
+    }
+
     // Formattage des champs JSON (amenities, custom_fields, images) pour le frontend React
     const formatted = rows.map((row) => ({
       id: row.id,
@@ -190,9 +225,9 @@ async function getProperties(req, res, next) {
       area: Number(row.area),
       yearBuilt: row.year_built,
       garages: row.garages,
-      amenities: typeof row.amenities === 'string' ? JSON.parse(row.amenities) : (row.amenities || []),
-      customFields: typeof row.custom_fields === 'string' ? JSON.parse(row.custom_fields) : (row.custom_fields || {}),
-      images: Array.isArray(row.images_list) ? row.images_list.filter(Boolean) : [],
+      amenities: parseJsonSafe(row.amenities, []),
+      customFields: parseJsonSafe(row.custom_fields, {}),
+      images: imagesByPropId.get(row.id) || [],
       videoUrl: row.video_url,
       virtualTourUrl: row.virtual_tour_url,
       agentId: row.agent_id,
@@ -442,9 +477,11 @@ async function createProperty(req, res, next) {
     );
 
     // Insertion des images dans la table property_images
+    const savedImages = [];
     if (Array.isArray(p.images) && p.images.length > 0) {
       for (let i = 0; i < p.images.length; i++) {
         const savedUrl = saveBase64Image(p.images[i], propertyId, i);
+        if (savedUrl) savedImages.push(savedUrl);
         await connection.execute(
           'INSERT INTO property_images (property_id, image_url, display_order, is_featured) VALUES (?, ?, ?, ?)',
           [propertyId, savedUrl, i, i === 0]
@@ -457,7 +494,16 @@ async function createProperty(req, res, next) {
     res.status(201).json({
       success: true,
       message: 'Propriété enregistrée avec succès dans la base MySQL.',
-      propertyId
+      propertyId,
+      images: savedImages,
+      property: {
+        ...p,
+        id: propertyId,
+        images: savedImages,
+        videoUrl: videoUrlToSave || p.videoUrl,
+        published: Boolean(isPublished),
+        featured: Boolean(isFeatured)
+      }
     });
   } catch (error) {
     await connection.rollback();
@@ -569,22 +615,38 @@ async function updateProperty(req, res, next) {
     );
 
     // Mise à jour des images si fournies
+    let savedImages = null;
     if (Array.isArray(p.images)) {
+      savedImages = [];
       await connection.execute('DELETE FROM property_images WHERE property_id = ?', [id]);
       for (let i = 0; i < p.images.length; i++) {
         const savedUrl = saveBase64Image(p.images[i], id, i);
+        if (savedUrl) savedImages.push(savedUrl);
         await connection.execute(
           'INSERT INTO property_images (property_id, image_url, display_order, is_featured) VALUES (?, ?, ?, ?)',
           [id, savedUrl, i, i === 0]
         );
       }
+    } else {
+      const [existingImgs] = await connection.execute(
+        'SELECT image_url FROM property_images WHERE property_id = ? ORDER BY display_order ASC, id ASC',
+        [id]
+      );
+      savedImages = existingImgs.map((r) => r.image_url).filter(Boolean);
     }
 
     await connection.commit();
 
     res.json({
       success: true,
-      message: 'Propriété mise à jour avec succès.'
+      message: 'Propriété mise à jour avec succès.',
+      images: savedImages,
+      property: {
+        ...p,
+        id,
+        images: savedImages,
+        ...(videoUrlToSave ? { videoUrl: videoUrlToSave } : {})
+      }
     });
   } catch (error) {
     await connection.rollback();

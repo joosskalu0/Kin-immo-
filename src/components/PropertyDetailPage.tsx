@@ -43,6 +43,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { Property, PropertyUserReport } from '../types';
+import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE } from '../utils/mediaUrl';
 import { useApp } from '../context/AppContext';
 import {
   convertAndFormatPrice,
@@ -267,10 +268,10 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
     );
   }
 
-  const images =
-    Array.isArray(property.images) && property.images.length > 0
-      ? property.images
-      : ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=1200&auto=format&fit=crop&q=80'];
+  const resolvedImages = Array.isArray(property.images)
+    ? property.images.map((img) => resolveMediaUrl(img)).filter(Boolean)
+    : [];
+  const images = resolvedImages.length > 0 ? resolvedImages : [FALLBACK_PROPERTY_IMAGE];
 
   const isFavorite = wishlist.includes(property.id);
   const isCompared = compareList.includes(property.id);
@@ -647,6 +648,7 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                   src={images[selectedImageIndex] || images[0]}
                   alt={`${property.title} — photo ${selectedImageIndex + 1}`}
                   onClick={() => setIsFullscreenGallery(true)}
+                  onError={(e) => handlePropertyImageError(e)}
                   className="w-full h-full object-cover cursor-zoom-in transition-transform duration-500 group-hover:scale-[1.01]"
                 />
 
@@ -744,6 +746,7 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 <img
                   src={images[activeVirtualRoom % images.length]}
                   alt="Aperçu 360"
+                  onError={(e) => handlePropertyImageError(e)}
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute bottom-3 right-3">
@@ -1236,8 +1239,8 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {similarProperties.map((sim) => {
                 const simImg =
-                  (Array.isArray(sim.images) && sim.images[0]) ||
-                  'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&auto=format&fit=crop&q=80';
+                  (Array.isArray(sim.images) && resolveMediaUrl(sim.images[0])) ||
+                  FALLBACK_PROPERTY_IMAGE;
                 const simPrice = convertAndFormatPrice(
                   sim.price,
                   effectiveDisplayCurrency,
@@ -1508,6 +1511,7 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
             <img
               src={images[selectedImageIndex] || images[0]}
               alt={`${property.title} plein écran`}
+              onError={(e) => handlePropertyImageError(e)}
               className="max-h-full max-w-full object-contain rounded-xl"
             />
 

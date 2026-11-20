@@ -41,6 +41,7 @@ import {
   getFreePlan,
   resolveAccountBillingSummary
 } from '../utils/billingHelpers';
+import { resolvePropertyMedia } from '../utils/mediaUrl';
 
 export interface ConfirmOptions {
   title?: string;
@@ -354,7 +355,7 @@ const getDurableLocalProperties = (): Property[] => {
     const raw = localStorage.getItem(DURABLE_PROPERTIES_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return parsed.map((p) => resolvePropertyMedia(p));
     }
   } catch {}
   return [];
@@ -1116,19 +1117,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const deleted = getDeletedPropertiesIds();
           const durable = getDurableLocalProperties();
           const propsMap = new Map<string, Property>();
-          const sanitizeProp = (p: Property): Property => ({
-            ...p,
-            labels: Array.isArray(p.labels) ? p.labels : [],
-            amenities: Array.isArray(p.amenities) ? p.amenities : [],
-            images: Array.isArray(p.images) ? p.images : [],
-            customFields: p.customFields && typeof p.customFields === 'object' ? p.customFields : {},
-            category: p.category || 'Résidentiel',
-            currency: p.currency || 'USD',
-            description: p.description || '',
-            bedrooms: typeof p.bedrooms === 'number' ? p.bedrooms : Number(p.bedrooms) || 0,
-            bathrooms: typeof p.bathrooms === 'number' ? p.bathrooms : Number(p.bathrooms) || 0,
-            area: typeof p.area === 'number' ? p.area : Number(p.area) || 0,
-          });
+          const sanitizeProp = (p: Property): Property => {
+            const mediaResolved = resolvePropertyMedia(p);
+            return {
+              ...mediaResolved,
+              labels: Array.isArray(mediaResolved.labels) ? mediaResolved.labels : [],
+              amenities: Array.isArray(mediaResolved.amenities) ? mediaResolved.amenities : [],
+              images: Array.isArray(mediaResolved.images) ? mediaResolved.images : [],
+              customFields: mediaResolved.customFields && typeof mediaResolved.customFields === 'object' ? mediaResolved.customFields : {},
+              category: mediaResolved.category || 'Résidentiel',
+              currency: mediaResolved.currency || 'USD',
+              description: mediaResolved.description || '',
+              bedrooms: typeof mediaResolved.bedrooms === 'number' ? mediaResolved.bedrooms : Number(mediaResolved.bedrooms) || 0,
+              bathrooms: typeof mediaResolved.bathrooms === 'number' ? mediaResolved.bathrooms : Number(mediaResolved.bathrooms) || 0,
+              area: typeof mediaResolved.area === 'number' ? mediaResolved.area : Number(mediaResolved.area) || 0,
+            };
+          };
 
           // 1. Charger les propriétés de base et locales
           currentLocalProps.forEach((p) => {
@@ -1159,19 +1163,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setProperties((currentLocalProps) => {
           const deleted = getDeletedPropertiesIds();
           const propsMap = new Map<string, Property>();
-          const sanitizeProp = (p: Property): Property => ({
-            ...p,
-            labels: Array.isArray(p.labels) ? p.labels : [],
-            amenities: Array.isArray(p.amenities) ? p.amenities : [],
-            images: Array.isArray(p.images) ? p.images : [],
-            customFields: p.customFields && typeof p.customFields === 'object' ? p.customFields : {},
-            category: p.category || 'Résidentiel',
-            currency: p.currency || 'USD',
-            description: p.description || '',
-            bedrooms: typeof p.bedrooms === 'number' ? p.bedrooms : Number(p.bedrooms) || 0,
-            bathrooms: typeof p.bathrooms === 'number' ? p.bathrooms : Number(p.bathrooms) || 0,
-            area: typeof p.area === 'number' ? p.area : Number(p.area) || 0,
-          });
+          const sanitizeProp = (p: Property): Property => {
+            const mediaResolved = resolvePropertyMedia(p);
+            return {
+              ...mediaResolved,
+              labels: Array.isArray(mediaResolved.labels) ? mediaResolved.labels : [],
+              amenities: Array.isArray(mediaResolved.amenities) ? mediaResolved.amenities : [],
+              images: Array.isArray(mediaResolved.images) ? mediaResolved.images : [],
+              customFields: mediaResolved.customFields && typeof mediaResolved.customFields === 'object' ? mediaResolved.customFields : {},
+              category: mediaResolved.category || 'Résidentiel',
+              currency: mediaResolved.currency || 'USD',
+              description: mediaResolved.description || '',
+              bedrooms: typeof mediaResolved.bedrooms === 'number' ? mediaResolved.bedrooms : Number(mediaResolved.bedrooms) || 0,
+              bathrooms: typeof mediaResolved.bathrooms === 'number' ? mediaResolved.bathrooms : Number(mediaResolved.bathrooms) || 0,
+              area: typeof mediaResolved.area === 'number' ? mediaResolved.area : Number(mediaResolved.area) || 0,
+            };
+          };
           currentLocalProps.forEach((p) => {
             if (!deleted.has(p.id)) propsMap.set(p.id, sanitizeProp(p));
           });
@@ -1385,9 +1392,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error(res.message || res.error || "Erreur lors de la publication de l'annonce.");
     }
 
-    const savedProperty: Property = (res.success && (res.property || res.data?.property))
+    const rawSavedProperty: Property = (res.success && (res.property || res.data?.property))
       ? (res.property || res.data?.property)
-      : enrichedProperty;
+      : {
+          ...enrichedProperty,
+          ...(res.propertyId ? { id: res.propertyId } : {}),
+          ...(Array.isArray(res.images) ? { images: res.images } : {})
+        };
+    const savedProperty = resolvePropertyMedia(rawSavedProperty);
 
     setProperties((prev) => {
       const exists = prev.some((p) => p.id === savedProperty.id);
@@ -1397,7 +1409,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     try {
-      await savePropertyToFirestore(savedProperty);
+      await savePropertyToFirestore(savedProperty, Boolean(res.success));
     } catch (err) {
       console.warn('Firestore save property notice (retained in durable storage):', err);
     }
@@ -1425,9 +1437,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error(res.message || res.error || "Erreur lors de la mise à jour de l'annonce.");
     }
 
-    const savedProperty: Property = (res.success && (res.property || res.data?.property))
+    const rawSavedProperty: Property = (res.success && (res.property || res.data?.property))
       ? (res.property || res.data?.property)
-      : enrichedProperty;
+      : {
+          ...enrichedProperty,
+          ...(Array.isArray(res.images) ? { images: res.images } : {})
+        };
+    const savedProperty = resolvePropertyMedia(rawSavedProperty);
 
     setProperties((prev) => {
       const next = prev.map((p) => (p.id === savedProperty.id ? savedProperty : p));
@@ -1436,7 +1452,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     try {
-      await savePropertyToFirestore(savedProperty);
+      await savePropertyToFirestore(savedProperty, Boolean(res.success));
     } catch (err) {
       console.warn('Firestore update property notice:', err);
     }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { ArchitecturalSlide, INITIAL_ARCHITECTURAL_SLIDES } from '../types/heroShowcase';
+import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE } from '../utils/mediaUrl';
 import {
   ChevronLeft,
   ChevronRight,
@@ -311,8 +312,9 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
             }`}
           >
             <img
-              src={slide.image}
+              src={resolveMediaUrl(slide.image) || FALLBACK_PROPERTY_IMAGE}
               alt={slide.title}
+              onError={(e) => handlePropertyImageError(e)}
               className="w-full h-full object-cover object-center"
             />
             {/* Cinematic Gradient Overlays (matching the Safricode luxury mobile style) */}

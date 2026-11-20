@@ -25,6 +25,7 @@ import {
   generateSignboardPosterPDF,
 } from '../utils/pdfGenerator';
 import { useApp } from '../context/AppContext';
+import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE } from '../utils/mediaUrl';
 
 interface SocialShareModalProps {
   property: Property | null;
@@ -162,8 +163,9 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({ property, on
         <div className="flex items-center gap-3.5 mb-5 pr-8">
           <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-emerald-500/30 shadow-md relative">
             <img
-              src={property.images?.[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=300'}
+              src={resolveMediaUrl(property.images?.[0]) || FALLBACK_PROPERTY_IMAGE}
               alt={property.title}
+              onError={(e) => handlePropertyImageError(e)}
               className="w-full h-full object-cover"
             />
           </div>

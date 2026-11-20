@@ -31,6 +31,9 @@ import {
   getRegisteredAccounts
 } from './authStore';
 import { mysqlApi, getStoredToken, clearStoredToken } from '../services/mysqlApi';
+import { getApiBaseUrl, resolvePropertyMedia } from '../utils/mediaUrl';
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Database & Auth Mock/Proxy Objects to maintain full interface compatibility
 export const db = null as any;
@@ -107,7 +110,7 @@ export function subscribeToProperties(callback: (properties: Property[]) => void
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        callback(parsed);
+        callback(parsed.map(resolvePropertyMedia));
       } else {
         callback([]);
       }
@@ -122,13 +125,14 @@ export function subscribeToProperties(callback: (properties: Property[]) => void
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  fetch('/api/properties', { headers })
+  fetch(`${API_BASE_URL}/properties`, { headers })
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.properties) ? json.properties : null);
       if (items) {
-        localStorage.setItem('kinimmo_properties', JSON.stringify(items));
-        callback(items);
+        const resolved = items.map(resolvePropertyMedia);
+        try { localStorage.setItem('kinimmo_properties', JSON.stringify(resolved)); } catch {}
+        callback(resolved);
       }
     })
     .catch(() => {});
@@ -148,7 +152,7 @@ export function subscribeToCustomFields(callback: (fields: CustomFieldDefinition
     callback(initialCustomFields);
   }
 
-  fetch('/api/custom-fields')
+  fetch(`${API_BASE_URL}/custom-fields`)
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.fields) ? json.fields : (Array.isArray(json?.data) ? json.data : null);
@@ -176,7 +180,7 @@ export function subscribeToLeads(callback: (leads: LeadRequest[]) => void): () =
 
   const token = getStoredToken();
   if (token) {
-    fetch('/api/leads', {
+    fetch(`${API_BASE_URL}/leads`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -205,7 +209,7 @@ export function subscribeToAgents(callback: (agents: Agent[]) => void): () => vo
     callback([]);
   }
 
-  fetch('/api/agents')
+  fetch(`${API_BASE_URL}/agents`)
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.agents) ? json.agents : (Array.isArray(json?.data) ? json.data : null);
@@ -231,7 +235,7 @@ export function subscribeToAgencies(callback: (agencies: Agency[]) => void): () 
     callback([]);
   }
 
-  fetch('/api/agencies')
+  fetch(`${API_BASE_URL}/agencies`)
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.agencies) ? json.agencies : (Array.isArray(json?.data) ? json.data : null);
@@ -259,7 +263,7 @@ export function subscribeToInvoices(callback: (invoices: Invoice[]) => void): ()
 
   const token = getStoredToken();
   if (token) {
-    fetch('/api/invoices', {
+    fetch(`${API_BASE_URL}/invoices`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -300,7 +304,7 @@ export function subscribeToUsers(callback: (users: User[]) => void): () => void 
   } catch {}
 
   if (token && isAdmin) {
-    fetch('/api/users', {
+    fetch(`${API_BASE_URL}/users`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -352,19 +356,22 @@ export function subscribeToPricingConfig(
 // Persistence Actions (save / delete)
 // -------------------------------------------------------------
 
-export async function savePropertyToStore(property: Property) {
+export async function savePropertyToStore(property: Property, skipRemoteSync = false) {
+  const resolvedProp = resolvePropertyMedia(property);
   try {
     const raw = localStorage.getItem('kinimmo_properties');
     let list: Property[] = raw ? JSON.parse(raw) : [...initialProperties];
-    const idx = list.findIndex((p) => p.id === property.id);
+    const idx = list.findIndex((p) => p.id === resolvedProp.id);
     if (idx >= 0) {
-      list[idx] = property;
+      list[idx] = resolvedProp;
     } else {
-      list.unshift(property);
+      list.unshift(resolvedProp);
     }
     localStorage.setItem('kinimmo_properties', JSON.stringify(list));
     notifyListeners('properties', list);
   } catch {}
+
+  if (skipRemoteSync) return;
 
   // Sync with Express backend
   try {
@@ -373,10 +380,10 @@ export async function savePropertyToStore(property: Property) {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    await fetch(`/api/properties/${property.id}`, {
+    await fetch(`${API_BASE_URL}/properties/${resolvedProp.id}`, {
       method: 'PUT',
       headers,
-      body: JSON.stringify(property)
+      body: JSON.stringify(resolvedProp)
     });
   } catch {}
 }
@@ -410,7 +417,7 @@ export async function deletePropertyFromStore(id: string) {
     const token = getStoredToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    await fetch(`/api/properties/${id}`, { method: 'DELETE', headers });
+    await fetch(`${API_BASE_URL}/properties/${id}`, { method: 'DELETE', headers });
   } catch {}
 }
 export const deletePropertyFromFirestore = deletePropertyFromStore;
@@ -494,7 +501,7 @@ export async function saveUserToStore(user: User) {
   try {
     const token = getStoredToken();
     if (token) {
-      await fetch(`/api/users/${user.id}`, {
+      await fetch(`${API_BASE_URL}/users/${user.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

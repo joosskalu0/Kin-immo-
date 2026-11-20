@@ -11,8 +11,9 @@ import {
 } from '../types/trust';
 
 import { getStoredToken } from './mysqlApi';
+import { getApiBaseUrl } from '../utils/mediaUrl';
 
-const API_BASE = '/api/trust';
+const API_BASE = `${getApiBaseUrl()}/trust`;
 
 function getHeaders(): HeadersInit {
   const headers: Record<string, string> = {

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Sparkles, MapPin, BedDouble, Bath, Maximize2, ArrowRight, ShieldCheck, Star } from 'lucide-react';
 import { Property } from '../types';
+import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE } from '../utils/mediaUrl';
 
 interface VitrineSectionProps {
   properties: Property[];
@@ -92,9 +93,8 @@ export const VitrineSection: React.FC<VitrineSectionProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {vitrineProperties.map((property) => {
           // Photo principale sécurisée
-          const mainImage = (property.images && property.images.length > 0 && property.images[0])
-            ? property.images[0]
-            : 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&auto=format&fit=crop&q=80';
+          const mainImage = (property.images && property.images.length > 0 && resolveMediaUrl(property.images[0]))
+            || FALLBACK_PROPERTY_IMAGE;
 
           // Nom de l'agent ou de l'agence certifiée
           const agentOrAgency = property.agencyName ||
@@ -126,6 +126,7 @@ export const VitrineSection: React.FC<VitrineSectionProps> = ({
                   src={mainImage}
                   alt={property.title}
                   loading="lazy"
+                  onError={(e) => handlePropertyImageError(e)}
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                 />
 

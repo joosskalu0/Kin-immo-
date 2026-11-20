@@ -58,6 +58,7 @@ app.use(cors({
     const isAllowed = 
       allowedOrigins.some(o => o && cleanOrigin === o.replace(/\/+$/, '').toLowerCase()) ||
       cleanOrigin.includes('kinimmo.com') ||
+      cleanOrigin.includes('kinimmo.cd') ||
       cleanOrigin.includes('hostingerpreview.com') ||
       cleanOrigin.includes('preview-domain') ||
       cleanOrigin.includes('localhost') ||
@@ -140,7 +141,11 @@ uploadsPaths.forEach(up => {
   if (!fs.existsSync(up)) {
     try { fs.mkdirSync(up, { recursive: true }); } catch {}
   }
-  app.use('/uploads', express.static(up));
+  app.use('/uploads', (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    next();
+  }, express.static(up, { maxAge: '30d' }));
 });
 
 // Détection et service automatique du frontend compilé React (dist/)

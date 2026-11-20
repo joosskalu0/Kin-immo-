@@ -126,19 +126,18 @@ Le script :
 
 ## 🚀 6. Étape 5 : Compiler et Déployer le Frontend
 
-1. Sur votre machine locale, compilez l'application web :
+1. Sur votre machine locale, créez un fichier `.env.production` à la racine du projet (basé sur `.env.production.example`) avec l'URL réelle de votre backend API :
+```env
+VITE_API_BASE_URL="https://api.votredomaine.com/api"
+```
+   *(Indispensable pour que les appels `/api/*` et les photos `/uploads/images/*` pointent vers votre serveur Node.js au lieu de `public_html/`).*
+2. Compilez ensuite l'application web :
 ```bash
 npm run build
 ```
-2. La compilation génère le dossier `dist/`.
-3. Le dossier `dist/` contient :
-   - `index.html`
-   - `.htaccess` (automatiquement copié pour la gestion des URL et la sécurité)
-   - Les dossiers d'assets JavaScript et CSS minifiés.
-4. Ouvrez le **Gestionnaire de fichiers** Hostinger (ou utilisez FileZilla FTP).
-5. Allez dans le dossier `public_html/` de votre domaine.
-6. Supprimez le fichier `default.php` de bienvenue Hostinger s'il est présent.
-7. Téléversez **tout le contenu** du dossier `dist/` directement dans `public_html/`.
+3. La compilation génère le dossier `dist/` contenant `index.html`, `.htaccess`, et le dossier `assets/`.
+4. Ouvrez le **Gestionnaire de fichiers** Hostinger (ou utilisez FileZilla FTP), allez dans `public_html/`, supprimez `default.php` s'il est présent, et téléversez **tout le contenu** du dossier `dist/` directement dans `public_html/`.
+5. Vérifiez que le dossier `uploads/images/` sur votre serveur backend Node.js dispose bien des permissions d'écriture (`755`).
 
 ---
 

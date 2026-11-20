@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { convertAndFormatPrice } from '../utils/currency';
 import { buildPropertyShareUrl } from '../utils/shareUtils';
 import { canUserManageProperty } from '../utils/propertyPermissions';
+import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE } from '../utils/mediaUrl';
 import {
   Bed,
   Bath,
@@ -102,9 +103,10 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
 
   const canManageProperty = canUserManageProperty(user, property, agents);
 
-  const images = Array.isArray(property.images) && property.images.length > 0
-    ? property.images
-    : ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&auto=format&fit=crop&q=80'];
+  const rawImages = Array.isArray(property.images)
+    ? property.images.map((img) => resolveMediaUrl(img)).filter(Boolean)
+    : [];
+  const images = rawImages.length > 0 ? rawImages : [FALLBACK_PROPERTY_IMAGE];
 
   const handleNextImage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -145,10 +147,11 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
       {/* Image Banner Container */}
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
         <img
-          src={images[activeImgIndex]}
+          src={images[activeImgIndex] || images[0]}
           alt={property.title}
           className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer ${isSold ? 'grayscale-[35%] contrast-95' : ''}`}
           onClick={() => setActivePropertyModalId(property.id)}
+          onError={(e) => handlePropertyImageError(e)}
           loading="lazy"
         />
 

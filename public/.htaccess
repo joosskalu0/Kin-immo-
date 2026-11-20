@@ -13,8 +13,12 @@
   # 2. Proxy inverse optionnel si le backend Node.js tourne sur le même serveur (ex: port 5000)
   # Décommentez les lignes suivantes si vous n'utilisez pas de sous-domaine séparé api.votredomaine.com :
   # RewriteRule ^api/(.*)$ http://localhost:5000/api/$1 [P,L]
+  # RewriteRule ^uploads/(.*)$ http://localhost:5000/uploads/$1 [P,L]
 
-  # 3. Router toutes les requêtes d'URL vers index.html pour le routage React (/admin, /map, etc.)
+  # 3. Ne jamais renvoyer index.html pour /api ou /uploads manquants (évite de servir du HTML à la place d'une image)
+  RewriteCond %{REQUEST_URI} !^/(api|uploads)/
+
+  # 4. Router toutes les requêtes d'URL React vers index.html (/annonces/..., /quartiers/..., /admin)
   RewriteRule ^index\.html$ - [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d

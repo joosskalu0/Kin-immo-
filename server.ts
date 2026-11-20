@@ -673,6 +673,39 @@ let inMemoryOptions: any[] = loadLocalOptions();
 let inMemoryPaymentMethods: any[] = loadLocalPaymentMethods();
 let inMemoryInvoices: any[] = loadLocalInvoices();
 
+function saveBase64PropertyImage(imgData: unknown, propertyId: string, index: number): string {
+  if (!imgData || typeof imgData !== 'string') return '';
+  const trimmed = imgData.trim();
+  if (!trimmed.startsWith('data:image')) {
+    const uploadsMatch = trimmed.match(/^https?:\/\/[^/]+(\/uploads\/images\/[^?#]+)$/i);
+    return uploadsMatch ? uploadsMatch[1] : trimmed;
+  }
+  try {
+    const matches = trimmed.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/s);
+    if (!matches || matches.length !== 3) return trimmed;
+    const rawExt = matches[1].toLowerCase();
+    const ext = rawExt.includes('png')
+      ? 'png'
+      : rawExt.includes('webp')
+      ? 'webp'
+      : rawExt.includes('gif')
+      ? 'gif'
+      : rawExt.includes('avif')
+      ? 'avif'
+      : 'jpg';
+    const uploadDir = path.join(devUploadsDir, 'images');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    const cleanPropId = String(propertyId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `img_${cleanPropId}_${index}_${Date.now()}.${ext}`;
+    fs.writeFileSync(path.join(uploadDir, filename), Buffer.from(matches[2], 'base64'));
+    return `/uploads/images/${filename}`;
+  } catch {
+    return trimmed;
+  }
+}
+
 function normalizePropertyRecord(p: any) {
   if (!p || typeof p !== 'object') return p;
   return {
@@ -4897,9 +4930,13 @@ app.post('/api/properties', (req: Request, res: Response) => {
     const isAvailable = listingStatus === 'PUBLISHED';
 
     const { trust_status: _ts, trust_score: _tsc, trust_verified_at: _tva, ...safeBody } = body;
+    const persistedImages = Array.isArray(safeBody.images)
+      ? safeBody.images.map((img: unknown, idx: number) => saveBase64PropertyImage(img, id, idx)).filter(Boolean)
+      : [];
 
     const newProp = normalizePropertyRecord({
       ...safeBody,
+      images: persistedImages,
       id,
       userId: user.id,
       agentId: user.role === 'admin' && body.agentId ? body.agentId : user.id,
@@ -4978,9 +5015,14 @@ app.put('/api/properties/:id', (req: Request, res: Response) => {
       });
     }
 
+    const incomingImages = Array.isArray(safeIncoming.images)
+      ? safeIncoming.images.map((img: unknown, idx: number) => saveBase64PropertyImage(img, id, idx)).filter(Boolean)
+      : undefined;
+
     const updated = normalizePropertyRecord({
       ...current,
       ...safeIncoming,
+      ...(incomingImages !== undefined ? { images: incomingImages } : {}),
       id,
       userId: current.userId || user.id,
       agentId: user.role === 'admin' && safeIncoming.agentId ? safeIncoming.agentId : (current.agentId || user.id),

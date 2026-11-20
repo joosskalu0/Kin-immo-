@@ -3,10 +3,9 @@ import { validateConciergerieRequest } from '../utils/conciergerieValidation';
 import { findMatchingProperties, PropertyMatchResult } from '../utils/propertyMatching';
 import { initialProperties } from '../data/mockData';
 import { getStoredToken } from './mysqlApi';
+import { getApiBaseUrl } from '../utils/mediaUrl';
 
-const API_BASE_URL = (
-  ((import.meta as any).env?.VITE_API_BASE_URL as string) || '/api'
-).replace(/\/+$/, '');
+const API_BASE_URL = getApiBaseUrl();
 
 function getAuthHeaders(includeJson = true): Record<string, string> {
   const headers: Record<string, string> = {};

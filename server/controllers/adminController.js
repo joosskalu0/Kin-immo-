@@ -320,7 +320,31 @@ async function getProperties(req, res, next) {
     sql += ' ORDER BY p.created_at DESC';
 
     const [rows] = await pool.execute(sql, params);
-    res.json({ success: true, properties: rows });
+    const propIds = rows.map((r) => r.id).filter(Boolean);
+    const imagesByPropId = new Map();
+    if (propIds.length > 0) {
+      const placeholders = propIds.map(() => '?').join(',');
+      const [imgRows] = await pool.query(
+        `SELECT property_id, image_url FROM property_images WHERE property_id IN (${placeholders}) ORDER BY display_order ASC, id ASC`,
+        propIds
+      );
+      for (const imgRow of imgRows) {
+        if (!imgRow || !imgRow.image_url) continue;
+        if (!imagesByPropId.has(imgRow.property_id)) imagesByPropId.set(imgRow.property_id, []);
+        imagesByPropId.get(imgRow.property_id).push(imgRow.image_url);
+      }
+    }
+
+    const formatted = rows.map((r) => {
+      const imgs = imagesByPropId.get(r.id) || [];
+      return {
+        ...r,
+        images: imgs,
+        featured_image: imgs[0] || r.featured_image || null
+      };
+    });
+
+    res.json({ success: true, properties: formatted });
   } catch (error) {
     next(error);
   }

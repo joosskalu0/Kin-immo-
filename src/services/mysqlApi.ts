@@ -1,5 +1,6 @@
 import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings, VisibilityOption, PropertyVideo, PropertyVideoStatus, PropertyUserReport, PaymentMethodConfig } from '../types';
 import { getDefaultPlans, normalizePlan, DEFAULT_PAYMENT_METHODS_LIST } from '../utils/billingHelpers';
+import { getApiBaseUrl, resolvePropertyMedia } from '../utils/mediaUrl';
 
 /**
  * Service Client API MySQL REST pour Kinimmo
@@ -106,8 +107,7 @@ const PLANS_STORAGE_KEY = 'kinimmo_pricing_plans_store';
 const OPTIONS_STORAGE_KEY = 'kinimmo_visibility_options_store';
 const PAYMENT_METHODS_STORAGE_KEY = 'kinimmo_payment_methods_v1';
 
-const API_BASE_URL =
-  ((import.meta as any).env?.VITE_API_BASE_URL as string) || '/api';
+const API_BASE_URL = getApiBaseUrl();
 
 // Formules d'abonnement par défaut certifiées Kinshasa (Grand Public + Agence actifs, Promoteur/Entreprise en brouillon)
 const DEFAULT_PRICING_PLANS = getDefaultPlans(2850);
@@ -350,18 +350,35 @@ export const mysqlApi = {
       }
     });
     const queryString = query.toString() ? `?${query.toString()}` : '';
-    return apiRequest(`/properties${queryString}`);
+    const res = await apiRequest(`/properties${queryString}`);
+    if (res.success) {
+      if (Array.isArray(res.properties)) {
+        res.properties = res.properties.map(resolvePropertyMedia);
+      }
+      if (Array.isArray(res.data)) {
+        res.data = res.data.map(resolvePropertyMedia);
+      }
+    }
+    return res;
   },
 
   async getPropertyById(id: string) {
-    return apiRequest(`/properties/${id}`);
+    const res = await apiRequest(`/properties/${id}`);
+    if (res.success && res.property) {
+      res.property = resolvePropertyMedia(res.property);
+    }
+    return res;
   },
 
   async createProperty(property: any) {
-    return apiRequest('/properties', {
+    const res = await apiRequest('/properties', {
       method: 'POST',
       body: JSON.stringify(property)
     });
+    if (res.success && res.property) {
+      res.property = resolvePropertyMedia(res.property);
+    }
+    return res;
   },
 
   async uploadPropertyVideo(file: File) {
@@ -374,10 +391,14 @@ export const mysqlApi = {
   },
 
   async updateProperty(id: string, property: any) {
-    return apiRequest(`/properties/${id}`, {
+    const res = await apiRequest(`/properties/${id}`, {
       method: 'PUT',
       body: JSON.stringify(property)
     });
+    if (res.success && res.property) {
+      res.property = resolvePropertyMedia(res.property);
+    }
+    return res;
   },
 
   async deleteProperty(id: string) {

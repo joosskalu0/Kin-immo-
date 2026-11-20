@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Property, PropertyType, PropertyStatus, PropertyLabel } from '../types';
+import { getApiBaseUrl, resolveMediaUrl } from '../utils/mediaUrl';
 import {
   KINSHASA_COMMUNES_DATA,
   KINSHASA_COMMUNES_LIST,
@@ -164,8 +165,8 @@ export const PropertyFormModal: React.FC = () => {
       setYearBuilt(editingProperty.yearBuilt || 2020);
       setGarages(editingProperty.garages || 0);
       setAmenities(editingProperty.amenities || []);
-      setImageUrls(editingProperty.images || []);
-      setVideoUrl(editingProperty.videoUrl || '');
+      setImageUrls(Array.isArray(editingProperty.images) ? editingProperty.images.map((u) => resolveMediaUrl(u)).filter(Boolean) : []);
+      setVideoUrl(editingProperty.videoUrl ? resolveMediaUrl(editingProperty.videoUrl) : '');
       setVirtualTourUrl(editingProperty.virtualTourUrl || '');
       setCustomFieldsState(editingProperty.customFields || {});
 
@@ -402,7 +403,7 @@ export const PropertyFormModal: React.FC = () => {
     formData.append('video', file);
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/properties/upload-video', true);
+    xhr.open('POST', `${getApiBaseUrl()}/properties/upload-video`, true);
 
     const token = getStoredToken();
     if (token) {
@@ -420,7 +421,7 @@ export const PropertyFormModal: React.FC = () => {
       try {
         const response = JSON.parse(xhr.responseText);
         if (xhr.status >= 200 && xhr.status < 300 && response.success && response.url) {
-          setVideoUrl(response.url);
+          setVideoUrl(resolveMediaUrl(response.url));
           setVideoUploading(false);
           setVideoUploadProgress(100);
           setVideoUploadSuccess(`Vidéo "${file.name}" importée avec succès !`);
