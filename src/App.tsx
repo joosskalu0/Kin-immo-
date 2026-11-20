@@ -10,7 +10,8 @@ import { PropertyMap } from './components/PropertyMap';
 import { AgentDirectory } from './components/AgentDirectory';
 import { ShortcodesGallery } from './components/ShortcodesGallery';
 import { UserDashboard } from './components/Dashboard/UserDashboard';
-import { PropertyDetailModal } from './components/PropertyDetailModal';
+import { PropertyDetailPage } from './components/PropertyDetailPage';
+import { getPropertySlug, resolvePropertyBySlugOrId } from './utils/shareUtils';
 import { PropertyFormModal } from './components/PropertyFormModal';
 import { FieldsBuilderModal } from './components/FieldsBuilder/FieldsBuilderModal';
 import { CompareModal } from './components/CompareModal';
@@ -28,6 +29,16 @@ import { ConciergeriePage } from './components/Conciergerie/ConciergeriePage';
 import { VisitsReelsView } from './components/Visits/VisitsReelsView';
 import { AgentDashboardView } from './components/Dashboard/AgentDashboardView';
 import { AgencyDashboardView } from './components/Dashboard/AgencyDashboardView';
+import { NeighborhoodPageView } from './components/Content/NeighborhoodPageView';
+import { BlogGuidesView } from './components/Content/BlogGuidesView';
+import { HelpFaqView } from './components/Content/HelpFaqView';
+import { LegalPageView } from './components/Content/LegalPageView';
+import {
+  DEFAULT_FAQ_ITEMS,
+  DEFAULT_LEGAL_DOCUMENTS,
+  resolveNeighborhoodBySlug,
+} from './data/contentSeed';
+import { LegalDocumentSlug } from './types';
 import {
   Home,
   Building2,
@@ -62,39 +73,121 @@ const AppContent: React.FC = () => {
     setActivePropertyModalId,
     setIsSubmitPropertyOpen,
     setIsSecurityModalOpen,
-    setIsAuthModalOpen
+    setIsAuthModalOpen,
+    blogArticles,
+    legalDocuments,
   } = useApp();
 
-  const [currentTab, setCurrentTab] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const pathname = window.location.pathname;
-        if (pathname === '/admin' || pathname.startsWith('/admin/')) {
-          return 'admin';
-        }
-        if (pathname === '/conciergerie' || pathname.startsWith('/conciergerie')) {
-          return 'conciergerie';
-        }
-        if (pathname === '/visites' || pathname.startsWith('/visites')) {
-          return 'visites';
-        }
-        if (pathname === '/agent-dashboard' || pathname.startsWith('/agent-dashboard')) {
-          return 'agent-dashboard';
-        }
-        if (pathname === '/agency-dashboard' || pathname.startsWith('/agency-dashboard')) {
-          return 'agency-dashboard';
-        }
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get('tab');
-        if (tab && ['home', 'visites', 'map', 'agents', 'agencies', 'shortcodes', 'dashboard', 'agent-dashboard', 'agency-dashboard', 'wishlist', 'admin', 'pricing', 'conciergerie'].includes(tab)) {
-          return tab;
-        }
-      } catch {}
+  const LEGAL_SLUGS: LegalDocumentSlug[] = [
+    'conditions-utilisation',
+    'confidentialite',
+    'mentions-legales',
+  ];
+
+  const parsePathRoute = (pathname: string, search: string) => {
+    const cleanPath = (pathname || '/').replace(/\/+$/, '') || '/';
+    if (cleanPath === '/admin' || cleanPath.startsWith('/admin/')) {
+      return { tab: 'admin', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
     }
-    return 'home';
-  }); // 'home' | 'visites' | 'map' | 'agents' | 'agencies' | 'shortcodes' | 'dashboard' | 'agent-dashboard' | 'agency-dashboard' | 'wishlist' | 'admin' | 'pricing' | 'conciergerie'
+    if (cleanPath === '/conciergerie' || cleanPath.startsWith('/conciergerie/')) {
+      return { tab: 'conciergerie', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+    }
+    if (cleanPath === '/visites' || cleanPath.startsWith('/visites/')) {
+      return { tab: 'visites', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+    }
+    if (cleanPath === '/agent-dashboard' || cleanPath.startsWith('/agent-dashboard/')) {
+      return { tab: 'agent-dashboard', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+    }
+    if (cleanPath === '/agency-dashboard' || cleanPath.startsWith('/agency-dashboard/')) {
+      return { tab: 'agency-dashboard', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+    }
+    const quartierMatch = cleanPath.match(/^\/quartiers\/([^/?#]+)/i);
+    if (quartierMatch && quartierMatch[1]) {
+      return {
+        tab: 'neighborhood',
+        neighborhoodSlug: decodeURIComponent(quartierMatch[1]),
+        blogSlug: null as string | null,
+        legalSlug: 'conditions-utilisation' as LegalDocumentSlug,
+      };
+    }
+    if (cleanPath === '/blog') {
+      return { tab: 'blog', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+    }
+    const blogMatch = cleanPath.match(/^\/blog\/([^/?#]+)/i);
+    if (blogMatch && blogMatch[1]) {
+      return {
+        tab: 'blog',
+        neighborhoodSlug: 'gombe',
+        blogSlug: decodeURIComponent(blogMatch[1]),
+        legalSlug: 'conditions-utilisation' as LegalDocumentSlug,
+      };
+    }
+    if (cleanPath === '/aide') {
+      return { tab: 'aide', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+    }
+    const legalCandidate = cleanPath.slice(1) as LegalDocumentSlug;
+    if (LEGAL_SLUGS.includes(legalCandidate)) {
+      return { tab: 'legal', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: legalCandidate };
+    }
+    const params = new URLSearchParams(search || '');
+    const tab = params.get('tab');
+    if (
+      tab &&
+      [
+        'home',
+        'visites',
+        'map',
+        'agents',
+        'agencies',
+        'shortcodes',
+        'dashboard',
+        'agent-dashboard',
+        'agency-dashboard',
+        'wishlist',
+        'admin',
+        'pricing',
+        'conciergerie',
+        'neighborhood',
+        'blog',
+        'aide',
+        'legal',
+      ].includes(tab)
+    ) {
+      return { tab, neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+    }
+    return { tab: 'home', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+  };
+
+  const initialRoute =
+    typeof window !== 'undefined'
+      ? parsePathRoute(window.location.pathname, window.location.search)
+      : { tab: 'home', neighborhoodSlug: 'gombe', blogSlug: null as string | null, legalSlug: 'conditions-utilisation' as LegalDocumentSlug };
+
+  const [currentTab, setCurrentTab] = useState(initialRoute.tab);
+  const [neighborhoodSlug, setNeighborhoodSlug] = useState(initialRoute.neighborhoodSlug);
+  const [blogSlug, setBlogSlug] = useState<string | null>(initialRoute.blogSlug);
+  const [legalSlug, setLegalSlug] = useState<LegalDocumentSlug>(initialRoute.legalSlug);
   const [sharePropertyId, setSharePropertyId] = useState<string | null>(null);
   const [gmpQuotaExceeded, setGmpQuotaExceeded] = useState(false);
+
+  const navigateToPath = (path: string) => {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    const parsed = parsePathRoute(cleanPath, '');
+    setActivePropertyModalId(null);
+    setIsFieldsBuilderOpen(false);
+    setNeighborhoodSlug(parsed.neighborhoodSlug);
+    setBlogSlug(parsed.blogSlug);
+    setLegalSlug(parsed.legalSlug);
+    setCurrentTab(parsed.tab);
+    if (typeof window !== 'undefined') {
+      try {
+        if (window.location.pathname !== cleanPath || window.location.search) {
+          window.history.pushState({}, '', cleanPath);
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch {}
+    }
+  };
 
   useEffect(() => {
     const handleQuota = () => setGmpQuotaExceeded(true);
@@ -105,13 +198,13 @@ const AppContent: React.FC = () => {
   const handleGoHome = () => {
     setActivePropertyModalId(null);
     setIsFieldsBuilderOpen(false);
+    setBlogSlug(null);
     setCurrentTab('home');
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('tab');
       url.searchParams.delete('property');
-      const targetPath = (url.pathname === '/admin' || url.pathname === '/conciergerie' || url.pathname === '/visites') ? '/' : url.pathname;
-      window.history.pushState({}, '', targetPath + (url.search ? url.search : ''));
+      window.history.pushState({}, '', '/' + (url.search ? url.search : ''));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {}
   };
@@ -121,34 +214,11 @@ const AppContent: React.FC = () => {
 
     const handleTabPopState = () => {
       try {
-        const pathname = window.location.pathname;
-        if (pathname === '/admin' || pathname.startsWith('/admin/')) {
-          setCurrentTab('admin');
-          return;
-        }
-        if (pathname === '/conciergerie' || pathname.startsWith('/conciergerie')) {
-          setCurrentTab('conciergerie');
-          return;
-        }
-        if (pathname === '/visites' || pathname.startsWith('/visites')) {
-          setCurrentTab('visites');
-          return;
-        }
-        if (pathname === '/agent-dashboard' || pathname.startsWith('/agent-dashboard')) {
-          setCurrentTab('agent-dashboard');
-          return;
-        }
-        if (pathname === '/agency-dashboard' || pathname.startsWith('/agency-dashboard')) {
-          setCurrentTab('agency-dashboard');
-          return;
-        }
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get('tab');
-        if (tab && ['home', 'visites', 'map', 'agents', 'agencies', 'shortcodes', 'dashboard', 'agent-dashboard', 'agency-dashboard', 'wishlist', 'admin', 'pricing', 'conciergerie'].includes(tab)) {
-          setCurrentTab(tab);
-          return;
-        }
-        setCurrentTab('home');
+        const parsed = parsePathRoute(window.location.pathname, window.location.search);
+        setNeighborhoodSlug(parsed.neighborhoodSlug);
+        setBlogSlug(parsed.blogSlug);
+        setLegalSlug(parsed.legalSlug);
+        setCurrentTab(parsed.tab);
       } catch {}
     };
 
@@ -184,28 +254,57 @@ const AppContent: React.FC = () => {
       pricing: 'Tarifs & Abonnements - Kinimmo',
       conciergerie: 'Conciergerie Immobilière - Votre recherche, notre accompagnement | Kinimmo',
       admin: 'Panneau d’Administration Sécurisé - Kinimmo',
+      neighborhood: 'Immobilier par Quartier à Kinshasa - Kinimmo',
+      blog: 'Blog & Guides Immobiliers RDC - Kinimmo',
+      aide: 'Centre d’aide & FAQ - Kinimmo',
+      legal: 'Informations Légales - Kinimmo RDC',
     };
     trackPageView(tabTitles[currentTab] || `Kinshasa Immo - ${currentTab}`, `/${currentTab}`);
-    
-    // Mettre à jour l'historique d'URL pour /conciergerie, /visites et /admin
-    if (typeof window !== 'undefined') {
+
+    // Synchronisation des URLs propres
+    if (typeof window !== 'undefined' && !activePropertyModalId) {
       try {
-        if (currentTab === 'admin') {
-          if (!window.location.pathname.startsWith('/admin')) {
-            window.history.pushState({}, '', '/admin');
-          }
+        const cleanPaths = [
+          '/admin',
+          '/conciergerie',
+          '/visites',
+          '/quartiers/',
+          '/blog',
+          '/aide',
+          '/conditions-utilisation',
+          '/confidentialite',
+          '/mentions-legales',
+        ];
+        if (currentTab === 'admin' && !window.location.pathname.startsWith('/admin')) {
+          window.history.pushState({}, '', '/admin');
         } else if (currentTab === 'conciergerie' && window.location.pathname !== '/conciergerie') {
           window.history.pushState({}, '', '/conciergerie');
         } else if (currentTab === 'visites' && window.location.pathname !== '/visites') {
           window.history.pushState({}, '', '/visites');
-        } else if (currentTab !== 'admin' && currentTab !== 'conciergerie' && currentTab !== 'visites' && (window.location.pathname.startsWith('/admin') || window.location.pathname === '/conciergerie' || window.location.pathname === '/visites')) {
+        } else if (currentTab === 'neighborhood') {
+          const target = `/quartiers/${encodeURIComponent(neighborhoodSlug || 'gombe')}`;
+          if (window.location.pathname !== target) window.history.pushState({}, '', target);
+        } else if (currentTab === 'blog') {
+          const target = blogSlug ? `/blog/${encodeURIComponent(blogSlug)}` : '/blog';
+          if (window.location.pathname !== target) window.history.pushState({}, '', target);
+        } else if (currentTab === 'aide' && window.location.pathname !== '/aide') {
+          window.history.pushState({}, '', '/aide');
+        } else if (currentTab === 'legal') {
+          const target = `/${legalSlug}`;
+          if (window.location.pathname !== target) window.history.pushState({}, '', target);
+        } else if (
+          !['admin', 'conciergerie', 'visites', 'neighborhood', 'blog', 'aide', 'legal'].includes(currentTab) &&
+          cleanPaths.some((p) =>
+            p.endsWith('/') ? window.location.pathname.startsWith(p) : window.location.pathname === p || window.location.pathname.startsWith(p + '/')
+          )
+        ) {
           window.history.pushState({}, '', '/');
         }
       } catch {}
     }
-  }, [currentTab]);
+  }, [currentTab, neighborhoodSlug, blogSlug, legalSlug, activePropertyModalId]);
 
-  // GESTION DYNAMIQUE DE LA CANONICALISATION ET DES META-TAGS SEO (Google Indexation)
+  // GESTION DYNAMIQUE DE LA CANONICALISATION, OPEN GRAPH & SCHEMA.ORG JSON-LD
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -213,16 +312,114 @@ const AppContent: React.FC = () => {
     let canonicalUrl = `${origin}/`;
     let pageTitle = 'Kinshasa Immobilier - Plateforme Immobilière & Gestion RDC';
     let metaDescription = 'Portail immobilier de référence en RDC : Vente, location, gestion locative, terrains titrés et annuaire des agents certifiés à Kinshasa.';
+    let structuredData: Record<string, any> | null = null;
 
     if (activePropertyModalId) {
-      const activeProp = properties.find((p) => p.id === activePropertyModalId);
+      const activeProp = resolvePropertyBySlugOrId(activePropertyModalId, properties);
       if (activeProp) {
-        canonicalUrl = `${origin}/?property=${encodeURIComponent(activeProp.id)}`;
-        pageTitle = `${activeProp.title} à ${activeProp.commune || 'Kinshasa'} - Kinshasa Immobilier`;
+        canonicalUrl = `${origin}/annonces/${encodeURIComponent(getPropertySlug(activeProp))}`;
+        pageTitle = `${activeProp.title} à ${activeProp.commune || 'Kinshasa'} - Kinimmo`;
         if (activeProp.description) {
           metaDescription = `${activeProp.type === 'land' ? 'Terrain' : 'Bien'} à ${activeProp.commune || 'Kinshasa'}. ${activeProp.description.slice(0, 140)}...`;
         }
+        structuredData = {
+          '@context': 'https://schema.org',
+          '@type': 'RealEstateListing',
+          name: activeProp.title,
+          description: activeProp.description,
+          url: canonicalUrl,
+          dateModified: activeProp.updatedAt || activeProp.createdAt,
+          image: Array.isArray(activeProp.images) ? activeProp.images[0] : undefined,
+          offers: {
+            '@type': 'Offer',
+            price: activeProp.price,
+            priceCurrency: activeProp.currency || 'USD',
+          },
+          address: {
+            '@type': 'PostalAddress',
+            addressLocality: activeProp.commune || activeProp.city || 'Kinshasa',
+            addressCountry: 'CD',
+          },
+        };
       }
+    } else if (currentTab === 'neighborhood') {
+      const profile = resolveNeighborhoodBySlug(neighborhoodSlug, properties);
+      canonicalUrl = `${origin}/quartiers/${encodeURIComponent(profile?.slug || neighborhoodSlug)}`;
+      pageTitle = profile
+        ? `Immobilier à ${profile.name} (${profile.commune}) : prix et annonces | Kinimmo`
+        : 'Quartiers immobiliers à Kinshasa | Kinimmo';
+      metaDescription = profile
+        ? `${profile.stats.activeCount} biens disponibles à ${profile.name}. ${profile.tagline}`
+        : metaDescription;
+      if (profile) {
+        structuredData = {
+          '@context': 'https://schema.org',
+          '@type': 'Place',
+          name: `${profile.name}, Kinshasa`,
+          description: profile.description,
+          url: canonicalUrl,
+          address: {
+            '@type': 'PostalAddress',
+            addressLocality: profile.commune,
+            addressRegion: 'Kinshasa',
+            addressCountry: 'CD',
+          },
+        };
+      }
+    } else if (currentTab === 'blog') {
+      const article = blogSlug
+        ? blogArticles.find((a) => a.slug === blogSlug)
+        : null;
+      if (article) {
+        canonicalUrl = `${origin}/blog/${encodeURIComponent(article.slug)}`;
+        pageTitle = `${article.title} | Guides Kinimmo RDC`;
+        metaDescription = article.excerpt;
+        structuredData = {
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: article.title,
+          description: article.excerpt,
+          image: article.coverImage,
+          author: { '@type': 'Organization', name: article.authorName || 'Rédaction Kinimmo RDC' },
+          datePublished: article.publishedAt,
+          dateModified: article.updatedAt,
+          mainEntityOfPage: canonicalUrl,
+        };
+      } else {
+        canonicalUrl = `${origin}/blog`;
+        pageTitle = 'Blog & Guides Immobiliers Kinshasa & RDC | Kinimmo';
+        metaDescription = 'Guides pratiques sur les titres fonciers, l’investissement locatif et les communes stratégiques de Kinshasa.';
+      }
+    } else if (currentTab === 'aide') {
+      canonicalUrl = `${origin}/aide`;
+      pageTitle = 'Centre d’aide & Questions fréquentes (FAQ) | Kinimmo';
+      metaDescription = 'Réponses sur la publication d’annonces, le paiement Mobile Money, les QR codes panneaux et la vérification Kinimmo Trust.';
+      structuredData = {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: DEFAULT_FAQ_ITEMS.map((item) => ({
+          '@type': 'Question',
+          name: item.question,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.answer,
+          },
+        })),
+      };
+    } else if (currentTab === 'legal') {
+      const doc =
+        legalDocuments.find((d) => d.slug === legalSlug) ||
+        DEFAULT_LEGAL_DOCUMENTS.find((d) => d.slug === legalSlug);
+      canonicalUrl = `${origin}/${legalSlug}`;
+      pageTitle = doc ? `${doc.title} | Kinimmo RDC` : 'Mentions & Informations Légales | Kinimmo';
+      metaDescription = doc ? doc.subtitle : metaDescription;
+      structuredData = {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        name: pageTitle,
+        description: metaDescription,
+        url: canonicalUrl,
+      };
     } else if (currentTab === 'visites') {
       canonicalUrl = `${origin}/visites`;
       pageTitle = 'Kinimmo Visites - Vidéos Immersives des Biens Immobiliers Kinshasa';
@@ -253,10 +450,8 @@ const AppContent: React.FC = () => {
       canonicalUrl = `${origin}/?tab=${encodeURIComponent(currentTab)}`;
     }
 
-    // Mise à jour de document.title
     document.title = pageTitle;
 
-    // Mise à jour ou création de <link rel="canonical">
     let canonicalLink = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (!canonicalLink) {
       canonicalLink = document.createElement('link');
@@ -265,7 +460,6 @@ const AppContent: React.FC = () => {
     }
     canonicalLink.setAttribute('href', canonicalUrl);
 
-    // Mise à jour de <meta property="og:url">
     let ogUrl = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
     if (!ogUrl) {
       ogUrl = document.createElement('meta');
@@ -274,13 +468,11 @@ const AppContent: React.FC = () => {
     }
     ogUrl.setAttribute('content', canonicalUrl);
 
-    // Mise à jour de <meta property="og:title"> et twitter:title
     const ogTitle = document.querySelector<HTMLMetaElement>('meta[property="og:title"]');
     if (ogTitle) ogTitle.setAttribute('content', pageTitle);
     const twTitle = document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]');
     if (twTitle) twTitle.setAttribute('content', pageTitle);
 
-    // Mise à jour de <meta name="description"> et og:description
     const descMeta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (descMeta) descMeta.setAttribute('content', metaDescription);
     const ogDescMeta = document.querySelector<HTMLMetaElement>('meta[property="og:description"]');
@@ -288,7 +480,6 @@ const AppContent: React.FC = () => {
     const twDescMeta = document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]');
     if (twDescMeta) twDescMeta.setAttribute('content', metaDescription);
 
-    // Mise à jour dynamique des mots-clés SEO (meta name="keywords")
     let dynamicKeywords = 'immobilier kinshasa, kinshasa immobilier, kinimmo, vente maison kinshasa, location appartement kinshasa, terrain avec certificat enregistrement kinshasa, villa ngaliema macampagne, gombe kinshasa, limete, mont ngafula';
     if (activePropertyModalId) {
       const activeProp = properties.find((p) => p.id === activePropertyModalId);
@@ -304,7 +495,20 @@ const AppContent: React.FC = () => {
       document.head.appendChild(kwMeta);
     }
     kwMeta.setAttribute('content', dynamicKeywords);
-  }, [currentTab, activePropertyModalId, properties]);
+
+    const existingLd = document.getElementById('kinimmo-listing-jsonld');
+    if (structuredData) {
+      const ldScript = existingLd || document.createElement('script');
+      ldScript.setAttribute('type', 'application/ld+json');
+      ldScript.setAttribute('id', 'kinimmo-listing-jsonld');
+      ldScript.textContent = JSON.stringify(structuredData);
+      if (!existingLd) {
+        document.head.appendChild(ldScript);
+      }
+    } else if (existingLd) {
+      existingLd.remove();
+    }
+  }, [currentTab, activePropertyModalId, properties, neighborhoodSlug, blogSlug, legalSlug, blogArticles, legalDocuments]);
 
   // Filter Properties Logic - Recherche multi-termes ultra-performante par mots-clés
   const filteredProperties = properties.filter((p) => {
@@ -428,6 +632,27 @@ const AppContent: React.FC = () => {
 
   const propertyToShare = properties.find((p) => p.id === sharePropertyId) || null;
 
+  // Page dédiée d'une annonce (/annonces/:slug) — remplace l'ancienne fenêtre superposée
+  if (activePropertyModalId) {
+    return (
+      <>
+        <PropertyDetailPage
+          propertyIdOrSlug={activePropertyModalId}
+          onBackHome={() => setActivePropertyModalId(null)}
+          onOpenShareModal={(id) => setSharePropertyId(id)}
+          onOpenNeighborhood={(slug) => navigateToPath(`/quartiers/${slug}`)}
+        />
+        <PropertyFormModal />
+        <FieldsBuilderModal />
+        <CompareModal />
+        <AuthModal />
+        <AgentInviteModal />
+        <SecuritySettingsModal />
+        <SocialShareModal property={propertyToShare} onClose={() => setSharePropertyId(null)} />
+      </>
+    );
+  }
+
   // Si l'utilisateur est sur la route ou l'onglet d'administration /admin
   if (currentTab === 'admin') {
     return (
@@ -458,6 +683,7 @@ const AppContent: React.FC = () => {
       <Header
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
+        onNavigatePath={navigateToPath}
       />
 
       <main className={`flex-1 w-full pt-16 ${currentTab === 'conciergerie' || currentTab === 'visites' ? '' : 'max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8'} pb-24 lg:pb-12 space-y-6 sm:space-y-8`}>
@@ -909,6 +1135,44 @@ const AppContent: React.FC = () => {
             }}
           />
         )}
+
+        {/* TAB 9: PAGES DE QUARTIER (/quartiers/:slug) */}
+        {currentTab === 'neighborhood' && (
+          <NeighborhoodPageView
+            slug={neighborhoodSlug}
+            onSelectNeighborhood={(slug) => navigateToPath(`/quartiers/${slug}`)}
+            onReturnHome={handleGoHome}
+            onOpenShare={(id) => setSharePropertyId(id)}
+            onOpenConciergerie={() => navigateToPath('/conciergerie')}
+          />
+        )}
+
+        {/* TAB 10: BLOG & GUIDES IMMOBILIERS (/blog et /blog/:slug) */}
+        {currentTab === 'blog' && (
+          <BlogGuidesView
+            articleSlug={blogSlug}
+            onSelectArticle={(slug) => navigateToPath(slug ? `/blog/${slug}` : '/blog')}
+            onSelectNeighborhood={(slug) => navigateToPath(`/quartiers/${slug}`)}
+            onReturnHome={handleGoHome}
+          />
+        )}
+
+        {/* TAB 11: CENTRE D'AIDE & QUESTIONS FRÉQUENTES (/aide) */}
+        {currentTab === 'aide' && (
+          <HelpFaqView
+            onReturnHome={handleGoHome}
+            onOpenConciergerie={() => navigateToPath('/conciergerie')}
+          />
+        )}
+
+        {/* TAB 12: PAGES LÉGALES (/conditions-utilisation, /confidentialite, /mentions-legales) */}
+        {currentTab === 'legal' && (
+          <LegalPageView
+            slug={legalSlug}
+            onSelectLegalSlug={(slug) => navigateToPath(`/${slug}`)}
+            onReturnHome={handleGoHome}
+          />
+        )}
       </main>
 
       {/* Global Floating Interactive Controls & Modals */}
@@ -920,7 +1184,6 @@ const AppContent: React.FC = () => {
       />
 
       {/* Global Modals */}
-      <PropertyDetailModal onOpenShareModal={(id) => setSharePropertyId(id)} />
       <PropertyFormModal />
       <FieldsBuilderModal />
       <CompareModal />
@@ -929,7 +1192,7 @@ const AppContent: React.FC = () => {
       <SecuritySettingsModal />
       <SocialShareModal property={propertyToShare} onClose={() => setSharePropertyId(null)} />
 
-      <Footer />
+      <Footer onNavigate={navigateToPath} />
     </div>
   );
 };

@@ -32,7 +32,12 @@
     "agencyName": "Cabinet Immobilier Gombe SARL",
     "rccmOrNif": "CD/KIN/RCCM/26-B-08420",
     "avatar": "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80",
-    "createdAt": "2026-11-12T15:55:53.665Z"
+    "createdAt": "2026-11-12T15:55:53.665Z",
+    "subscriptionPlan": "starter",
+    "subscriptionStatus": "Expired",
+    "subscriptionExpiresAt": "2026-11-19",
+    "billingCycle": "monthly",
+    "includedBoostsRemaining": 0
   },
   {
     "id": "agency_prestige_01",

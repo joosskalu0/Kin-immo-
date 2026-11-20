@@ -1,11 +1,38 @@
 const pool = require('../config/database');
 const crypto = require('crypto');
 
+function mapCategoryToAudience(cat, id) {
+  if (cat === 'agency' || id === 'agency') return 'agence';
+  if (cat === 'promoter' || id === 'promoter_vip') return 'promoteur';
+  if (id === 'enterprise') return 'entreprise';
+  return 'grand_public';
+}
+
+function isLaunchAudience(audience) {
+  return audience === 'grand_public' || audience === 'agence';
+}
+
 function formatPlan(p) {
+  const audience = p.audience || mapCategoryToAudience(p.category, p.id);
   const priceUsd = Number(p.price_usd !== undefined ? p.price_usd : (p.priceMonthly || 0));
   const priceCdf = Number(p.price_cdf !== undefined ? p.price_cdf : (p.priceMonthlyCDF || (priceUsd * 2850)));
-  const maxListings = Number(p.max_listings !== undefined ? p.max_listings : (p.maxListings || 3));
-  const featuredListings = Number(p.max_featured_listings !== undefined ? p.max_featured_listings : (p.featuredListings || 0));
+  const priceYearlyUsd = Number(
+    p.price_yearly_usd !== undefined && p.price_yearly_usd !== null && Number(p.price_yearly_usd) > 0
+      ? p.price_yearly_usd
+      : (p.priceYearly !== undefined ? p.priceYearly : Math.round(priceUsd * 10 * 100) / 100)
+  );
+  const priceYearlyCdf = Number(
+    p.price_yearly_cdf !== undefined && p.price_yearly_cdf !== null && Number(p.price_yearly_cdf) > 0
+      ? p.price_yearly_cdf
+      : (p.priceYearlyCDF !== undefined ? p.priceYearlyCDF : Math.round(priceYearlyUsd * 2850))
+  );
+  const maxListings = Number(p.max_listings !== undefined ? p.max_listings : (p.maxListings ?? 3));
+  const featuredListings = Number(p.max_featured_listings !== undefined ? p.max_featured_listings : (p.featuredListings ?? 0));
+  const maxPhotos = Number(p.max_photos_per_listing !== undefined ? p.max_photos_per_listing : (p.maxPhotos ?? (priceUsd === 0 ? 6 : 15)));
+  const maxVideos = Number(p.max_videos !== undefined ? p.max_videos : (p.maxVideos ?? (priceUsd === 0 ? 1 : 5)));
+  const includedBoosts = Number(p.included_boosts !== undefined ? p.included_boosts : (p.includedBoosts ?? featuredListings));
+  const maxTeamMembers = Number(p.max_team_members !== undefined ? p.max_team_members : (p.agentAccounts ?? (audience === 'agence' ? 10 : 1)));
+  const trialDays = Number(p.trial_days !== undefined ? p.trial_days : (p.trialDays ?? 0));
 
   let features = [];
   if (Array.isArray(p.features)) {
@@ -18,69 +45,82 @@ function formatPlan(p) {
     if (p.id === 'starter') {
       features = [
         'Publication de 3 annonces immobilières actives',
-        'Fiche descriptive complète avec photos HD',
+        'Jusqu\'à 6 photos HD et 1 vidéo par bien',
         'Mise en relation directe avec les acheteurs',
         'Messagerie et contacts WhatsApp directs'
       ];
     } else if (p.id === 'pro') {
       features = [
         'Jusqu\'à 25 annonces immobilières actives',
-        '3 annonces en vedette (Mise en avant)',
+        'Jusqu\'à 15 photos HD & 5 vidéos immersives',
+        '3 boosts de visibilité inclus par mois',
         'Badge Officiel Courtier Vérifié Kinshasa',
         'Accès direct aux demandes de Conciergerie (Leads)',
-        'Statistiques des vues et contacts WhatsApp',
         'Support réactif 6j/7'
       ];
     } else if (p.id === 'agency') {
       features = [
         'Jusqu\'à 100 annonces immobilières actives',
-        '10 annonces en vedette incluses',
+        'Jusqu\'à 25 photos & 20 vidéos immersives',
+        '10 boosts inclus et jusqu\'à 10 comptes collaborateurs',
         'Vitrine Agence Immobilière dédiée avec logo et agents',
-        'Gestion multi-comptes pour agents immobiliers',
         'Badge Agence Certifiée & Agréée RDC',
-        'Rapports d\'activité mensuels et CRM leads',
         'Support prioritaire dédié 7j/7'
       ];
     } else {
       features = [
-        'Annonces immobilières illimitées (grands chantiers, lotissements)',
-        '30 annonces en tête de liste et carrousel d\'accueil',
-        'Bannières publicitaires régie incluses',
-        'Multi-diffusion WhatsApp VIP & Réseaux sociaux',
-        'Conseiller commercial et juridique dédié',
-        'Gestion prioritaire des visites VIP'
+        `${maxListings >= 500 ? 'Annonces illimitées' : maxListings + ' annonces actives'}`,
+        `${maxPhotos} photos par bien & ${maxVideos} vidéos`,
+        `${includedBoosts} boosts inclus • ${maxTeamMembers} membres d'équipe`,
+        'Multi-diffusion WhatsApp VIP & conseiller dédié'
       ];
     }
   }
+
+  const isActive = p.is_active !== false && p.isActive !== false && p.is_active !== 0;
 
   return {
     id: p.id,
     name: p.name,
     description: p.description,
-    category: p.category,
+    category: p.category || (audience === 'agence' ? 'agency' : audience === 'promoteur' || audience === 'entreprise' ? 'promoter' : 'individual'),
+    audience,
     badge: p.badge,
     price_usd: priceUsd,
     price_cdf: priceCdf,
     priceMonthly: priceUsd,
     priceMonthlyCDF: priceCdf,
+    price_yearly_usd: priceYearlyUsd,
+    price_yearly_cdf: priceYearlyCdf,
+    priceYearly: priceYearlyUsd,
+    priceYearlyCDF: priceYearlyCdf,
     currency: 'USD',
     billing_period: p.billing_period || 'monthly',
-    billingPeriod: 'month',
+    billingPeriod: p.billing_period === 'yearly' ? 'year' : 'month',
+    trial_days: trialDays,
+    trialDays,
     max_listings: maxListings,
     maxListings: maxListings,
     max_featured_listings: featuredListings,
     featuredListings: featuredListings,
-    agentAccounts: p.category === 'agency' ? 10 : (p.category === 'promoter' ? 25 : 1),
+    max_photos_per_listing: maxPhotos,
+    maxPhotos,
+    max_videos: maxVideos,
+    maxVideos,
+    included_boosts: includedBoosts,
+    includedBoosts,
+    max_team_members: maxTeamMembers,
+    agentAccounts: maxTeamMembers,
     features: features,
-    recommended: p.id === 'agency' || p.id === 'pro',
-    is_active: p.is_active !== false,
-    isActive: p.is_active !== false,
-    has_verified_badge: Boolean(p.has_verified_badge),
-    hasVerifiedBadge: Boolean(p.has_verified_badge),
-    has_crm_leads: Boolean(p.has_crm_leads),
-    hasCrmLeads: Boolean(p.has_crm_leads),
-    has_priority_support: Boolean(p.has_priority_support),
-    hasPrioritySupport: Boolean(p.has_priority_support)
+    recommended: p.recommended !== undefined ? Boolean(p.recommended) : (p.id === 'agency' || p.id === 'pro'),
+    is_active: isActive,
+    isActive: isActive,
+    has_verified_badge: Boolean(p.has_verified_badge ?? p.hasVerifiedBadge),
+    hasVerifiedBadge: Boolean(p.has_verified_badge ?? p.hasVerifiedBadge),
+    has_crm_leads: Boolean(p.has_crm_leads ?? p.hasCrmLeads),
+    hasCrmLeads: Boolean(p.has_crm_leads ?? p.hasCrmLeads),
+    has_priority_support: Boolean(p.has_priority_support ?? p.hasPrioritySupport),
+    hasPrioritySupport: Boolean(p.has_priority_support ?? p.hasPrioritySupport)
   };
 }
 
@@ -111,33 +151,53 @@ function formatOption(opt) {
  */
 async function getPlans(req, res, next) {
   try {
-    const { category } = req.query;
-    let sql = "SELECT * FROM pricing_plans WHERE is_active = TRUE AND category NOT IN ('dealership', 'garage')";
+    const { category, audience, include_inactive } = req.query;
+    const includeInactive = include_inactive === 'true';
+    let sql = "SELECT * FROM pricing_plans WHERE category NOT IN ('dealership', 'garage')";
     const params = [];
 
+    if (!includeInactive) {
+      sql += " AND is_active = TRUE AND audience IN ('grand_public', 'agence')";
+    }
     if (category && category !== 'all') {
       sql += ' AND category = ?';
       params.push(category);
     }
+    if (audience && audience !== 'all') {
+      sql += ' AND audience = ?';
+      params.push(audience);
+    }
     sql += ' ORDER BY price_usd ASC';
 
     const [rows] = await pool.execute(sql, params);
-    const mapped = rows.map(formatPlan);
+    let mapped = rows.map(formatPlan);
+    if (!includeInactive) {
+      mapped = mapped.filter(p => p.isActive && isLaunchAudience(p.audience));
+    }
     res.json({ success: true, plans: mapped });
   } catch (error) {
-    // Repli de secours 100% immobilier si table non configurée
+    const { include_inactive } = req.query || {};
+    const includeInactive = include_inactive === 'true';
     const fallbackRealEstatePlans = [
       {
         id: 'starter',
         name: 'Annonce Gratuite Particulier',
         description: 'Idéal pour les propriétaires souhaitant publier leurs biens sans aucun frais ni engagement.',
         category: 'individual',
+        audience: 'grand_public',
         badge: 'Gratuit',
         price_usd: 0.00,
         price_cdf: 0.00,
+        price_yearly_usd: 0.00,
+        price_yearly_cdf: 0.00,
         billing_period: 'monthly',
+        trial_days: 0,
         max_listings: 3,
         max_featured_listings: 0,
+        max_photos_per_listing: 6,
+        max_videos: 1,
+        included_boosts: 0,
+        max_team_members: 1,
         has_verified_badge: false,
         has_crm_leads: false,
         has_priority_support: false,
@@ -148,12 +208,20 @@ async function getPlans(req, res, next) {
         name: 'Pro Courtier Indépendant',
         description: 'Pour courtiers indépendants actifs à Kinshasa avec badge vérifié et gestion prioritaire des leads.',
         category: 'individual',
+        audience: 'grand_public',
         badge: 'Courtier Pro',
         price_usd: 29.00,
         price_cdf: 82650.00,
+        price_yearly_usd: 290.00,
+        price_yearly_cdf: 826500.00,
         billing_period: 'monthly',
+        trial_days: 14,
         max_listings: 25,
         max_featured_listings: 3,
+        max_photos_per_listing: 15,
+        max_videos: 5,
+        included_boosts: 3,
+        max_team_members: 1,
         has_verified_badge: true,
         has_crm_leads: true,
         has_priority_support: false,
@@ -162,37 +230,81 @@ async function getPlans(req, res, next) {
       {
         id: 'agency',
         name: 'Agence Immobilière Partenaire',
-        description: 'Visibilité maximale pour agences immobilières avec agents illimités, CRM et vitrine dédiée.',
+        description: 'Visibilité maximale pour agences immobilières avec équipe multi-agents, CRM et vitrine dédiée.',
         category: 'agency',
+        audience: 'agence',
         badge: 'Agence Certifiée',
         price_usd: 79.00,
         price_cdf: 225150.00,
+        price_yearly_usd: 790.00,
+        price_yearly_cdf: 2251500.00,
         billing_period: 'monthly',
+        trial_days: 14,
         max_listings: 100,
         max_featured_listings: 10,
+        max_photos_per_listing: 25,
+        max_videos: 20,
+        included_boosts: 10,
+        max_team_members: 10,
         has_verified_badge: true,
         has_crm_leads: true,
         has_priority_support: true,
         is_active: true
       },
       {
-        id: 'enterprise',
-        name: 'Promoteur Immobilier & Constructeur VIP',
-        description: 'Pour promoteurs fonciers, lotissements et grands chantiers avec bannières sponsorisées et multi-diffusion.',
+        id: 'promoter_vip',
+        name: 'Promoteur Immobilier VIP (Brouillon)',
+        description: 'Audience Promoteur réservée aux programmes neufs et lotissements fonciers (lancement ultérieur).',
         category: 'promoter',
+        audience: 'promoteur',
         badge: 'Promoteur VIP',
         price_usd: 149.00,
         price_cdf: 424650.00,
+        price_yearly_usd: 1490.00,
+        price_yearly_cdf: 4246500.00,
         billing_period: 'monthly',
+        trial_days: 7,
         max_listings: 500,
         max_featured_listings: 30,
+        max_photos_per_listing: 35,
+        max_videos: 50,
+        included_boosts: 20,
+        max_team_members: 25,
         has_verified_badge: true,
         has_crm_leads: true,
         has_priority_support: true,
-        is_active: true
+        is_active: false
+      },
+      {
+        id: 'enterprise',
+        name: 'Entreprise & Groupe Foncier (Brouillon)',
+        description: 'Audience Entreprise sur mesure pour groupes immobiliers et grands comptes institutionnels.',
+        category: 'promoter',
+        audience: 'entreprise',
+        badge: 'Entreprise',
+        price_usd: 299.00,
+        price_cdf: 852150.00,
+        price_yearly_usd: 2990.00,
+        price_yearly_cdf: 8521500.00,
+        billing_period: 'monthly',
+        trial_days: 7,
+        max_listings: 1000,
+        max_featured_listings: 60,
+        max_photos_per_listing: 50,
+        max_videos: 100,
+        included_boosts: 40,
+        max_team_members: 50,
+        has_verified_badge: true,
+        has_crm_leads: true,
+        has_priority_support: true,
+        is_active: false
       }
     ];
-    return res.json({ success: true, plans: fallbackRealEstatePlans.map(formatPlan) });
+    let formatted = fallbackRealEstatePlans.map(formatPlan);
+    if (!includeInactive) {
+      formatted = formatted.filter(p => p.isActive && isLaunchAudience(p.audience));
+    }
+    return res.json({ success: true, plans: formatted });
   }
 }
 
@@ -285,9 +397,11 @@ async function getVisibilityOptions(req, res, next) {
  */
 async function getPaymentMethods(req, res, next) {
   try {
-    const [rows] = await pool.execute(
-      'SELECT id, provider, account_name, account_number, merchant_code, instructions FROM payment_methods WHERE is_active = TRUE'
-    );
+    const includeInactive = req.query.include_inactive === 'true';
+    const sql = includeInactive
+      ? 'SELECT id, provider, account_name, account_number, merchant_code, instructions, is_active FROM payment_methods ORDER BY created_at ASC'
+      : 'SELECT id, provider, account_name, account_number, merchant_code, instructions, is_active FROM payment_methods WHERE is_active = TRUE ORDER BY created_at ASC';
+    const [rows] = await pool.execute(sql);
     res.json({ success: true, paymentMethods: rows });
   } catch (error) {
     const fallbackPaymentMethods = [
@@ -332,30 +446,197 @@ async function getPaymentMethods(req, res, next) {
   }
 }
 
+async function createPaymentMethod(req, res, next) {
+  try {
+    const {
+      provider = 'mpesa',
+      account_name,
+      account_number,
+      merchant_code = null,
+      instructions = '',
+      is_active = true
+    } = req.body;
+    if (!account_name || !account_number) {
+      return res.status(400).json({ success: false, message: 'Le nom du compte et le numéro sont requis.' });
+    }
+    const id = req.body.id || 'pm_' + crypto.randomBytes(6).toString('hex');
+    await pool.execute(
+      `INSERT INTO payment_methods (id, provider, account_name, account_number, merchant_code, instructions, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, provider, account_name, account_number, merchant_code || null, instructions || '', Boolean(is_active)]
+    );
+    res.status(201).json({
+      success: true,
+      message: 'Opérateur Mobile Money / Banque ajouté.',
+      paymentMethod: { id, provider, account_name, account_number, merchant_code, instructions, is_active: Boolean(is_active) }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function updatePaymentMethod(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { provider, account_name, account_number, merchant_code, instructions, is_active } = req.body;
+    await pool.execute(
+      `UPDATE payment_methods
+       SET provider = COALESCE(?, provider),
+           account_name = COALESCE(?, account_name),
+           account_number = COALESCE(?, account_number),
+           merchant_code = ?,
+           instructions = COALESCE(?, instructions),
+           is_active = COALESCE(?, is_active)
+       WHERE id = ?`,
+      [provider || null, account_name || null, account_number || null, merchant_code !== undefined ? merchant_code : null, instructions !== undefined ? instructions : null, is_active !== undefined ? Boolean(is_active) : null, id]
+    );
+    res.json({ success: true, message: 'Opérateur mis à jour.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function deletePaymentMethod(req, res, next) {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM payment_methods WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Opérateur supprimé.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function softDowngradeUserProperties(userId) {
+  if (!userId) return { hiddenCount: 0, freeMax: 3 };
+  try {
+    const [freePlans] = await pool.execute(
+      "SELECT max_listings FROM pricing_plans WHERE id = 'starter' OR price_usd = 0 ORDER BY price_usd ASC LIMIT 1"
+    );
+    const freeMax = Number(freePlans?.[0]?.max_listings ?? 3);
+
+    const [activeProps] = await pool.execute(
+      'SELECT id FROM properties WHERE agent_id = ? AND published = TRUE ORDER BY created_at DESC',
+      [userId]
+    );
+
+    if (activeProps.length <= freeMax) {
+      return { hiddenCount: 0, freeMax };
+    }
+
+    const excessIds = activeProps.slice(freeMax).map((p) => p.id);
+    if (excessIds.length > 0) {
+      await pool.query(
+        'UPDATE properties SET published = FALSE, soft_hidden_by_plan = TRUE, soft_hidden_at = CURRENT_TIMESTAMP WHERE id IN (?)',
+        [excessIds]
+      );
+    }
+    return { hiddenCount: excessIds.length, freeMax };
+  } catch (err) {
+    console.warn('[SoftDowngrade] Warning:', err.message);
+    return { hiddenCount: 0, freeMax: 3 };
+  }
+}
+
+async function restoreUserSoftHiddenProperties(userId) {
+  if (!userId) return { restoredCount: 0 };
+  try {
+    const [result] = await pool.execute(
+      'UPDATE properties SET published = TRUE, soft_hidden_by_plan = FALSE, soft_hidden_at = NULL WHERE agent_id = ? AND soft_hidden_by_plan = TRUE',
+      [userId]
+    );
+    return { restoredCount: result?.affectedRows || 0 };
+  } catch (err) {
+    console.warn('[RestoreSoftHidden] Warning:', err.message);
+    return { restoredCount: 0 };
+  }
+}
+
 /**
- * Générer une facture pour souscrire ou renouveler un forfait
+ * Générer une facture pour souscrire ou renouveler un forfait (Mensuel, Annuel ou Essai Gratuit)
  * POST /api/billing/invoices
  */
 async function createInvoice(req, res, next) {
   try {
     const userId = req.user.id;
-    const { planId, paymentMethodId, paymentGateway = 'manual_mobile_money' } = req.body;
+    const {
+      planId,
+      paymentMethodId,
+      paymentGateway = 'manual_mobile_money',
+      billingCycle = 'monthly',
+      startTrial = false
+    } = req.body;
 
     const [plans] = await pool.execute('SELECT * FROM pricing_plans WHERE id = ? AND is_active = TRUE LIMIT 1', [planId]);
     if (plans.length === 0) {
-      return res.status(404).json({ success: false, message: 'Plan de tarification introuvable.' });
+      return res.status(404).json({ success: false, message: 'Plan de tarification introuvable ou non actif.' });
     }
-    const selectedPlan = plans[0];
+    const selectedPlan = formatPlan(plans[0]);
 
-    // Si plan gratuit : activation immédiate sans facture payante
+    const cycle = startTrial ? 'trial' : (billingCycle === 'yearly' ? 'yearly' : 'monthly');
+    const trialDays = Number(selectedPlan.trial_days || 0);
+
+    // Essai gratuit configurable
+    if (startTrial && trialDays > 0) {
+      const trialEnd = new Date(Date.now() + trialDays * 86400000);
+      const trialEndStr = trialEnd.toISOString().split('T')[0];
+      const periodStartStr = new Date().toISOString().split('T')[0];
+      const invoiceId = 'inv_' + crypto.randomBytes(8).toString('hex');
+      const invoiceNumber = 'FAC-KIN-' + Date.now().toString().slice(-6);
+      const receiptNumber = 'REC-KIN-' + Date.now().toString().slice(-6);
+
+      await pool.execute(
+        `INSERT INTO invoices (id, invoice_number, user_id, invoice_type, plan_id, amount, currency, amount_cdf, billing_cycle, is_trial, payment_gateway, status, receipt_number, period_start, period_end, due_date, paid_at, validated_at)
+         VALUES (?, ?, ?, 'subscription', ?, 0, 'USD', 0, 'trial', TRUE, 'free_trial', 'paid', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [invoiceId, invoiceNumber, userId, selectedPlan.id, receiptNumber, periodStartStr, trialEndStr, periodStartStr]
+      );
+
+      await pool.execute(
+        `UPDATE users
+         SET plan_id = ?, billing_cycle = 'trial', subscription_status = 'Active',
+             trial_ends_at = ?, subscription_expires_at = ?, included_boosts_remaining = ?
+         WHERE id = ?`,
+        [selectedPlan.id, trialEnd, trialEnd, selectedPlan.included_boosts || 0, userId]
+      );
+
+      await restoreUserSoftHiddenProperties(userId);
+
+      return res.status(201).json({
+        success: true,
+        message: `Essai gratuit de ${trialDays} jours activé pour ${selectedPlan.name}.`,
+        invoice: {
+          id: invoiceId,
+          invoiceNumber,
+          receiptNumber,
+          invoiceType: 'subscription',
+          planId: selectedPlan.id,
+          plan: selectedPlan.name,
+          billingCycle: 'trial',
+          isTrial: true,
+          amount: 0,
+          amountCdf: 0,
+          status: 'paid',
+          periodStart: periodStartStr,
+          periodEnd: trialEndStr,
+          dueDate: periodStartStr
+        }
+      });
+    }
+
+    // Si plan gratuit : activation immédiate + restauration éventuelle
     if (Number(selectedPlan.price_usd) === 0) {
-      await pool.execute('UPDATE users SET plan_id = ?, subscription_status = "Active" WHERE id = ?', [selectedPlan.id, userId]);
+      await pool.execute(
+        "UPDATE users SET plan_id = ?, billing_cycle = 'monthly', subscription_status = 'Active', subscription_expires_at = NULL, trial_ends_at = NULL, included_boosts_remaining = 0 WHERE id = ?",
+        [selectedPlan.id, userId]
+      );
       return res.json({
         success: true,
         message: 'Formule gratuite activée immédiatement sur votre compte.',
         plan: selectedPlan.name
       });
     }
+
+    const finalUsd = cycle === 'yearly' ? selectedPlan.price_yearly_usd : selectedPlan.price_usd;
+    const finalCdf = cycle === 'yearly' ? selectedPlan.price_yearly_cdf : selectedPlan.price_cdf;
 
     const invoiceId = 'inv_' + crypto.randomBytes(8).toString('hex');
     const invoiceNumber = 'FAC-KIN-' + Date.now().toString().slice(-6);
@@ -365,15 +646,16 @@ async function createInvoice(req, res, next) {
     const dueDateStr = dueDate.toISOString().split('T')[0];
 
     await pool.execute(
-      `INSERT INTO invoices (id, invoice_number, user_id, invoice_type, plan_id, amount, currency, amount_cdf, payment_method_id, payment_gateway, status, due_date)
-       VALUES (?, ?, ?, 'subscription', ?, ?, 'USD', ?, ?, ?, 'pending', ?)`,
+      `INSERT INTO invoices (id, invoice_number, user_id, invoice_type, plan_id, amount, currency, amount_cdf, billing_cycle, is_trial, payment_method_id, payment_gateway, status, due_date)
+       VALUES (?, ?, ?, 'subscription', ?, ?, 'USD', ?, ?, FALSE, ?, ?, 'pending', ?)`,
       [
         invoiceId,
         invoiceNumber,
         userId,
         selectedPlan.id,
-        selectedPlan.price_usd,
-        selectedPlan.price_cdf,
+        finalUsd,
+        finalCdf,
+        cycle,
         paymentMethodId || null,
         paymentGateway,
         dueDateStr
@@ -387,9 +669,11 @@ async function createInvoice(req, res, next) {
         id: invoiceId,
         invoiceNumber,
         invoiceType: 'subscription',
+        planId: selectedPlan.id,
         plan: selectedPlan.name,
-        amount: selectedPlan.price_usd,
-        amountCdf: selectedPlan.price_cdf,
+        billingCycle: cycle,
+        amount: finalUsd,
+        amountCdf: finalCdf,
         status: 'pending',
         dueDate: dueDateStr
       }
@@ -497,19 +781,27 @@ async function submitPaymentProof(req, res, next) {
       return res.status(404).json({ success: false, message: 'Facture introuvable pour votre compte.' });
     }
 
+    if (!transactionReference && !proofImageUrl) {
+      return res.status(400).json({ success: false, message: 'Veuillez indiquer la référence de transaction Mobile Money ou joindre une capture.' });
+    }
+
     await pool.execute(
       `UPDATE invoices
        SET payment_method_id = COALESCE(?, payment_method_id),
            transaction_reference = COALESCE(?, transaction_reference),
            proof_image_url = COALESCE(?, proof_image_url),
-           gateway_transaction_id = COALESCE(?, gateway_transaction_id)
+           gateway_transaction_id = COALESCE(?, gateway_transaction_id),
+           status = 'awaiting_validation',
+           payment_submitted_at = CURRENT_TIMESTAMP,
+           rejection_reason = NULL
        WHERE id = ?`,
       [paymentMethodId || null, transactionReference || null, proofImageUrl || null, gatewayTransactionId || null, id]
     );
 
     res.json({
       success: true,
-      message: 'Justificatif de paiement enregistré. Votre compte ou option sera activé dès vérification.'
+      status: 'awaiting_validation',
+      message: 'Preuve de paiement transmise. La facture passe en attente de validation par l\'administrateur.'
     });
   } catch (error) {
     next(error);
@@ -573,29 +865,66 @@ async function getMyBoosts(req, res, next) {
 async function approveInvoice(req, res, next) {
   try {
     const { id } = req.params;
+    const adminId = req.user?.id || 'admin';
 
     const [invs] = await pool.execute('SELECT * FROM invoices WHERE id = ? LIMIT 1', [id]);
     if (invs.length === 0) {
       return res.status(404).json({ success: false, message: 'Facture introuvable.' });
     }
     const inv = invs[0];
+    const receiptNumber = inv.receipt_number || ('REC-KIN-' + Date.now().toString().slice(-6));
+    const cycle = inv.billing_cycle === 'yearly' ? 'yearly' : (inv.billing_cycle === 'trial' ? 'trial' : 'monthly');
+    const periodStart = new Date();
+    const periodEnd = new Date(periodStart);
+    if (cycle === 'yearly') periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+    else periodEnd.setMonth(periodEnd.getMonth() + 1);
+    const periodStartStr = periodStart.toISOString().split('T')[0];
+    const periodEndStr = periodEnd.toISOString().split('T')[0];
 
-    // Marquer la facture comme payée
+    // Marquer la facture comme payée avec numéro de reçu et traçabilité
     await pool.execute(
       `UPDATE invoices
-       SET status = 'paid', paid_at = CURRENT_TIMESTAMP
+       SET status = 'paid',
+           receipt_number = ?,
+           period_start = COALESCE(period_start, ?),
+           period_end = COALESCE(period_end, ?),
+           validated_at = CURRENT_TIMESTAMP,
+           validated_by = ?,
+           rejection_reason = NULL,
+           paid_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [id]
+      [receiptNumber, periodStartStr, periodEndStr, adminId, id]
     );
 
-    // 1. Cas d'un abonnement
+    // 1. Cas d'un abonnement : activer, créditer les boosts inclus et restaurer les annonces masquées
     if (inv.plan_id) {
+      const [planRows] = await pool.execute('SELECT * FROM pricing_plans WHERE id = ? LIMIT 1', [inv.plan_id]);
+      const includedBoosts = Number(planRows?.[0]?.included_boosts ?? planRows?.[0]?.max_featured_listings ?? 0);
+
       await pool.execute(
         `UPDATE users
-         SET plan_id = ?, subscription_status = 'Active'
+         SET plan_id = ?,
+             billing_cycle = ?,
+             subscription_status = 'Active',
+             subscription_expires_at = ?,
+             trial_ends_at = NULL,
+             included_boosts_remaining = ?
          WHERE id = ?`,
-        [inv.plan_id, inv.user_id]
+        [inv.plan_id, cycle, periodEnd, includedBoosts, inv.user_id]
       );
+
+      await pool.execute(
+        `UPDATE agencies
+         SET plan_id = ?,
+             billing_cycle = ?,
+             subscription_status = 'Active',
+             subscription_expires_at = ?,
+             included_boosts_remaining = ?
+         WHERE owner_user_id = ? OR id = ?`,
+        [inv.plan_id, cycle, periodEnd, includedBoosts, inv.user_id, inv.user_id]
+      ).catch(() => {});
+
+      await restoreUserSoftHiddenProperties(inv.user_id);
     }
 
     // 2. Cas d'un boost d'annonce
@@ -694,7 +1023,8 @@ async function approveInvoice(req, res, next) {
 
     res.json({
       success: true,
-      message: `Facture ${inv.invoice_number} validée avec succès. Prestation ou abonnement activé.`
+      receiptNumber,
+      message: `Facture ${inv.invoice_number} validée (Reçu ${receiptNumber}). Prestation ou abonnement activé.`
     });
   } catch (error) {
     next(error);
@@ -717,15 +1047,16 @@ async function rejectInvoice(req, res, next) {
     }
     const inv = invs[0];
 
-    // Marquer la facture comme rejetée/échouée
     await pool.execute(
       `UPDATE invoices
-       SET status = 'failed'
+       SET status = 'rejected',
+           rejection_reason = ?,
+           validated_at = CURRENT_TIMESTAMP,
+           validated_by = ?
        WHERE id = ?`,
-      [id]
+      [reason, adminId, id]
     );
 
-    // Annuler le boost si c'était un boost et conserver le motif
     if (inv.property_id && inv.option_id) {
       await pool.execute(
         `UPDATE listing_boosts
@@ -737,14 +1068,120 @@ async function rejectInvoice(req, res, next) {
         [reason, adminId, id, inv.property_id, inv.option_id]
       );
 
-      // Désactiver le statut featured sur la propriété et masquer dans hero_showcase_slides
       await pool.execute('UPDATE properties SET featured = FALSE WHERE id = ?', [inv.property_id]);
       await pool.execute('UPDATE hero_showcase_slides SET is_active = FALSE WHERE property_id = ?', [inv.property_id]);
     }
 
     res.json({
       success: true,
-      message: `Facture ${inv.invoice_number} rejetée. Le boost n'a pas été activé. Raison : ${reason}`
+      message: `Facture ${inv.invoice_number} refusée. Motif : ${reason}`
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Remboursement manuel d'une facture avec note et choix (révoquer ou maintenir le plan/boost)
+ * PUT /api/billing/invoices/:id/refund
+ */
+async function refundInvoice(req, res, next) {
+  try {
+    const { id } = req.params;
+    const {
+      refundNote = 'Remboursement manuel effectué par l\'administration',
+      refundAction = 'revoke'
+    } = req.body;
+    const action = refundAction === 'keep' ? 'keep' : 'revoke';
+
+    const [invs] = await pool.execute('SELECT * FROM invoices WHERE id = ? LIMIT 1', [id]);
+    if (invs.length === 0) {
+      return res.status(404).json({ success: false, message: 'Facture introuvable.' });
+    }
+    const inv = invs[0];
+
+    await pool.execute(
+      `UPDATE invoices
+       SET status = 'refunded',
+           refund_note = ?,
+           refunded_at = CURRENT_TIMESTAMP,
+           refund_action = ?
+       WHERE id = ?`,
+      [refundNote, action, id]
+    );
+
+    let downgradeResult = { hiddenCount: 0, freeMax: 3 };
+    if (action === 'revoke') {
+      if (inv.invoice_type === 'boost' || inv.property_id) {
+        await pool.execute(
+          "UPDATE listing_boosts SET status = 'canceled', rejection_reason = ? WHERE invoice_id = ?",
+          [refundNote, id]
+        );
+        if (inv.property_id) {
+          await pool.execute(
+            "UPDATE properties SET featured = FALSE, is_premium = FALSE, is_urgent = FALSE, listing_tier = 'free', boost_expires_at = NULL WHERE id = ?",
+            [inv.property_id]
+          );
+          await pool.execute('UPDATE hero_showcase_slides SET is_active = FALSE WHERE property_id = ?', [inv.property_id]);
+        }
+      } else if (inv.plan_id) {
+        await pool.execute(
+          "UPDATE users SET plan_id = 'starter', subscription_status = 'Expired', included_boosts_remaining = 0 WHERE id = ?",
+          [inv.user_id]
+        );
+        await pool.execute(
+          "UPDATE agencies SET plan_id = 'starter', subscription_status = 'Expired', included_boosts_remaining = 0 WHERE owner_user_id = ? OR id = ?",
+          [inv.user_id, inv.user_id]
+        ).catch(() => {});
+        downgradeResult = await softDowngradeUserProperties(inv.user_id);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: action === 'revoke'
+        ? `Remboursement enregistré et prestation révoquée (${downgradeResult.hiddenCount} annonce(s) masquée(s) sans suppression).`
+        : 'Remboursement enregistré avec maintien du plan/boost actif.',
+      refundAction: action,
+      hiddenCount: downgradeResult.hiddenCount
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Contrôler les abonnements expirés et appliquer la rétrogradation douce
+ * POST /api/billing/admin/check-expirations
+ */
+async function checkExpirationsAndDowngrade(req, res, next) {
+  try {
+    const [expiredUsers] = await pool.execute(
+      `SELECT id FROM users
+       WHERE subscription_status = 'Active'
+         AND subscription_expires_at IS NOT NULL
+         AND subscription_expires_at <= CURRENT_TIMESTAMP`
+    );
+
+    let totalHidden = 0;
+    for (const u of expiredUsers) {
+      await pool.execute(
+        "UPDATE users SET subscription_status = 'Expired', plan_id = 'starter', included_boosts_remaining = 0 WHERE id = ?",
+        [u.id]
+      );
+      await pool.execute(
+        "UPDATE agencies SET subscription_status = 'Expired', plan_id = 'starter', included_boosts_remaining = 0 WHERE owner_user_id = ? OR id = ?",
+        [u.id, u.id]
+      ).catch(() => {});
+      const resDowngrade = await softDowngradeUserProperties(u.id);
+      totalHidden += resDowngrade.hiddenCount;
+    }
+
+    res.json({
+      success: true,
+      downgradedAccounts: expiredUsers.length,
+      hiddenListingsCount: totalHidden,
+      message: `${expiredUsers.length} compte(s) expiré(s) rétrogradé(s) en douceur (${totalHidden} annonce(s) masquée(s), 0 supprimée).`
     });
   } catch (error) {
     next(error);
@@ -1650,27 +2087,44 @@ async function createPlan(req, res, next) {
       name,
       description,
       category = 'individual',
+      audience = 'grand_public',
       badge,
       price_usd = 0,
       price_cdf = 0,
+      price_yearly_usd,
+      price_yearly_cdf,
+      trial_days = 0,
       max_listings = 3,
       max_featured_listings = 0,
+      max_photos_per_listing = 8,
+      max_videos = 1,
+      included_boosts = 0,
+      max_team_members = 1,
       features = [],
       recommended = false,
+      has_verified_badge = false,
+      has_crm_leads = false,
+      has_priority_support = false,
       is_active = true
     } = req.body;
 
     const id = req.body.id || 'plan_' + crypto.randomBytes(6).toString('hex');
     const featuresJson = typeof features === 'string' ? features : JSON.stringify(features);
+    const yearlyUsd = price_yearly_usd !== undefined ? Number(price_yearly_usd) : Math.round(Number(price_usd) * 10 * 100) / 100;
+    const yearlyCdf = price_yearly_cdf !== undefined ? Number(price_yearly_cdf) : Math.round(yearlyUsd * 2850);
 
     await pool.execute(
       `INSERT INTO pricing_plans (
-        id, name, description, category, badge, price_usd, price_cdf,
-        max_listings, max_featured_listings, features, recommended, is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, name, description, category, audience, badge, price_usd, price_cdf,
+        price_yearly_usd, price_yearly_cdf, trial_days,
+        max_listings, max_featured_listings, max_photos_per_listing, max_videos, included_boosts, max_team_members,
+        features, recommended, has_verified_badge, has_crm_leads, has_priority_support, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        id, name, description || '', category, badge || null, price_usd, price_cdf,
-        max_listings, max_featured_listings, featuresJson, Boolean(recommended), Boolean(is_active)
+        id, name, description || '', category, audience, badge || null, Number(price_usd), Number(price_cdf),
+        yearlyUsd, yearlyCdf, Number(trial_days),
+        Number(max_listings), Number(max_featured_listings), Number(max_photos_per_listing), Number(max_videos), Number(included_boosts), Number(max_team_members),
+        featuresJson, Boolean(recommended), Boolean(has_verified_badge), Boolean(has_crm_leads), Boolean(has_priority_support), Boolean(is_active)
       ]
     );
 
@@ -1687,13 +2141,24 @@ async function updatePlan(req, res, next) {
       name,
       description,
       category,
+      audience,
       badge,
       price_usd,
       price_cdf,
+      price_yearly_usd,
+      price_yearly_cdf,
+      trial_days,
       max_listings,
       max_featured_listings,
+      max_photos_per_listing,
+      max_videos,
+      included_boosts,
+      max_team_members,
       features,
       recommended,
+      has_verified_badge,
+      has_crm_leads,
+      has_priority_support,
       is_active
     } = req.body;
 
@@ -1704,18 +2169,50 @@ async function updatePlan(req, res, next) {
        SET name = COALESCE(?, name),
            description = COALESCE(?, description),
            category = COALESCE(?, category),
+           audience = COALESCE(?, audience),
            badge = COALESCE(?, badge),
            price_usd = COALESCE(?, price_usd),
            price_cdf = COALESCE(?, price_cdf),
+           price_yearly_usd = COALESCE(?, price_yearly_usd),
+           price_yearly_cdf = COALESCE(?, price_yearly_cdf),
+           trial_days = COALESCE(?, trial_days),
            max_listings = COALESCE(?, max_listings),
            max_featured_listings = COALESCE(?, max_featured_listings),
+           max_photos_per_listing = COALESCE(?, max_photos_per_listing),
+           max_videos = COALESCE(?, max_videos),
+           included_boosts = COALESCE(?, included_boosts),
+           max_team_members = COALESCE(?, max_team_members),
            features = COALESCE(?, features),
            recommended = COALESCE(?, recommended),
+           has_verified_badge = COALESCE(?, has_verified_badge),
+           has_crm_leads = COALESCE(?, has_crm_leads),
+           has_priority_support = COALESCE(?, has_priority_support),
            is_active = COALESCE(?, is_active)
        WHERE id = ?`,
       [
-        name, description, category, badge, price_usd, price_cdf,
-        max_listings, max_featured_listings, featuresJson, recommended, is_active, id
+        name ?? null,
+        description ?? null,
+        category ?? null,
+        audience ?? null,
+        badge ?? null,
+        price_usd ?? null,
+        price_cdf ?? null,
+        price_yearly_usd ?? null,
+        price_yearly_cdf ?? null,
+        trial_days ?? null,
+        max_listings ?? null,
+        max_featured_listings ?? null,
+        max_photos_per_listing ?? null,
+        max_videos ?? null,
+        included_boosts ?? null,
+        max_team_members ?? null,
+        featuresJson,
+        recommended !== undefined ? Boolean(recommended) : null,
+        has_verified_badge !== undefined ? Boolean(has_verified_badge) : null,
+        has_crm_leads !== undefined ? Boolean(has_crm_leads) : null,
+        has_priority_support !== undefined ? Boolean(has_priority_support) : null,
+        is_active !== undefined ? Boolean(is_active) : null,
+        id
       ]
     );
 
@@ -1824,6 +2321,9 @@ module.exports = {
   getPlans,
   getVisibilityOptions,
   getPaymentMethods,
+  createPaymentMethod,
+  updatePaymentMethod,
+  deletePaymentMethod,
   createInvoice,
   createBoostOrder,
   submitPaymentProof,
@@ -1831,6 +2331,8 @@ module.exports = {
   getMyBoosts,
   approveInvoice,
   rejectInvoice,
+  refundInvoice,
+  checkExpirationsAndDowngrade,
   getAdvertisements,
   trackAdClick,
   getAdminMonetizationStats,

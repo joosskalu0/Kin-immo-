@@ -25,7 +25,7 @@ export const SocialShareBar: React.FC<SocialShareBarProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
-  const currentUrl = property ? buildPropertyShareUrl(property.id) : '';
+  const currentUrl = property ? buildPropertyShareUrl(property) : '';
   const formattedPrice = convertAndFormatPrice(property.price, 'USD');
 
   const handleCopy = (e: React.MouseEvent) => {

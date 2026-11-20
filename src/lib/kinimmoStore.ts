@@ -322,6 +322,7 @@ export function subscribeToPricingConfig(
     pricingPlans: any[];
     subscriptionPlans: SubscriptionPlan[];
     cdfExchangeRate: number;
+    cdfExchangeRateUpdatedAt?: string;
     pricingDisplayCurrency: string;
   }) => void
 ): () => void {
@@ -329,6 +330,7 @@ export function subscribeToPricingConfig(
     pricingPlans: [],
     subscriptionPlans: initialSubscriptionPlans,
     cdfExchangeRate: 2850,
+    cdfExchangeRateUpdatedAt: '2026-11-18T10:00:00.000Z',
     pricingDisplayCurrency: 'USD'
   };
 
@@ -655,6 +657,7 @@ export async function savePricingConfigToStore(config: {
   pricingPlans?: any[];
   subscriptionPlans?: SubscriptionPlan[];
   cdfExchangeRate?: number;
+  cdfExchangeRateUpdatedAt?: string;
   pricingDisplayCurrency?: string;
 }) {
   try {

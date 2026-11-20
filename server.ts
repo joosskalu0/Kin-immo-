@@ -9,6 +9,15 @@ import { findMatchingProperties } from './src/utils/propertyMatching';
 import { initialProperties, initialCustomFields, initialAgencies, initialAgents, initialLeads } from './src/data/mockData';
 import { ConciergerieRequest, PropertyVisitRecord, ConciergeRequestStatus } from './src/types/index';
 import { analyzePropertyForFraud, auditPropertyList } from './src/utils/suspiciousListingDetector';
+import {
+  DEFAULT_BLOG_ARTICLES,
+  DEFAULT_LEGAL_DOCUMENTS,
+  DEFAULT_FAQ_ITEMS,
+  resolveNeighborhoodBySlug,
+  buildNeighborhoodDirectory,
+  slugifyText,
+} from './src/data/contentSeed';
+import { getPropertySlug, resolvePropertyBySlugOrId } from './src/utils/shareUtils';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,12 +30,13 @@ const isProd = process.env.NODE_ENV === 'production';
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Servir les fichiers téléversés
+// Servir les fichiers téléversés et les images éditoriales OG
 const devUploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(devUploadsDir)) {
   try { fs.mkdirSync(devUploadsDir, { recursive: true }); } catch {}
 }
 app.use('/uploads', express.static(devUploadsDir));
+app.use('/og-images', express.static(path.join(__dirname, 'src/assets/images')));
 
 // Fichier local de secours pour persistance robuste
 const LOCAL_LEADS_FILE = path.join(__dirname, 'concierge_requests.json');
@@ -36,6 +46,7 @@ const LOCAL_ADS_FILE = path.join(__dirname, 'advertisements.json');
 const LOCAL_SLIDES_FILE = path.join(__dirname, 'hero_slides.json');
 const LOCAL_PLANS_FILE = path.join(__dirname, 'pricing_plans.json');
 const LOCAL_OPTIONS_FILE = path.join(__dirname, 'visibility_options.json');
+const LOCAL_PAYMENT_METHODS_FILE = path.join(__dirname, 'payment_methods_store.json');
 const LOCAL_NOTIFICATIONS_FILE = path.join(__dirname, 'notifications.json');
 const LOCAL_VIDEOS_FILE = path.join(__dirname, 'property_videos.json');
 const LOCAL_CLOUDINARY_FILE = path.join(__dirname, 'cloudinary_config.json');
@@ -53,31 +64,48 @@ const LOCAL_CRM_LEADS_FILE = path.join(__dirname, 'crm_leads_store.json');
 const LOCAL_AGENCIES_FILE = path.join(__dirname, 'agencies_store.json');
 const LOCAL_AGENTS_FILE = path.join(__dirname, 'agents_store.json');
 const LOCAL_VIDEO_REPORTS_FILE = path.join(__dirname, 'video_reports_store.json');
+const LOCAL_BLOG_ARTICLES_FILE = path.join(__dirname, 'blog_articles_store.json');
+const LOCAL_LEGAL_DOCS_FILE = path.join(__dirname, 'legal_documents_store.json');
 
 const INITIAL_PLANS = [
   {
     id: 'starter',
-    name: 'Annonce Gratuite Particulier',
-    description: 'Idéal pour les propriétaires souhaitant publier leurs biens sans aucun frais ni engagement.',
+    name: 'Gratuit (Grand Public)',
+    description: 'Idéal pour les propriétaires et particuliers souhaitant publier leurs biens sans aucun frais.',
     category: 'individual',
+    audience: 'grand_public',
     badge: 'Gratuit',
     price_usd: 0.0,
     price_cdf: 0.0,
     priceMonthly: 0.0,
     priceMonthlyCDF: 0.0,
+    price_yearly_usd: 0.0,
+    priceYearly: 0.0,
+    price_yearly_cdf: 0.0,
+    priceYearlyCDF: 0.0,
+    trial_days: 0,
+    trialDays: 0,
     currency: 'USD',
     billing_period: 'monthly',
     billingPeriod: 'month',
     max_listings: 3,
     maxListings: 3,
+    max_photos_per_listing: 6,
+    maxPhotos: 6,
+    max_videos: 1,
+    maxVideos: 1,
+    included_boosts: 0,
+    includedBoosts: 0,
     max_featured_listings: 0,
     featuredListings: 0,
+    max_team_members: 1,
     agentAccounts: 1,
     features: [
-      'Publication de 3 annonces immobilières actives',
-      'Fiche descriptive complète avec photos HD',
-      'Mise en relation directe avec les acheteurs',
-      'Messagerie et contacts WhatsApp directs'
+      'Jusqu\'à 3 annonces immobilières actives',
+      'Jusqu\'à 6 photos HD par annonce',
+      '1 vidéo de visite incluse',
+      '0 boost inclus (boosts à la carte possibles)',
+      '1 membre / compte titulaire'
     ],
     recommended: false,
     has_verified_badge: false,
@@ -91,29 +119,42 @@ const INITIAL_PLANS = [
   },
   {
     id: 'pro',
-    name: 'Pro Courtier Indépendant',
-    description: 'Pour courtiers indépendants actifs à Kinshasa avec badge vérifié et gestion prioritaire des leads.',
+    name: 'Agent Pro',
+    description: 'Pour courtiers et propriétaires actifs à Kinshasa avec badge vérifié, boosts inclus et vidéos.',
     category: 'individual',
-    badge: 'Courtier Pro',
+    audience: 'grand_public',
+    badge: 'Populaire',
     price_usd: 29.0,
     price_cdf: 82650.0,
     priceMonthly: 29.0,
     priceMonthlyCDF: 82650.0,
+    price_yearly_usd: 290.0,
+    priceYearly: 290.0,
+    price_yearly_cdf: 826500.0,
+    priceYearlyCDF: 826500.0,
+    trial_days: 7,
+    trialDays: 7,
     currency: 'USD',
     billing_period: 'monthly',
     billingPeriod: 'month',
     max_listings: 25,
     maxListings: 25,
+    max_photos_per_listing: 15,
+    maxPhotos: 15,
+    max_videos: 5,
+    maxVideos: 5,
+    included_boosts: 3,
+    includedBoosts: 3,
     max_featured_listings: 3,
     featuredListings: 3,
+    max_team_members: 1,
     agentAccounts: 1,
     features: [
-      'Jusqu\'à 25 annonces immobilières actives',
-      '3 annonces en vedette (Mise en avant)',
-      'Badge Officiel Courtier Vérifié Kinshasa',
-      'Accès direct aux demandes de Conciergerie (Leads)',
-      'Statistiques des vues et contacts WhatsApp',
-      'Support réactif 6j/7'
+      'Jusqu\'à 25 annonces actives',
+      '15 photos HD par annonce & 5 vidéos immersives',
+      '3 boosts inclus / mois',
+      'Essai gratuit configurable (7 jours)',
+      'Badge Officiel Vérifié Kinshasa & CRM Leads'
     ],
     recommended: true,
     has_verified_badge: true,
@@ -127,30 +168,42 @@ const INITIAL_PLANS = [
   },
   {
     id: 'agency',
-    name: 'Agence Immobilière Certifiée',
-    description: 'Visibilité maximale pour agences immobilières avec agents illimités, CRM et vitrine dédiée.',
+    name: 'Agence Immobilière',
+    description: 'Visibilité maximale pour agences immobilières : équipe multi-agents, boosts inclus et vitrine certifiée.',
     category: 'agency',
+    audience: 'agence',
     badge: 'Agence Agréée',
     price_usd: 79.0,
     price_cdf: 225150.0,
     priceMonthly: 79.0,
     priceMonthlyCDF: 225150.0,
+    price_yearly_usd: 790.0,
+    priceYearly: 790.0,
+    price_yearly_cdf: 2251500.0,
+    priceYearlyCDF: 2251500.0,
+    trial_days: 14,
+    trialDays: 14,
     currency: 'USD',
     billing_period: 'monthly',
     billingPeriod: 'month',
     max_listings: 100,
     maxListings: 100,
+    max_photos_per_listing: 25,
+    maxPhotos: 25,
+    max_videos: 20,
+    maxVideos: 20,
+    included_boosts: 10,
+    includedBoosts: 10,
     max_featured_listings: 10,
     featuredListings: 10,
+    max_team_members: 10,
     agentAccounts: 10,
     features: [
-      'Jusqu\'à 100 annonces immobilières actives',
-      '10 annonces en vedette incluses',
-      'Vitrine Agence Immobilière dédiée avec logo et agents',
-      'Gestion multi-comptes pour agents immobiliers',
-      'Badge Agence Certifiée & Agréée RDC',
-      'Rapports d\'activité mensuels et CRM leads',
-      'Support prioritaire dédié 7j/7'
+      'Jusqu\'à 100 annonces actives',
+      '25 photos HD par annonce & 20 vidéos immersives',
+      '10 boosts inclus / mois',
+      'Jusqu\'à 10 membres d\'équipe & comptes collaborateurs',
+      'Essai gratuit configurable (14 jours) & Support prioritaire 7j/7'
     ],
     recommended: true,
     has_verified_badge: true,
@@ -163,30 +216,42 @@ const INITIAL_PLANS = [
     isActive: true
   },
   {
-    id: 'enterprise',
-    name: 'Promoteur Immobilier & Constructeur VIP',
-    description: 'Pour promoteurs fonciers, lotissements et grands chantiers avec bannières sponsorisées et multi-diffusion.',
+    id: 'promoter_vip',
+    name: 'Promoteur Immobilier VIP',
+    description: 'Audience Promoteur (Brouillon Admin au lancement) : grands chantiers, lotissements et bannières dédiées.',
     category: 'promoter',
-    badge: 'Promoteur VIP',
+    audience: 'promoteur',
+    badge: 'Bientôt disponible',
     price_usd: 149.0,
     price_cdf: 424650.0,
     priceMonthly: 149.0,
     priceMonthlyCDF: 424650.0,
+    price_yearly_usd: 1490.0,
+    priceYearly: 1490.0,
+    price_yearly_cdf: 4246500.0,
+    priceYearlyCDF: 4246500.0,
+    trial_days: 14,
+    trialDays: 14,
     currency: 'USD',
     billing_period: 'monthly',
     billingPeriod: 'month',
     max_listings: 500,
     maxListings: 500,
+    max_photos_per_listing: 40,
+    maxPhotos: 40,
+    max_videos: 50,
+    maxVideos: 50,
+    included_boosts: 30,
+    includedBoosts: 30,
     max_featured_listings: 30,
     featuredListings: 30,
+    max_team_members: 25,
     agentAccounts: 25,
     features: [
-      'Annonces immobilières illimitées (grands chantiers, lotissements)',
-      '30 annonces en tête de liste et carrousel d\'accueil',
-      'Bannières publicitaires régie incluses',
-      'Multi-diffusion WhatsApp VIP & Réseaux sociaux',
-      'Conseiller commercial et juridique dédié',
-      'Gestion prioritaire des visites VIP'
+      'Jusqu\'à 500 annonces de projets & lotissements',
+      '40 photos HD par annonce & 50 vidéos',
+      '30 boosts inclus / mois & vitrine sponsorisée',
+      'Jusqu\'à 25 membres d\'équipe'
     ],
     recommended: false,
     has_verified_badge: true,
@@ -195,8 +260,56 @@ const INITIAL_PLANS = [
     hasCrmLeads: true,
     has_priority_support: true,
     hasPrioritySupport: true,
-    is_active: true,
-    isActive: true
+    is_active: false,
+    isActive: false
+  },
+  {
+    id: 'enterprise',
+    name: 'Pack Entreprise & Groupe',
+    description: 'Audience Entreprise (Brouillon Admin au lancement) : grands comptes institutionnels et groupes fonciers.',
+    category: 'enterprise',
+    audience: 'entreprise',
+    badge: 'Sur devis',
+    price_usd: 299.0,
+    price_cdf: 852150.0,
+    priceMonthly: 299.0,
+    priceMonthlyCDF: 852150.0,
+    price_yearly_usd: 2990.0,
+    priceYearly: 2990.0,
+    price_yearly_cdf: 8521500.0,
+    priceYearlyCDF: 8521500.0,
+    trial_days: 30,
+    trialDays: 30,
+    currency: 'USD',
+    billing_period: 'monthly',
+    billingPeriod: 'month',
+    max_listings: 1000,
+    maxListings: 1000,
+    max_photos_per_listing: 50,
+    maxPhotos: 50,
+    max_videos: 100,
+    maxVideos: 100,
+    included_boosts: 50,
+    includedBoosts: 50,
+    max_featured_listings: 50,
+    featuredListings: 50,
+    max_team_members: 50,
+    agentAccounts: 50,
+    features: [
+      'Jusqu\'à 1000 annonces actives multi-filiales',
+      '50 photos HD par annonce & 100 vidéos',
+      '50 boosts inclus / mois & API CRM dédiée',
+      'Jusqu\'à 50 membres d\'équipe'
+    ],
+    recommended: false,
+    has_verified_badge: true,
+    hasVerifiedBadge: true,
+    has_crm_leads: true,
+    hasCrmLeads: true,
+    has_priority_support: true,
+    hasPrioritySupport: true,
+    is_active: false,
+    isActive: false
   }
 ];
 
@@ -400,17 +513,86 @@ const INITIAL_INVOICES = [
   }
 ];
 
+const LAUNCH_AUDIENCES = ['grand_public', 'agence'];
+
+function mapCategoryToAudienceServer(category?: string, id?: string): string {
+  if (id === 'enterprise') return 'entreprise';
+  if (id === 'promoter_vip') return 'promoteur';
+  if (id === 'agency') return 'agence';
+  if (category === 'agency') return 'agence';
+  if (category === 'promoter') return 'promoteur';
+  if (category === 'enterprise') return 'entreprise';
+  return 'grand_public';
+}
+
+function normalizeServerPlan(p: any): any {
+  const base = INITIAL_PLANS.find((ip) => ip.id === p.id);
+  const audience = p.audience || mapCategoryToAudienceServer(p.category, p.id);
+  const priceUsd = Number(p.price_usd ?? p.priceMonthly ?? base?.price_usd ?? 0);
+  const priceCdf = Number(p.price_cdf ?? p.priceMonthlyCDF ?? base?.price_cdf ?? Math.round(priceUsd * 2850));
+  const priceYearlyUsd = Number(p.price_yearly_usd ?? p.priceYearly ?? base?.price_yearly_usd ?? Math.round(priceUsd * 10));
+  const priceYearlyCdf = Number(p.price_yearly_cdf ?? p.priceYearlyCDF ?? base?.price_yearly_cdf ?? Math.round(priceYearlyUsd * 2850));
+  const maxListings = Number(p.max_listings ?? p.maxListings ?? base?.max_listings ?? 3);
+  const maxPhotos = Number(p.max_photos_per_listing ?? p.maxPhotos ?? base?.max_photos_per_listing ?? 6);
+  const maxVideos = Number(p.max_videos ?? p.maxVideos ?? base?.max_videos ?? 1);
+  const includedBoosts = Number(p.included_boosts ?? p.includedBoosts ?? p.max_featured_listings ?? p.featuredListings ?? base?.included_boosts ?? 0);
+  const maxTeam = Number(p.max_team_members ?? p.agentAccounts ?? base?.max_team_members ?? 1);
+  const trialDays = Number(p.trial_days ?? p.trialDays ?? base?.trial_days ?? 0);
+  const defaultActive = LAUNCH_AUDIENCES.includes(audience);
+  const isActive = p.is_active !== undefined ? Boolean(p.is_active) : (p.isActive !== undefined ? Boolean(p.isActive) : defaultActive);
+
+  return {
+    ...(base || {}),
+    ...p,
+    audience,
+    category: p.category || (audience === 'agence' ? 'agency' : audience === 'promoteur' ? 'promoter' : audience === 'entreprise' ? 'enterprise' : 'individual'),
+    price_usd: priceUsd,
+    priceMonthly: priceUsd,
+    price_cdf: priceCdf,
+    priceMonthlyCDF: priceCdf,
+    price_yearly_usd: priceYearlyUsd,
+    priceYearly: priceYearlyUsd,
+    price_yearly_cdf: priceYearlyCdf,
+    priceYearlyCDF: priceYearlyCdf,
+    trial_days: trialDays,
+    trialDays,
+    max_listings: maxListings,
+    maxListings,
+    max_photos_per_listing: maxPhotos,
+    maxPhotos,
+    max_videos: maxVideos,
+    maxVideos,
+    included_boosts: includedBoosts,
+    includedBoosts,
+    max_featured_listings: includedBoosts,
+    featuredListings: includedBoosts,
+    max_team_members: maxTeam,
+    agentAccounts: maxTeam,
+    is_active: isActive,
+    isActive
+  };
+}
+
 function loadLocalPlans(): any[] {
   try {
     if (fs.existsSync(LOCAL_PLANS_FILE)) {
       const content = fs.readFileSync(LOCAL_PLANS_FILE, 'utf-8');
       const parsed = JSON.parse(content);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = parsed.map(normalizeServerPlan);
+        // Ensure promoter_vip exists if an older pricing_plans.json only had starter/pro/agency/enterprise
+        for (const defPlan of INITIAL_PLANS) {
+          if (!normalized.some((p) => p.id === defPlan.id)) {
+            normalized.push(defPlan);
+          }
+        }
+        return normalized;
+      }
     }
   } catch (e) {
     console.error('Erreur lecture pricing_plans.json', e);
   }
-  return INITIAL_PLANS;
+  return INITIAL_PLANS.map(normalizeServerPlan);
 }
 
 function saveLocalPlans(list: any[]) {
@@ -418,6 +600,27 @@ function saveLocalPlans(list: any[]) {
     fs.writeFileSync(LOCAL_PLANS_FILE, JSON.stringify(list, null, 2), 'utf-8');
   } catch (e) {
     console.error('Erreur écriture pricing_plans.json', e);
+  }
+}
+
+function loadLocalPaymentMethods(): any[] {
+  try {
+    if (fs.existsSync(LOCAL_PAYMENT_METHODS_FILE)) {
+      const content = fs.readFileSync(LOCAL_PAYMENT_METHODS_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.error('Erreur lecture payment_methods_store.json', e);
+  }
+  return INITIAL_PAYMENT_METHODS;
+}
+
+function saveLocalPaymentMethods(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_PAYMENT_METHODS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erreur écriture payment_methods_store.json', e);
   }
 }
 
@@ -467,7 +670,7 @@ function saveLocalInvoices(list: any[]) {
 
 let inMemoryPlans: any[] = loadLocalPlans();
 let inMemoryOptions: any[] = loadLocalOptions();
-let inMemoryPaymentMethods: any[] = INITIAL_PAYMENT_METHODS;
+let inMemoryPaymentMethods: any[] = loadLocalPaymentMethods();
 let inMemoryInvoices: any[] = loadLocalInvoices();
 
 function normalizePropertyRecord(p: any) {
@@ -1085,6 +1288,12 @@ export interface AuthUser {
   rccmOrNif?: string;
   avatar?: string;
   planId?: string;
+  subscriptionPlan?: string;
+  subscriptionStatus?: string;
+  subscriptionExpiresAt?: string;
+  billingCycle?: 'monthly' | 'yearly';
+  trialEndsAt?: string;
+  includedBoostsRemaining?: number;
   isVerified?: boolean;
   kinshasaBadgeVerified?: boolean;
 }
@@ -2196,13 +2405,157 @@ app.post('/api/notifications/trigger-reminder/:visitId', (req: Request, res: Res
 // 5. RÉGIE PUBLICITAIRE & MONÉTISATION (API BACKEND)
 // ==========================================
 
+// Helpers Rétrogradation Douce & Restauration (Plans & Abonnements P2)
+function getFreePlanMaxListingsServer(): number {
+  const starter = inMemoryPlans.find((p) => p.id === 'starter' || Number(p.price_usd || p.priceMonthly || 0) === 0);
+  return Number(starter?.max_listings ?? starter?.maxListings ?? 3);
+}
+
+function doesPropertyBelongToUserServer(p: any, userId: string, agencyId?: string): boolean {
+  if (!p) return false;
+  if (p.userId === userId || p.agentId === userId || p.ownerId === userId) return true;
+  if (agencyId && (p.agencyId === agencyId || p.agentId === agencyId)) return true;
+  return false;
+}
+
+function softDowngradeUserPropertiesServer(userId: string): { hiddenCount: number; keptCount: number } {
+  const freeMax = getFreePlanMaxListingsServer();
+  const targetUser = inMemoryUsers.find((u) => u.id === userId || u.email === userId);
+  const agencyId = targetUser?.agencyId;
+  const ownedActive = inMemoryProperties
+    .filter((p) => doesPropertyBelongToUserServer(p, userId, agencyId) && p.published !== false && p.listingStatus !== 'ARCHIVED')
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+  if (ownedActive.length <= freeMax) {
+    return { hiddenCount: 0, keptCount: ownedActive.length };
+  }
+
+  const keepIds = new Set(ownedActive.slice(0, freeMax).map((p) => p.id));
+  const nowIso = new Date().toISOString();
+  let hiddenCount = 0;
+
+  inMemoryProperties = inMemoryProperties.map((p) => {
+    if (doesPropertyBelongToUserServer(p, userId, agencyId) && p.published !== false && !keepIds.has(p.id)) {
+      hiddenCount += 1;
+      return {
+        ...p,
+        published: false,
+        softHiddenByPlan: true,
+        softHiddenAt: nowIso,
+        updatedAt: nowIso
+      };
+    }
+    return p;
+  });
+
+  if (hiddenCount > 0) saveLocalProperties(inMemoryProperties);
+  return { hiddenCount, keptCount: Math.min(ownedActive.length, freeMax) };
+}
+
+function restoreSoftHiddenPropertiesServer(userId: string): number {
+  const targetUser = inMemoryUsers.find((u) => u.id === userId || u.email === userId);
+  const agencyId = targetUser?.agencyId;
+  const nowIso = new Date().toISOString();
+  let restoredCount = 0;
+
+  inMemoryProperties = inMemoryProperties.map((p) => {
+    if (doesPropertyBelongToUserServer(p, userId, agencyId) && p.softHiddenByPlan) {
+      restoredCount += 1;
+      return {
+        ...p,
+        published: true,
+        softHiddenByPlan: false,
+        softHiddenAt: undefined,
+        updatedAt: nowIso
+      };
+    }
+    return p;
+  });
+
+  if (restoredCount > 0) saveLocalProperties(inMemoryProperties);
+  return restoredCount;
+}
+
+function applyPlanToAccountServer(userId: string, plan: any, cycle: 'monthly' | 'yearly', isTrial = false) {
+  const now = new Date();
+  const durationDays = isTrial ? Math.max(1, Number(plan?.trial_days ?? plan?.trialDays ?? 7)) : (cycle === 'yearly' ? 365 : 30);
+  const expiresAtIso = new Date(now.getTime() + durationDays * 86400000).toISOString().split('T')[0];
+
+  const uIdx = inMemoryUsers.findIndex((u) => u.id === userId || u.email === userId);
+  let targetAgencyId: string | undefined;
+  if (uIdx !== -1) {
+    inMemoryUsers[uIdx] = {
+      ...inMemoryUsers[uIdx],
+      subscriptionPlan: plan.id,
+      subscriptionStatus: 'Active',
+      subscriptionExpiresAt: expiresAtIso,
+      billingCycle: cycle,
+      trialEndsAt: isTrial ? expiresAtIso : undefined,
+      includedBoostsRemaining: Number(plan.included_boosts ?? plan.includedBoosts ?? 0)
+    };
+    targetAgencyId = inMemoryUsers[uIdx].agencyId;
+    saveLocalUsers(inMemoryUsers);
+  }
+
+  const agIdx = inMemoryAgencies.findIndex((a) => a.id === targetAgencyId || a.id === userId || a.userId === userId);
+  if (agIdx !== -1) {
+    inMemoryAgencies[agIdx] = {
+      ...inMemoryAgencies[agIdx],
+      subscriptionPlan: plan.id,
+      subscriptionStatus: 'Active',
+      subscriptionExpiresAt: expiresAtIso,
+      billingCycle: cycle,
+      trialEndsAt: isTrial ? expiresAtIso : undefined,
+      includedBoostsRemaining: Number(plan.included_boosts ?? plan.includedBoosts ?? 0),
+      lastPaymentDate: now.toISOString().split('T')[0],
+      unpaidInvoiceId: undefined
+    };
+    saveLocalAgencies(inMemoryAgencies);
+  }
+
+  const restored = restoreSoftHiddenPropertiesServer(userId);
+  return { expiresAtIso, restored };
+}
+
+function downgradeAccountToFreeServer(userId: string) {
+  const nowDate = new Date().toISOString().split('T')[0];
+  const uIdx = inMemoryUsers.findIndex((u) => u.id === userId || u.email === userId);
+  let targetAgencyId: string | undefined;
+  if (uIdx !== -1) {
+    inMemoryUsers[uIdx] = {
+      ...inMemoryUsers[uIdx],
+      subscriptionPlan: 'starter',
+      subscriptionStatus: 'Expired',
+      subscriptionExpiresAt: nowDate,
+      includedBoostsRemaining: 0
+    };
+    targetAgencyId = inMemoryUsers[uIdx].agencyId;
+    saveLocalUsers(inMemoryUsers);
+  }
+  const agIdx = inMemoryAgencies.findIndex((a) => a.id === targetAgencyId || a.id === userId || a.userId === userId);
+  if (agIdx !== -1) {
+    inMemoryAgencies[agIdx] = {
+      ...inMemoryAgencies[agIdx],
+      subscriptionPlan: 'starter',
+      subscriptionStatus: 'Expired',
+      subscriptionExpiresAt: nowDate,
+      includedBoostsRemaining: 0
+    };
+    saveLocalAgencies(inMemoryAgencies);
+  }
+  return softDowngradeUserPropertiesServer(userId);
+}
+
 // 5a. Formules d'abonnements & Monétisation (GET /api/billing/plans)
 app.get('/api/billing/plans', (req: Request, res: Response) => {
   try {
-    const { category, include_inactive } = req.query;
-    let list = inMemoryPlans;
+    const { category, audience, include_inactive } = req.query;
+    let list = inMemoryPlans.map(normalizeServerPlan);
     if (include_inactive !== 'true') {
-      list = list.filter((p) => p.is_active !== false);
+      list = list.filter((p) => p.is_active !== false && LAUNCH_AUDIENCES.includes(p.audience));
+    }
+    if (audience && audience !== 'all') {
+      list = list.filter((p) => p.audience === audience);
     }
     if (category && category !== 'all') {
       list = list.filter((p) => p.category === category);
@@ -2222,26 +2575,16 @@ app.put('/api/billing/plans/:id', (req: Request, res: Response) => {
     const { id } = req.params;
     const idx = inMemoryPlans.findIndex(p => p.id === id);
     if (idx !== -1) {
-      const priceUsd = Number(req.body.price_usd !== undefined ? req.body.price_usd : (req.body.priceMonthly !== undefined ? req.body.priceMonthly : inMemoryPlans[idx].price_usd));
-      const priceCdf = Number(req.body.price_cdf !== undefined ? req.body.price_cdf : (req.body.priceMonthlyCDF !== undefined ? req.body.priceMonthlyCDF : (priceUsd * 2850)));
-      const maxListings = Number(req.body.max_listings !== undefined ? req.body.max_listings : (req.body.maxListings !== undefined ? req.body.maxListings : inMemoryPlans[idx].max_listings));
-      const featuredListings = Number(req.body.max_featured_listings !== undefined ? req.body.max_featured_listings : (req.body.featuredListings !== undefined ? req.body.featuredListings : inMemoryPlans[idx].max_featured_listings));
-
-      inMemoryPlans[idx] = {
-        ...inMemoryPlans[idx],
+      const existing = inMemoryPlans[idx];
+      const merged = normalizeServerPlan({
+        ...existing,
         ...req.body,
-        price_usd: priceUsd,
-        priceMonthly: priceUsd,
-        price_cdf: priceCdf,
-        priceMonthlyCDF: priceCdf,
-        max_listings: maxListings,
-        maxListings: maxListings,
-        max_featured_listings: featuredListings,
-        featuredListings: featuredListings,
+        id,
         updated_at: new Date().toISOString()
-      };
+      });
+      inMemoryPlans[idx] = merged;
       saveLocalPlans(inMemoryPlans);
-      return res.json({ success: true, message: 'Formule mise à jour avec succès.', plan: inMemoryPlans[idx] });
+      return res.json({ success: true, message: 'Formule mise à jour avec succès.', plan: merged });
     }
     return res.status(404).json({ success: false, error: 'Formule introuvable' });
   } catch (err: any) {
@@ -2256,41 +2599,13 @@ app.post('/api/billing/plans', (req: Request, res: Response) => {
     if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
     if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const id = req.body.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const priceUsd = Number(req.body.price_usd ?? req.body.priceMonthly ?? 0);
-    const priceCdf = Number(req.body.price_cdf ?? req.body.priceMonthlyCDF ?? (priceUsd * 2850));
-    const maxListings = Number(req.body.max_listings ?? req.body.maxListings ?? 5);
-    const featuredListings = Number(req.body.max_featured_listings ?? req.body.featuredListings ?? 0);
-
-    const newPlan = {
+    const audience = req.body.audience || mapCategoryToAudienceServer(req.body.category, id);
+    const newPlan = normalizeServerPlan({
+      ...req.body,
       id,
-      name: req.body.name || 'Nouvelle formule',
-      description: req.body.description || '',
-      category: req.body.category || 'individual',
-      badge: req.body.badge || 'Formule Pro',
-      price_usd: priceUsd,
-      priceMonthly: priceUsd,
-      price_cdf: priceCdf,
-      priceMonthlyCDF: priceCdf,
-      currency: 'USD',
-      billing_period: req.body.billing_period || 'monthly',
-      billingPeriod: 'month',
-      max_listings: maxListings,
-      maxListings: maxListings,
-      max_featured_listings: featuredListings,
-      featuredListings: featuredListings,
-      agentAccounts: Number(req.body.agentAccounts || 1),
-      features: Array.isArray(req.body.features) ? req.body.features : ['Publication d\'annonces'],
-      recommended: Boolean(req.body.recommended),
-      has_verified_badge: Boolean(req.body.has_verified_badge),
-      hasVerifiedBadge: Boolean(req.body.hasVerifiedBadge),
-      has_crm_leads: Boolean(req.body.has_crm_leads),
-      hasCrmLeads: Boolean(req.body.hasCrmLeads),
-      has_priority_support: Boolean(req.body.has_priority_support),
-      hasPrioritySupport: Boolean(req.body.hasPrioritySupport),
-      is_active: req.body.is_active !== false,
-      isActive: req.body.isActive !== false,
+      audience,
       created_at: new Date().toISOString()
-    };
+    });
 
     inMemoryPlans.push(newPlan);
     saveLocalPlans(inMemoryPlans);
@@ -2406,33 +2721,115 @@ app.delete('/api/billing/visibility-options/:id', (req: Request, res: Response) 
   }
 });
 
-// 5c. Moyens de paiement officiels RDC (GET /api/billing/payment-methods)
-app.get('/api/billing/payment-methods', (_req: Request, res: Response) => {
+// 5c. Moyens de paiement officiels RDC configurables (CRUD Admin + GET public)
+app.get('/api/billing/payment-methods', (req: Request, res: Response) => {
   try {
-    return res.json({ success: true, count: inMemoryPaymentMethods.length, paymentMethods: inMemoryPaymentMethods });
+    const includeInactive = req.query.include_inactive === 'true';
+    const list = includeInactive ? inMemoryPaymentMethods : inMemoryPaymentMethods.filter((pm) => pm.is_active !== false);
+    return res.json({ success: true, count: list.length, paymentMethods: list });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
 });
+
+const handleCreatePaymentMethod = (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+    const pm = {
+      id: req.body.id || `pm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      provider: req.body.provider || 'mpesa',
+      account_name: req.body.account_name || 'Compte Marchand Kinimmo',
+      account_number: req.body.account_number || '',
+      merchant_code: req.body.merchant_code || null,
+      instructions: req.body.instructions || '',
+      is_active: req.body.is_active !== false,
+      created_at: new Date().toISOString()
+    };
+    inMemoryPaymentMethods.push(pm);
+    saveLocalPaymentMethods(inMemoryPaymentMethods);
+    return res.status(201).json({ success: true, paymentMethod: pm });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+app.post('/api/billing/payment-methods', handleCreatePaymentMethod);
+app.post('/api/billing/admin/payment-methods', handleCreatePaymentMethod);
+
+const handleUpdatePaymentMethod = (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+    const { id } = req.params;
+    const idx = inMemoryPaymentMethods.findIndex((pm) => pm.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Opérateur introuvable.' });
+    inMemoryPaymentMethods[idx] = { ...inMemoryPaymentMethods[idx], ...req.body, id, updated_at: new Date().toISOString() };
+    saveLocalPaymentMethods(inMemoryPaymentMethods);
+    return res.json({ success: true, paymentMethod: inMemoryPaymentMethods[idx] });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+app.put('/api/billing/payment-methods/:id', handleUpdatePaymentMethod);
+app.put('/api/billing/admin/payment-methods/:id', handleUpdatePaymentMethod);
+
+const handleDeletePaymentMethod = (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+    const { id } = req.params;
+    inMemoryPaymentMethods = inMemoryPaymentMethods.filter((pm) => pm.id !== id);
+    saveLocalPaymentMethods(inMemoryPaymentMethods);
+    return res.json({ success: true, message: 'Moyen de paiement supprimé.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+app.delete('/api/billing/payment-methods/:id', handleDeletePaymentMethod);
+app.delete('/api/billing/admin/payment-methods/:id', handleDeletePaymentMethod);
 
 // 5d. Création de facture de souscription forfait (POST /api/billing/invoices)
 app.post('/api/billing/invoices', (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
-    const { planId, paymentMethodId, paymentGateway = 'manual_mobile_money', userName, userEmail } = req.body;
-    const targetPlan = inMemoryPlans.find((p) => p.id === planId) || inMemoryPlans[0];
+    const {
+      planId,
+      paymentMethodId,
+      paymentGateway = 'manual_mobile_money',
+      billingCycle = 'monthly',
+      startTrial = false,
+      userName,
+      userEmail
+    } = req.body;
+    const rawPlan = inMemoryPlans.find((p) => p.id === planId) || inMemoryPlans[0];
+    const targetPlan = normalizeServerPlan(rawPlan);
     const targetPayment = inMemoryPaymentMethods.find((pm) => pm.id === paymentMethodId) || inMemoryPaymentMethods[0];
+    const cycle: 'monthly' | 'yearly' = billingCycle === 'yearly' ? 'yearly' : 'monthly';
+    const trialDays = Number(targetPlan.trial_days ?? targetPlan.trialDays ?? 0);
+    const isTrial = Boolean(startTrial && trialDays > 0);
+
+    const amountUsd = isTrial ? 0 : (cycle === 'yearly' ? Number(targetPlan.price_yearly_usd ?? targetPlan.priceYearly ?? 0) : Number(targetPlan.price_usd ?? targetPlan.priceMonthly ?? 0));
+    const amountCdf = isTrial ? 0 : (cycle === 'yearly' ? Number(targetPlan.price_yearly_cdf ?? targetPlan.priceYearlyCDF ?? 0) : Number(targetPlan.price_cdf ?? targetPlan.priceMonthlyCDF ?? 0));
+    const isZero = amountUsd <= 0;
 
     const invoiceNumber = `FAC-KIN-${Math.floor(100000 + Math.random() * 900000)}`;
+    const receiptNumber = isZero ? `REC-KIN-${Math.floor(100000 + Math.random() * 900000)}` : undefined;
     const invoiceId = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const durationDays = isTrial ? trialDays : (cycle === 'yearly' ? 365 : 30);
+    const periodEndIso = new Date(Date.now() + durationDays * 86400000).toISOString().split('T')[0];
     const dueDate = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
 
     const newInvoice = {
       id: invoiceId,
       invoice_number: invoiceNumber,
       invoiceNumber,
+      receipt_number: receiptNumber,
+      receiptNumber,
       user_id: user.id,
       user_name: userName || user.name || 'Client Kinshasa',
       user_email: userEmail || user.email || 'client@kinimmo.cd',
@@ -2442,26 +2839,39 @@ app.post('/api/billing/invoices', (req: Request, res: Response) => {
       invoiceType: 'subscription',
       plan_id: targetPlan.id,
       plan_name: targetPlan.name,
-      amount: targetPlan.price_usd || targetPlan.priceMonthly,
-      amount_usd: targetPlan.price_usd || targetPlan.priceMonthly,
+      billing_cycle: cycle,
+      billingCycle: cycle,
+      is_trial: isTrial,
+      isTrial,
+      amount: amountUsd,
+      amount_usd: amountUsd,
       currency: 'USD',
-      amount_cdf: targetPlan.price_cdf || targetPlan.priceMonthlyCDF,
-      total_amount: targetPlan.price_usd || targetPlan.priceMonthly,
-      total_amount_cdf: targetPlan.price_cdf || targetPlan.priceMonthlyCDF,
+      amount_cdf: amountCdf,
+      total_amount: amountUsd,
+      total_amount_cdf: amountCdf,
       payment_method_id: targetPayment?.id || null,
-      payment_method_provider: targetPayment?.account_name || 'Mobile Money',
-      payment_gateway: paymentGateway,
-      status: targetPlan.priceMonthly === 0 ? 'paid' : 'pending',
+      payment_method_provider: isTrial ? 'Essai Gratuit Kinimmo' : (targetPayment?.account_name || 'Mobile Money'),
+      payment_gateway: isTrial ? 'free_trial' : paymentGateway,
+      status: isZero ? 'paid' : 'pending',
+      period_start: nowIso.split('T')[0],
+      period_end: periodEndIso,
       due_date: dueDate,
+      paid_at: isZero ? nowIso : undefined,
+      validated_at: isZero ? nowIso : undefined,
+      validated_by: isZero ? 'Système Kinimmo' : undefined,
       created_at: nowIso,
       updated_at: nowIso
     };
+
+    if (isZero) {
+      applyPlanToAccountServer(user.id, targetPlan, cycle, isTrial);
+    }
 
     inMemoryInvoices.unshift(newInvoice);
     saveLocalInvoices(inMemoryInvoices);
     return res.status(201).json({
       success: true,
-      message: 'Facture générée avec succès.',
+      message: isTrial ? `Essai gratuit de ${trialDays} jours activé avec succès.` : 'Facture générée avec succès.',
       invoice: newInvoice
     });
   } catch (err: any) {
@@ -2549,7 +2959,7 @@ app.post('/api/billing/boost-order', (req: Request, res: Response) => {
 app.get('/api/billing/my-invoices', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
-  const list = user.role === 'admin' ? inMemoryInvoices : inMemoryInvoices.filter((inv) => inv.user_id === user.id);
+  const list = user.role === 'admin' ? inMemoryInvoices : inMemoryInvoices.filter((inv) => inv.user_id === user.id || inv.user_email === user.email);
   return res.json({ success: true, count: list.length, invoices: list });
 });
 
@@ -2563,25 +2973,40 @@ app.get('/api/billing/my-boosts', (req: Request, res: Response) => {
   return res.json({ success: true, count: boosts.length, boosts });
 });
 
-// 5h. Transmission de la référence / preuve de paiement (PUT /api/billing/invoices/:id/pay)
+// 5h. Transmission de la référence / preuve de paiement -> passe en "awaiting_validation" (PUT /api/billing/invoices/:id/pay)
 app.put('/api/billing/invoices/:id/pay', (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
     const { id } = req.params;
-    const { transactionReference, paymentMethodId } = req.body;
+    const { transactionReference, paymentMethodId, proofImageUrl, gatewayTransactionId } = req.body;
     const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id);
     if (!inv) {
       return res.status(404).json({ success: false, error: 'Facture non trouvée' });
     }
-    if (user.role !== 'admin' && inv.user_id !== user.id) {
+    if (user.role !== 'admin' && inv.user_id !== user.id && inv.user_email !== user.email) {
       return res.status(403).json({ success: false, error: 'Accès interdit.' });
     }
-    if (transactionReference) inv.transaction_reference = transactionReference;
-    if (paymentMethodId) inv.payment_method_id = paymentMethodId;
+    const refValue = transactionReference || gatewayTransactionId || inv.transaction_reference;
+    if (!refValue && !proofImageUrl) {
+      return res.status(400).json({ success: false, error: 'Veuillez renseigner la référence de transaction ou joindre une capture de paiement.' });
+    }
+    if (refValue) inv.transaction_reference = String(refValue).trim();
+    if (paymentMethodId) {
+      inv.payment_method_id = paymentMethodId;
+      const pm = inMemoryPaymentMethods.find((m) => m.id === paymentMethodId);
+      if (pm) inv.payment_method_provider = pm.account_name;
+    }
+    if (proofImageUrl !== undefined) {
+      inv.proof_image_url = proofImageUrl;
+      inv.proofImageUrl = proofImageUrl;
+    }
+    inv.status = 'awaiting_validation';
+    inv.payment_submitted_at = new Date().toISOString();
+    inv.rejection_reason = undefined;
     inv.updated_at = new Date().toISOString();
     saveLocalInvoices(inMemoryInvoices);
-    return res.json({ success: true, message: 'Référence de règlement enregistrée avec succès.', invoice: inv });
+    return res.json({ success: true, message: 'Preuve transmise. Facture en attente de validation par un administrateur.', invoice: inv });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
@@ -2598,9 +3023,19 @@ app.put('/api/billing/invoices/:id/approve', (req: Request, res: Response) => {
     if (!inv) {
       return res.status(404).json({ success: false, error: 'Facture non trouvée' });
     }
+    const nowIso = new Date().toISOString();
     inv.status = 'paid';
-    inv.paid_at = new Date().toISOString();
-    inv.updated_at = new Date().toISOString();
+    inv.paid_at = nowIso;
+    inv.validated_at = nowIso;
+    inv.validated_by = user.name || 'Administrateur Kinimmo';
+    if (!inv.receipt_number) {
+      inv.receipt_number = `REC-KIN-${Math.floor(100000 + Math.random() * 900000)}`;
+      inv.receiptNumber = inv.receipt_number;
+    }
+    inv.rejection_reason = undefined;
+    inv.updated_at = nowIso;
+
+    let restoredCount = 0;
 
     // Activation du boost sur la propriété si la facture est un boost
     if (inv.invoice_type === 'boost' || inv.property_id) {
@@ -2626,17 +3061,27 @@ app.put('/api/billing/invoices/:id/approve', (req: Request, res: Response) => {
           inMemoryProperties[propIdx].isUrgent = true;
         }
 
-        inMemoryProperties[propIdx].refreshBumpAt = new Date().toISOString();
-        inMemoryProperties[propIdx].updatedAt = new Date().toISOString();
+        inMemoryProperties[propIdx].refreshBumpAt = nowIso;
+        inMemoryProperties[propIdx].updatedAt = nowIso;
         saveLocalProperties(inMemoryProperties);
       }
+    } else if (inv.plan_id) {
+      const targetPlan = normalizeServerPlan(inMemoryPlans.find((p) => p.id === inv.plan_id) || inMemoryPlans[1] || inMemoryPlans[0]);
+      const cycle: 'monthly' | 'yearly' = inv.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
+      const result = applyPlanToAccountServer(inv.user_id, targetPlan, cycle, Boolean(inv.is_trial));
+      inv.period_start = nowIso.split('T')[0];
+      inv.period_end = result.expiresAtIso;
+      restoredCount = result.restored;
     }
 
     saveLocalInvoices(inMemoryInvoices);
     return res.json({
       success: true,
-      message: `Facture ${inv.invoice_number} validée avec succès. Le boost a été activé sur l'annonce.`,
-      invoice: inv
+      message: restoredCount > 0
+        ? `Facture ${inv.invoice_number} validée (${inv.receipt_number}). Plan activé et ${restoredCount} annonce(s) restaurée(s).`
+        : `Facture ${inv.invoice_number} validée avec succès (${inv.receipt_number}).`,
+      invoice: inv,
+      restoredListingsCount: restoredCount
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -2656,20 +3101,114 @@ app.put('/api/billing/invoices/:id/reject', (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Facture non trouvée' });
     }
 
-    inv.status = 'failed';
-    inv.notes = `Paiement rejeté par l'administrateur : ${reason}`;
+    inv.status = 'rejected';
+    inv.rejection_reason = reason;
+    inv.notes = `Paiement refusé par l'administrateur : ${reason}`;
+    inv.validated_at = new Date().toISOString();
+    inv.validated_by = user.name || 'Administrateur Kinimmo';
     inv.updated_at = new Date().toISOString();
 
     saveLocalInvoices(inMemoryInvoices);
     return res.json({
       success: true,
-      message: `Paiement rejeté pour la facture ${inv.invoice_number}. Le boost n'a pas été activé.`,
+      message: `Paiement refusé pour la facture ${inv.invoice_number}. Motif enregistré.`,
       invoice: inv
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
 });
+
+// 5i-bis-2. Remboursement manuel avec note et option Révoquer ou Maintenir (PUT /api/billing/invoices/:id/refund)
+app.put('/api/billing/invoices/:id/refund', (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+    if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+    const { id } = req.params;
+    const { refundNote = 'Remboursement manuel administratif', refundAction = 'revoke' } = req.body || {};
+    const inv = inMemoryInvoices.find((i) => i.id === id || i.invoice_number === id);
+    if (!inv) {
+      return res.status(404).json({ success: false, error: 'Facture non trouvée' });
+    }
+    const action: 'revoke' | 'keep' = refundAction === 'keep' ? 'keep' : 'revoke';
+    const nowIso = new Date().toISOString();
+
+    inv.status = 'refunded';
+    inv.refund_note = String(refundNote).trim();
+    inv.refundNote = inv.refund_note;
+    inv.refunded_at = nowIso;
+    inv.refundedAt = nowIso;
+    inv.refund_action = action;
+    inv.refundAction = action;
+    inv.validated_by = user.name || 'Administrateur Kinimmo';
+    inv.updated_at = nowIso;
+
+    let softHiddenCount = 0;
+    if (action === 'revoke') {
+      if (inv.invoice_type === 'boost' || inv.property_id) {
+        const propIdx = inMemoryProperties.findIndex((p) => p.id === inv.property_id);
+        if (propIdx !== -1) {
+          inMemoryProperties[propIdx].featured = false;
+          inMemoryProperties[propIdx].isPremium = false;
+          inMemoryProperties[propIdx].isUrgent = false;
+          inMemoryProperties[propIdx].boostExpiresAt = undefined;
+          inMemoryProperties[propIdx].listingTier = 'standard';
+          inMemoryProperties[propIdx].updatedAt = nowIso;
+          saveLocalProperties(inMemoryProperties);
+        }
+      } else if (inv.user_id) {
+        const resDowngrade = downgradeAccountToFreeServer(inv.user_id);
+        softHiddenCount = resDowngrade.hiddenCount;
+      }
+    }
+
+    saveLocalInvoices(inMemoryInvoices);
+    return res.json({
+      success: true,
+      message: action === 'revoke'
+        ? `Facture ${inv.invoice_number} remboursée et avantage révoqué (${softHiddenCount} annonce(s) excédentaire(s) masquée(s) sans suppression).`
+        : `Facture ${inv.invoice_number} remboursée avec note ; le plan/boost reste actif.`,
+      invoice: inv,
+      softHiddenCount
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 5i-bis-3. Audit des échéances & rétrogradation douce automatique (POST /api/billing/admin/check-expirations)
+const handleCheckExpirations = (req: Request, res: Response) => {
+  try {
+    const nowMs = Date.now();
+    let downgradedAccounts = 0;
+    let totalHidden = 0;
+
+    inMemoryUsers.forEach((u) => {
+      if (u.subscriptionExpiresAt && u.subscriptionPlan && u.subscriptionPlan !== 'starter') {
+        const expMs = new Date(u.subscriptionExpiresAt).getTime();
+        if (!isNaN(expMs) && expMs < nowMs) {
+          downgradedAccounts += 1;
+          const r = downgradeAccountToFreeServer(u.id);
+          totalHidden += r.hiddenCount;
+        }
+      }
+    });
+
+    return res.json({
+      success: true,
+      downgradedAccounts,
+      softHiddenProperties: totalHidden,
+      message: downgradedAccounts > 0
+        ? `${downgradedAccounts} compte(s) rétrogradé(s) en plan gratuit (${totalHidden} annonce(s) excédentaire(s) masquée(s) sans suppression).`
+        : 'Tous les abonnements actifs sont à jour.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
+};
+app.post('/api/billing/admin/check-expirations', handleCheckExpirations);
+app.post('/api/billing/invoices/check-expirations', handleCheckExpirations);
 
 // 5i-ter. Liste des demandes de boost pour l'administration (GET /api/billing/admin/boost-requests)
 app.get('/api/billing/admin/boost-requests', (req: Request, res: Response) => {
@@ -3069,9 +3608,10 @@ app.get('/api/billing/admin/vitrine-stats', (req: Request, res: Response) => {
     const now = Date.now();
     const stats = {
       totalRequests: boostInvoices.length,
-      pending: boostInvoices.filter((i) => i.status === 'pending' || i.status === 'pending_validation').length,
+      pending: boostInvoices.filter((i) => i.status === 'pending' || i.status === 'awaiting_validation' || i.status === 'pending_validation').length,
       active: boostInvoices.filter((i) => (i.status === 'paid' || i.status === 'active') && (!i.expires_at || new Date(i.expires_at).getTime() > now)).length,
       rejected: boostInvoices.filter((i) => i.status === 'failed' || i.status === 'rejected').length,
+      refunded: boostInvoices.filter((i) => i.status === 'refunded').length,
       suspended: boostInvoices.filter((i) => i.status === 'suspended').length,
       expired: boostInvoices.filter((i) => i.expires_at && new Date(i.expires_at).getTime() <= now).length,
       activeShowcaseSlides: inMemorySlides.filter((s) => s.isActive && s.propertyId).length
@@ -3251,7 +3791,10 @@ app.get('/api/billing/admin/monetization-stats', (req: Request, res: Response) =
       invoices: {
         total_invoices: inMemoryInvoices.length,
         paid_invoices: inMemoryInvoices.filter(i => i.status === 'paid').length,
+        awaiting_validation_invoices: inMemoryInvoices.filter(i => i.status === 'awaiting_validation').length,
         pending_invoices: inMemoryInvoices.filter(i => i.status === 'pending').length,
+        rejected_invoices: inMemoryInvoices.filter(i => i.status === 'rejected' || i.status === 'failed').length,
+        refunded_invoices: inMemoryInvoices.filter(i => i.status === 'refunded').length,
         total_revenue_usd: inMemoryInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.amount || 0), 0),
         total_revenue_cdf: inMemoryInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.amount_cdf || 0), 0),
         boost_invoices: inMemoryInvoices.filter(i => i.invoice_type === 'boost').length,
@@ -6365,6 +6908,182 @@ app.delete('/api/admin/agencies/:id', (req: Request, res: Response) => {
   return res.json({ success: true, message: 'Agence supprimée.' });
 });
 
+// -------------------------------------------------------------
+// CMS CONTENUS : BLOG & GUIDES + DOCUMENTS LÉGAUX RDC
+// -------------------------------------------------------------
+function loadLocalBlogArticles(): any[] {
+  try {
+    if (fs.existsSync(LOCAL_BLOG_ARTICLES_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_BLOG_ARTICLES_FILE, 'utf-8'));
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.error('Erreur lecture blog_articles_store.json:', e);
+  }
+  return [...DEFAULT_BLOG_ARTICLES];
+}
+
+function saveLocalBlogArticles(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_BLOG_ARTICLES_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erreur écriture blog_articles_store.json:', e);
+  }
+}
+
+function loadLocalLegalDocuments(): any[] {
+  try {
+    if (fs.existsSync(LOCAL_LEGAL_DOCS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_LEGAL_DOCS_FILE, 'utf-8'));
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.error('Erreur lecture legal_documents_store.json:', e);
+  }
+  return [...DEFAULT_LEGAL_DOCUMENTS];
+}
+
+function saveLocalLegalDocuments(list: any[]) {
+  try {
+    fs.writeFileSync(LOCAL_LEGAL_DOCS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erreur écriture legal_documents_store.json:', e);
+  }
+}
+
+let inMemoryBlogArticles: any[] = loadLocalBlogArticles();
+let inMemoryLegalDocuments: any[] = loadLocalLegalDocuments();
+
+app.get('/api/content/articles', (req: Request, res: Response) => {
+  const includeDrafts = String(req.query.include_drafts || '') === 'true';
+  const authUser = getAuthUser(req);
+  const canSeeDrafts = includeDrafts && authUser?.role === 'admin';
+  const articles = canSeeDrafts
+    ? inMemoryBlogArticles
+    : inMemoryBlogArticles.filter((a: any) => a.isPublished !== false);
+  return res.json({ success: true, articles });
+});
+
+app.get('/api/content/articles/:slug', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  const found = inMemoryBlogArticles.find(
+    (a: any) => a.slug === req.params.slug || a.id === req.params.slug
+  );
+  if (!found || (found.isPublished === false && authUser?.role !== 'admin')) {
+    return res.status(404).json({ success: false, error: 'Article introuvable.' });
+  }
+  return res.json({ success: true, article: found });
+});
+
+app.post('/api/content/articles', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+
+  const body = req.body || {};
+  const title = String(body.title || '').trim();
+  if (!title) return res.status(400).json({ success: false, error: 'Le titre de l’article est obligatoire.' });
+
+  const now = new Date().toISOString();
+  const baseSlug = slugifyText(body.slug || title) || `article-${Date.now()}`;
+  const slugExists = inMemoryBlogArticles.some((a: any) => a.slug === baseSlug && a.id !== body.id);
+  const finalSlug = slugExists ? `${baseSlug}-${Date.now().toString().slice(-4)}` : baseSlug;
+
+  const article = {
+    id: body.id || `art_${Date.now()}`,
+    slug: finalSlug,
+    title,
+    category: body.category || 'achat_vente',
+    excerpt: String(body.excerpt || '').trim(),
+    content: String(body.content || '').trim(),
+    coverImage: String(body.coverImage || '/og-images/blog_gombe_skyline_1795161879500.jpg').trim(),
+    authorName: String(body.authorName || 'Rédaction Kinimmo RDC').trim(),
+    readingMinutes: Math.max(1, Number(body.readingMinutes || 5)),
+    tags: Array.isArray(body.tags) ? body.tags : [],
+    relatedNeighborhoodSlugs: Array.isArray(body.relatedNeighborhoodSlugs) ? body.relatedNeighborhoodSlugs : [],
+    isFeatured: Boolean(body.isFeatured),
+    isPublished: body.isPublished !== false,
+    publishedAt: body.publishedAt || now,
+    updatedAt: now,
+  };
+
+  inMemoryBlogArticles = [article, ...inMemoryBlogArticles.filter((a: any) => a.id !== article.id)];
+  saveLocalBlogArticles(inMemoryBlogArticles);
+  return res.status(201).json({ success: true, article });
+});
+
+app.put('/api/content/articles/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+
+  const idx = inMemoryBlogArticles.findIndex(
+    (a: any) => a.id === req.params.id || a.slug === req.params.id
+  );
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Article introuvable.' });
+
+  const body = req.body || {};
+  const current = inMemoryBlogArticles[idx];
+  const updated = {
+    ...current,
+    ...body,
+    id: current.id,
+    slug: body.slug ? slugifyText(body.slug) : current.slug,
+    updatedAt: new Date().toISOString(),
+  };
+  inMemoryBlogArticles[idx] = updated;
+  saveLocalBlogArticles(inMemoryBlogArticles);
+  return res.json({ success: true, article: updated });
+});
+
+app.delete('/api/content/articles/:id', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+
+  const initialLen = inMemoryBlogArticles.length;
+  inMemoryBlogArticles = inMemoryBlogArticles.filter(
+    (a: any) => a.id !== req.params.id && a.slug !== req.params.id
+  );
+  if (inMemoryBlogArticles.length === initialLen) {
+    return res.status(404).json({ success: false, error: 'Article introuvable.' });
+  }
+  saveLocalBlogArticles(inMemoryBlogArticles);
+  return res.json({ success: true, message: 'Article supprimé.' });
+});
+
+app.get('/api/content/legal', (_req: Request, res: Response) => {
+  return res.json({ success: true, documents: inMemoryLegalDocuments });
+});
+
+app.get('/api/content/legal/:slug', (req: Request, res: Response) => {
+  const found = inMemoryLegalDocuments.find((d: any) => d.slug === req.params.slug);
+  if (!found) return res.status(404).json({ success: false, error: 'Document légal introuvable.' });
+  return res.json({ success: true, document: found });
+});
+
+app.put('/api/content/legal/:slug', (req: Request, res: Response) => {
+  const admin = getAuthUser(req);
+  if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+
+  const idx = inMemoryLegalDocuments.findIndex((d: any) => d.slug === req.params.slug);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'Document légal introuvable.' });
+
+  const body = req.body || {};
+  const current = inMemoryLegalDocuments[idx];
+  const updated = {
+    ...current,
+    ...body,
+    slug: current.slug,
+    lastUpdatedAt: new Date().toISOString().split('T')[0],
+    updatedBy: admin.name || admin.email,
+  };
+  inMemoryLegalDocuments[idx] = updated;
+  saveLocalLegalDocuments(inMemoryLegalDocuments);
+  return res.json({ success: true, document: updated });
+});
+
 // Health check
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -6390,6 +7109,54 @@ function getSiteBaseUrl(req: Request): string {
 }
 
 // -------------------------------------------------------------
+// REDIRECTIONS HTTP 301 VERS LES URLS CANONIQUES PROPRES (SEO)
+// -------------------------------------------------------------
+function resolveCanonicalListingPath(rawToken: string): string {
+  const matched = resolvePropertyBySlugOrId(rawToken, inMemoryProperties as any);
+  if (matched) {
+    return `/annonces/${encodeURIComponent(getPropertySlug(matched))}`;
+  }
+  return `/annonces/${encodeURIComponent(getPropertySlug({ id: rawToken }))}`;
+}
+
+app.get(['/annonce/:id', '/property/:id', '/bien/:id'], (req: Request, res: Response) => {
+  return res.redirect(301, resolveCanonicalListingPath(req.params.id));
+});
+
+app.get('/quartier/:slug', (req: Request, res: Response) => {
+  const cleanSlug = slugifyText(req.params.slug || 'gombe') || 'gombe';
+  return res.redirect(301, `/quartiers/${encodeURIComponent(cleanSlug)}`);
+});
+
+app.get('/', (req: Request, res: Response, next) => {
+  const legacyProp =
+    req.query.property ||
+    req.query.prop ||
+    req.query.annonce ||
+    req.query.property_id;
+  if (legacyProp && typeof legacyProp === 'string' && legacyProp.trim()) {
+    return res.redirect(301, resolveCanonicalListingPath(legacyProp.trim()));
+  }
+  const legacyCommune = req.query.commune;
+  if (
+    legacyCommune &&
+    typeof legacyCommune === 'string' &&
+    legacyCommune.trim() &&
+    !req.query.status &&
+    !req.query.type &&
+    !req.query.search &&
+    !req.query.searchQuery &&
+    !req.query.tab
+  ) {
+    const cleanSlug = slugifyText(legacyCommune.trim());
+    if (cleanSlug) {
+      return res.redirect(301, `/quartiers/${encodeURIComponent(cleanSlug)}`);
+    }
+  }
+  return next();
+});
+
+// -------------------------------------------------------------
 // SITEMAP.XML DYNAMIQUE POUR LE RÉFÉRENCEMENT GOOGLE (SEO)
 // -------------------------------------------------------------
 app.get('/sitemap.xml', (req: Request, res: Response) => {
@@ -6397,34 +7164,44 @@ app.get('/sitemap.xml', (req: Request, res: Response) => {
     const baseUrl = getSiteBaseUrl(req);
     const today = new Date().toISOString().split('T')[0];
 
-    // Pages principales du portail
     const staticPages = [
-      { loc: `${baseUrl}/`, priority: '1.0', changefreq: 'daily' },
-      { loc: `${baseUrl}/visites`, priority: '0.9', changefreq: 'daily' },
-      { loc: `${baseUrl}/conciergerie`, priority: '0.8', changefreq: 'weekly' },
-      { loc: `${baseUrl}/?tab=map`, priority: '0.8', changefreq: 'weekly' },
-      { loc: `${baseUrl}/?tab=agents`, priority: '0.8', changefreq: 'weekly' },
-      { loc: `${baseUrl}/?tab=agencies`, priority: '0.8', changefreq: 'weekly' },
-      { loc: `${baseUrl}/?tab=pricing`, priority: '0.7', changefreq: 'monthly' },
-      { loc: `${baseUrl}/?status=for-sale`, priority: '0.8', changefreq: 'daily' },
-      { loc: `${baseUrl}/?status=for-rent`, priority: '0.8', changefreq: 'daily' },
+      { loc: `${baseUrl}/`, priority: '1.0', changefreq: 'daily', lastmod: today },
+      { loc: `${baseUrl}/visites`, priority: '0.9', changefreq: 'daily', lastmod: today },
+      { loc: `${baseUrl}/conciergerie`, priority: '0.8', changefreq: 'weekly', lastmod: today },
+      { loc: `${baseUrl}/blog`, priority: '0.8', changefreq: 'weekly', lastmod: today },
+      { loc: `${baseUrl}/aide`, priority: '0.7', changefreq: 'monthly', lastmod: today },
+      { loc: `${baseUrl}/conditions-utilisation`, priority: '0.4', changefreq: 'monthly', lastmod: today },
+      { loc: `${baseUrl}/confidentialite`, priority: '0.4', changefreq: 'monthly', lastmod: today },
+      { loc: `${baseUrl}/mentions-legales`, priority: '0.4', changefreq: 'monthly', lastmod: today },
     ];
 
-    // Communes populaires de Kinshasa pour le SEO géolocalisé
-    const topCommunes = [
-      'Gombe', 'Ngaliema', 'Limete', 'Kintambo', 'Mont-Ngafula',
-      'Bandalungwa', 'Kalamu', 'Lingwala', 'Barumbu', 'Kinshasa'
-    ];
-    const communePages = topCommunes.map((c) => ({
-      loc: `${baseUrl}/?commune=${encodeURIComponent(c)}`,
-      priority: '0.7',
+    // Toutes les communes & quartiers clés (URLs propres)
+    const neighborhoods = buildNeighborhoodDirectory(inMemoryProperties as any);
+    const communePages = neighborhoods.map((n) => ({
+      loc: `${baseUrl}/quartiers/${encodeURIComponent(n.slug)}`,
+      priority: n.stats.activeCount > 0 ? '0.8' : '0.6',
       changefreq: 'weekly',
-      lastmod: today
+      lastmod: today,
     }));
 
-    // Annonces immobilières publiées et actives
+    // Articles de blog & guides publiés
+    const articlePages = inMemoryBlogArticles
+      .filter((a: any) => a && a.isPublished !== false)
+      .map((a: any) => ({
+        loc: `${baseUrl}/blog/${encodeURIComponent(a.slug)}`,
+        priority: '0.7',
+        changefreq: 'monthly',
+        lastmod: String(a.updatedAt || a.publishedAt || today).split('T')[0],
+      }));
+
+    // Annonces immobilières publiées et actives (URLs propres /annonces/:slug)
     const publishedProps = inMemoryProperties.filter(
-      (p: any) => p && (p.published !== false && p.listingStatus !== 'ARCHIVED' && p.listingStatus !== 'REJECTED')
+      (p: any) =>
+        p &&
+        p.published !== false &&
+        p.listingStatus !== 'ARCHIVED' &&
+        p.listingStatus !== 'REJECTED' &&
+        !p.hiddenByPlanDowngrade
     );
 
     const propertyPages = publishedProps.map((p: any) => {
@@ -6435,18 +7212,14 @@ app.get('/sitemap.xml', (req: Request, res: Response) => {
         lastmod = String(p.createdAt).split('T')[0];
       }
       return {
-        loc: `${baseUrl}/?property=${encodeURIComponent(p.id)}`,
+        loc: `${baseUrl}/annonces/${encodeURIComponent(getPropertySlug(p))}`,
         priority: p.featured ? '0.9' : '0.8',
         changefreq: 'weekly',
-        lastmod
+        lastmod,
       };
     });
 
-    const allUrls = [
-      ...staticPages.map((p) => ({ ...p, lastmod: today })),
-      ...communePages,
-      ...propertyPages
-    ];
+    const allUrls = [...staticPages, ...communePages, ...articlePages, ...propertyPages];
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
@@ -6482,8 +7255,10 @@ app.get('/robots.txt', (req: Request, res: Response) => {
   const robots = `User-agent: *
 Allow: /
 Disallow: /admin
+Disallow: /admin/
 Disallow: /agent-dashboard
 Disallow: /agency-dashboard
+Disallow: /api/
 
 Sitemap: ${baseUrl}/sitemap.xml
 `;
@@ -6492,6 +7267,326 @@ Sitemap: ${baseUrl}/sitemap.xml
   return res.send(robots);
 });
 
+// -------------------------------------------------------------
+// INJECTION SERVEUR DES BALISES OPEN GRAPH, TWITTER, CANONICAL & JSON-LD
+// (Indispensable pour aperçus WhatsApp, Facebook & GoogleBot)
+// -------------------------------------------------------------
+function escapeHtmlAttr(val: string): string {
+  return String(val || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlText(val: string): string {
+  return String(val || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function resolveAbsoluteAssetUrl(rawUrl: string | undefined, baseUrl: string): string {
+  const fallback = `${baseUrl}/og-images/blog_gombe_skyline_1795161879500.jpg`;
+  if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) return fallback;
+  const clean = rawUrl.trim();
+  if (clean.startsWith('http://') || clean.startsWith('https://')) return clean;
+  if (clean.startsWith('/')) return `${baseUrl}${clean}`;
+  return `${baseUrl}/${clean}`;
+}
+
+interface ServerSeoMeta {
+  title: string;
+  description: string;
+  canonicalUrl: string;
+  imageUrl: string;
+  ogType: string;
+  jsonLd: Record<string, any> | null;
+}
+
+function resolveSeoMetadataForRequest(req: Request, baseUrl: string): ServerSeoMeta {
+  const pathname = (req.path || '/').replace(/\/+$/, '') || '/';
+  const defaultImage = `${baseUrl}/og-images/blog_gombe_skyline_1795161879500.jpg`;
+
+  // 1. Page annonce (/annonces/:slug)
+  const listingMatch = pathname.match(/^\/annonces\/([^/?#]+)/i);
+  if (listingMatch && listingMatch[1]) {
+    const token = decodeURIComponent(listingMatch[1]);
+    const prop = resolvePropertyBySlugOrId(token, inMemoryProperties as any);
+    if (prop) {
+      const slug = getPropertySlug(prop);
+      const canonicalUrl = `${baseUrl}/annonces/${encodeURIComponent(slug)}`;
+      const isSale = prop.status === 'for-sale' || prop.category === 'sale';
+      const priceStr = `${Number(prop.price || 0).toLocaleString('fr-FR')} ${prop.currency || 'USD'}${!isSale && prop.period === 'month' ? '/mois' : ''}`;
+      const locStr = [prop.quartier, prop.commune || prop.city || 'Kinshasa'].filter(Boolean).join(', ');
+      const title = `${prop.title} — ${priceStr} à ${prop.commune || 'Kinshasa'} | Kinimmo`;
+      const rawDesc = prop.description
+        ? String(prop.description).replace(/\s+/g, ' ').trim().slice(0, 155)
+        : `${isSale ? 'À vendre' : 'À louer'} à ${locStr}. ${prop.area || 0} m², ${prop.bedrooms || 0} chambres. Consultez les photos et contactez l'agent sur Kinimmo.`;
+      const firstImg = Array.isArray(prop.images) && prop.images.length > 0 ? prop.images[0] : defaultImage;
+      const imageUrl = resolveAbsoluteAssetUrl(firstImg, baseUrl);
+      return {
+        title,
+        description: rawDesc,
+        canonicalUrl,
+        imageUrl,
+        ogType: 'article',
+        jsonLd: {
+          '@context': 'https://schema.org',
+          '@type': 'RealEstateListing',
+          name: prop.title,
+          description: rawDesc,
+          url: canonicalUrl,
+          image: imageUrl,
+          dateModified: prop.updatedAt || prop.createdAt,
+          offers: {
+            '@type': 'Offer',
+            price: prop.price,
+            priceCurrency: prop.currency || 'USD',
+            availability: 'https://schema.org/InStock',
+          },
+          address: {
+            '@type': 'PostalAddress',
+            addressLocality: prop.commune || prop.city || 'Kinshasa',
+            addressCountry: 'CD',
+          },
+        },
+      };
+    }
+  }
+
+  // 2. Page quartier (/quartiers/:slug)
+  const quartierMatch = pathname.match(/^\/quartiers\/([^/?#]+)/i);
+  if (quartierMatch && quartierMatch[1]) {
+    const profile = resolveNeighborhoodBySlug(decodeURIComponent(quartierMatch[1]), inMemoryProperties as any);
+    if (profile) {
+      const canonicalUrl = `${baseUrl}/quartiers/${encodeURIComponent(profile.slug)}`;
+      const title = `Immobilier à ${profile.name} (${profile.commune}) : ${profile.stats.activeCount} annonces & prix | Kinimmo`;
+      const priceNote = profile.stats.avgSalePriceUsd
+        ? ` Prix moyen vente : ${profile.stats.avgSalePriceUsd.toLocaleString('fr-FR')} USD.`
+        : '';
+      const description = `${profile.tagline}${priceNote}`;
+      const imageUrl = defaultImage;
+      return {
+        title,
+        description,
+        canonicalUrl,
+        imageUrl,
+        ogType: 'website',
+        jsonLd: {
+          '@context': 'https://schema.org',
+          '@type': 'Place',
+          name: `${profile.name}, Kinshasa`,
+          description: profile.description,
+          url: canonicalUrl,
+          address: {
+            '@type': 'PostalAddress',
+            addressLocality: profile.commune,
+            addressRegion: 'Kinshasa',
+            addressCountry: 'CD',
+          },
+        },
+      };
+    }
+  }
+
+  // 3. Page article de blog (/blog/:slug) ou liste /blog
+  if (pathname === '/blog') {
+    return {
+      title: 'Blog & Guides Immobiliers RDC — Kinshasa | Kinimmo',
+      description: 'Guides pratiques sur l’achat foncier, le certificat d’enregistrement, la location à Kinshasa et les communes porteuses.',
+      canonicalUrl: `${baseUrl}/blog`,
+      imageUrl: `${baseUrl}/og-images/blog_foncier_titres_1795161876901.jpg`,
+      ogType: 'website',
+      jsonLd: null,
+    };
+  }
+  const blogMatch = pathname.match(/^\/blog\/([^/?#]+)/i);
+  if (blogMatch && blogMatch[1]) {
+    const slug = decodeURIComponent(blogMatch[1]);
+    const article = inMemoryBlogArticles.find((a: any) => a.slug === slug || a.id === slug);
+    if (article) {
+      const canonicalUrl = `${baseUrl}/blog/${encodeURIComponent(article.slug)}`;
+      const imageUrl = resolveAbsoluteAssetUrl(article.coverImage, baseUrl);
+      return {
+        title: `${article.title} | Guides Kinimmo RDC`,
+        description: article.excerpt || article.title,
+        canonicalUrl,
+        imageUrl,
+        ogType: 'article',
+        jsonLd: {
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: article.title,
+          description: article.excerpt,
+          image: imageUrl,
+          author: { '@type': 'Organization', name: article.authorName || 'Rédaction Kinimmo RDC' },
+          datePublished: article.publishedAt,
+          dateModified: article.updatedAt,
+          mainEntityOfPage: canonicalUrl,
+        },
+      };
+    }
+  }
+
+  // 4. Centre d'aide (/aide)
+  if (pathname === '/aide') {
+    return {
+      title: 'Centre d’aide & Questions fréquentes (FAQ) | Kinimmo RDC',
+      description: 'Toutes les réponses sur les paiements Mobile Money, les affiches QR panneau, la vérification Kinimmo Trust et la publication d’annonces.',
+      canonicalUrl: `${baseUrl}/aide`,
+      imageUrl: defaultImage,
+      ogType: 'website',
+      jsonLd: {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: DEFAULT_FAQ_ITEMS.map((item) => ({
+          '@type': 'Question',
+          name: item.question,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.answer,
+          },
+        })),
+      },
+    };
+  }
+
+  // 5. Pages légales
+  const legalSlug = pathname.slice(1);
+  if (['conditions-utilisation', 'confidentialite', 'mentions-legales'].includes(legalSlug)) {
+    const doc = inMemoryLegalDocuments.find((d: any) => d.slug === legalSlug);
+    if (doc) {
+      return {
+        title: `${doc.title} | Kinimmo RDC`,
+        description: doc.subtitle || doc.title,
+        canonicalUrl: `${baseUrl}/${doc.slug}`,
+        imageUrl: defaultImage,
+        ogType: 'website',
+        jsonLd: {
+          '@context': 'https://schema.org',
+          '@type': 'WebPage',
+          name: doc.title,
+          description: doc.subtitle,
+          url: `${baseUrl}/${doc.slug}`,
+        },
+      };
+    }
+  }
+
+  if (pathname === '/visites') {
+    return {
+      title: 'Kinimmo Visites — Visites Vidéo Immersives à Kinshasa',
+      description: 'Découvrez en vidéo les biens disponibles à la vente et à la location à Kinshasa (Gombe, Ngaliema, Limete).',
+      canonicalUrl: `${baseUrl}/visites`,
+      imageUrl: defaultImage,
+      ogType: 'website',
+      jsonLd: null,
+    };
+  }
+
+  if (pathname === '/conciergerie') {
+    return {
+      title: 'Conciergerie Immobilière Kinshasa — Recherche Sur-Mesure | Kinimmo',
+      description: 'Confiez votre recherche de villa, appartement ou bureau à Kinshasa à notre service de conciergerie VIP.',
+      canonicalUrl: `${baseUrl}/conciergerie`,
+      imageUrl: defaultImage,
+      ogType: 'website',
+      jsonLd: null,
+    };
+  }
+
+  return {
+    title: 'Kinshasa Immobilier — Plateforme Immobilière & Gestion RDC',
+    description: 'Plateforme immobilière de référence en RDC : Vente, location, terrains titrés, quartiers de Kinshasa et annuaire des agents certifiés.',
+    canonicalUrl: `${baseUrl}${pathname === '/' ? '/' : pathname}`,
+    imageUrl: defaultImage,
+    ogType: 'website',
+    jsonLd: null,
+  };
+}
+
+function injectSeoTagsIntoHtml(html: string, meta: ServerSeoMeta): string {
+  const safeTitle = escapeHtmlText(meta.title);
+  const safeDesc = escapeHtmlAttr(meta.description);
+  const safeCanonical = escapeHtmlAttr(meta.canonicalUrl);
+  const safeImage = escapeHtmlAttr(meta.imageUrl);
+  const safeType = escapeHtmlAttr(meta.ogType);
+
+  let out = html;
+  out = out.replace(/<title>[\s\S]*?<\/title>/i, `<title>${safeTitle}</title>`);
+  out = out.replace(
+    /<meta\s+name=["']description["']\s+content=["'][^"']*["']\s*\/?>/i,
+    `<meta name="description" content="${safeDesc}" />`
+  );
+  out = out.replace(
+    /<link\s+rel=["']canonical["'][^>]*\/?>/i,
+    `<link rel="canonical" id="canonical-url" href="${safeCanonical}" />`
+  );
+  out = out.replace(
+    /<meta\s+property=["']og:type["']\s+content=["'][^"']*["']\s*\/?>/i,
+    `<meta property="og:type" content="${safeType}" />`
+  );
+  out = out.replace(
+    /<meta\s+property=["']og:url["'][^>]*\/?>/i,
+    `<meta property="og:url" id="og-url" content="${safeCanonical}" />`
+  );
+  out = out.replace(
+    /<meta\s+property=["']og:title["']\s+content=["'][^"']*["']\s*\/?>/i,
+    `<meta property="og:title" content="${safeTitle}" />`
+  );
+  out = out.replace(
+    /<meta\s+property=["']og:description["']\s+content=["'][^"']*["']\s*\/?>/i,
+    `<meta property="og:description" content="${safeDesc}" />`
+  );
+  out = out.replace(
+    /<meta\s+property=["']og:image["']\s+content=["'][^"']*["']\s*\/?>/i,
+    `<meta property="og:image" content="${safeImage}" />`
+  );
+  out = out.replace(
+    /<meta\s+name=["']twitter:title["']\s+content=["'][^"']*["']\s*\/?>/i,
+    `<meta name="twitter:title" content="${safeTitle}" />`
+  );
+  out = out.replace(
+    /<meta\s+name=["']twitter:description["']\s+content=["'][^"']*["']\s*\/?>/i,
+    `<meta name="twitter:description" content="${safeDesc}" />`
+  );
+  out = out.replace(
+    /<meta\s+name=["']twitter:image["']\s+content=["'][^"']*["']\s*\/?>/i,
+    `<meta name="twitter:image" content="${safeImage}" />`
+  );
+
+  if (meta.jsonLd) {
+    const ldJson = JSON.stringify(meta.jsonLd).replace(/<\/script>/gi, '<\\/script>');
+    out = out.replace(
+      '</head>',
+      `  <script type="application/ld+json" id="kinimmo-listing-jsonld">${ldJson}</script>\n  </head>`
+    );
+  }
+
+  return out;
+}
+
+function isHtmlPageRequest(req: Request): boolean {
+  const p = req.path || '/';
+  if (
+    p.startsWith('/api') ||
+    p.startsWith('/uploads') ||
+    p.startsWith('/og-images') ||
+    p.startsWith('/@') ||
+    p.startsWith('/src/') ||
+    p.startsWith('/node_modules/')
+  ) {
+    return false;
+  }
+  if (/\.[a-z0-9]{1,8}$/i.test(p)) return false;
+  const accept = String(req.headers.accept || '');
+  const ua = String(req.headers['user-agent'] || '');
+  const isCrawler = /WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Googlebot|Bingbot|curl/i.test(ua);
+  return accept.includes('text/html') || accept === '*/*' || accept === '' || isCrawler;
+}
+
 // Initialisation Serveur Vite (Dev) ou Fichiers Statiques (Prod)
 async function startServer() {
   const distPath = path.join(__dirname, 'dist');
@@ -6499,33 +7594,56 @@ async function startServer() {
 
   // Si on est en production ou que le dossier dist compilé existe, on sert les fichiers statiques
   if (isProd || hasDist) {
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.use(express.static(distPath, { index: false }));
+    app.get('*', (req: Request, res: Response) => {
       const indexPath = path.join(distPath, 'index.html');
       if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
+        const rawHtml = fs.readFileSync(indexPath, 'utf-8');
+        const seoMeta = resolveSeoMetadataForRequest(req, getSiteBaseUrl(req));
+        const finalHtml = injectSeoTagsIntoHtml(rawHtml, seoMeta);
+        res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).send(finalHtml);
       } else {
         res.status(200).send('Kinimmo API Server is running');
       }
     });
   } else {
-    // Mode Développement local : essai de chargement du middleware Vite
+    // Mode Développement local : middleware Vite + injection SEO HTML pour crawlers/WhatsApp
     try {
       const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa'
       });
+
+      app.get('*', async (req: Request, res: Response, next) => {
+        if (!isHtmlPageRequest(req)) {
+          return next();
+        }
+        try {
+          const indexPath = path.join(__dirname, 'index.html');
+          const rawHtml = fs.readFileSync(indexPath, 'utf-8');
+          const transformedHtml = await vite.transformIndexHtml(req.originalUrl, rawHtml);
+          const seoMeta = resolveSeoMetadataForRequest(req, getSiteBaseUrl(req));
+          const finalHtml = injectSeoTagsIntoHtml(transformedHtml, seoMeta);
+          return res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(finalHtml);
+        } catch (err) {
+          vite.ssrFixStacktrace(err as Error);
+          return next(err);
+        }
+      });
+
       app.use(vite.middlewares);
     } catch (viteError) {
       console.warn('Vite non disponible en environnement d hébergement, bascule en mode statique :', (viteError as Error).message);
       if (fs.existsSync(distPath)) {
-        app.use(express.static(distPath));
+        app.use(express.static(distPath, { index: false }));
       }
-      app.get('*', (_req, res) => {
+      app.get('*', (req: Request, res: Response) => {
         const indexPath = path.join(distPath, 'index.html');
         if (fs.existsSync(indexPath)) {
-          res.sendFile(indexPath);
+          const rawHtml = fs.readFileSync(indexPath, 'utf-8');
+          const seoMeta = resolveSeoMetadataForRequest(req, getSiteBaseUrl(req));
+          res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).send(injectSeoTagsIntoHtml(rawHtml, seoMeta));
         } else {
           res.json({
             status: 'ok',

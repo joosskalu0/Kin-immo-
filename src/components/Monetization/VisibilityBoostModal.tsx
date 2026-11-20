@@ -18,9 +18,12 @@ import {
   ExternalLink,
   AlertTriangle,
   Ban,
-  Clock
+  Clock,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { canBoostProperty, getListingLifecycleStatus, LISTING_STATUS_CONFIG } from '../../utils/propertyStatusHelpers';
+import { compressProofImageFile } from '../../utils/billingHelpers';
 
 interface VisibilityBoostModalProps {
   isOpen: boolean;
@@ -35,13 +38,15 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
   property,
   onSuccess
 }) => {
-  const { user, addInvoice, updateInvoiceStatus } = useApp();
+  const { user, addInvoice, submitManualPaymentProof } = useApp();
   const [options, setOptions] = useState<VisibilityOption[]>([]);
   const [selectedOptionId, setSelectedOptionId] = useState<string>('opt_featured_7d');
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>('pm_mpesa');
-  const [paymentGateway, setPaymentGateway] = useState<string>('manual_mobile_money');
+  const [paymentGateway] = useState<string>('manual_mobile_money');
   const [transactionRef, setTransactionRef] = useState<string>('');
+  const [proofImageUrl, setProofImageUrl] = useState<string>('');
+  const [proofSubmittedMsg, setProofSubmittedMsg] = useState<string | null>(null);
   
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -54,6 +59,8 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
       setOrderSuccess(null);
       setErrorMsg(null);
       setTransactionRef('');
+      setProofImageUrl('');
+      setProofSubmittedMsg(null);
     }
   }, [isOpen]);
 
@@ -143,21 +150,36 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
     }
   };
 
-  const handleSubmitProof = async () => {
-    if (!orderSuccess?.id) return;
-    setIsSubmitting(true);
+  const handleProofFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     try {
-      const res = await mysqlApi.submitPaymentProof(orderSuccess.id, {
+      const compressed = await compressProofImageFile(file);
+      if (compressed) setProofImageUrl(compressed);
+    } catch {
+      setErrorMsg('Impossible de traiter cette image de preuve.');
+    }
+  };
+
+  const handleSubmitProof = async () => {
+    if (!orderSuccess?.id || !transactionRef.trim()) return;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+    try {
+      const res = await submitManualPaymentProof(orderSuccess.id, {
         paymentMethodId: selectedPaymentMethodId,
-        transactionReference: transactionRef
+        transactionReference: transactionRef.trim(),
+        proofImageUrl: proofImageUrl || undefined
       });
       if (res.success) {
-        updateInvoiceStatus(orderSuccess.id, 'pending', selectedPaymentMethodId as any, `Réf SMS: ${transactionRef}`);
-        alert('Référence de paiement enregistrée ! L\'administrateur va vérifier votre versement pour activer le boost.');
-        onClose();
+        setProofSubmittedMsg(
+          res.message || 'Preuve enregistrée ! Votre facture est passée à « En attente de validation » par l\'administrateur.'
+        );
+      } else {
+        setErrorMsg(res.message || 'Erreur lors de l\'enregistrement de la preuve.');
       }
     } catch (err: any) {
-      alert(err.message || 'Erreur lors de l\'enregistrement de la référence.');
+      setErrorMsg(err?.message || 'Erreur lors de l\'enregistrement de la référence.');
     } finally {
       setIsSubmitting(false);
     }
@@ -405,20 +427,30 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
             /* Confirmation & Facture générée */
             <div className="space-y-5 text-center py-4">
               <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
-                <Clock className="w-9 h-9 text-amber-600 animate-pulse" />
+                <Clock className="w-9 h-9 text-amber-600" />
               </div>
 
               <div className="space-y-1">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-black uppercase">
-                  <span>En attente de validation admin</span>
+                  <span>{proofSubmittedMsg ? 'En attente de validation admin' : 'Facture générée · Paiement requis'}</span>
                 </div>
                 <h3 className="text-lg font-black text-slate-900 mt-2">
-                  Demande de Boost transmise avec succès !
+                  {proofSubmittedMsg ? 'Preuve de paiement transmise !' : 'Demande de Boost enregistrée'}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Numéro de facture : <strong className="text-slate-900 font-mono">{orderSuccess.invoiceNumber}</strong>
+                  Numéro de facture :{' '}
+                  <strong className="text-slate-900 font-mono">
+                    {orderSuccess.invoiceNumber || orderSuccess.invoice_number}
+                  </strong>
                 </p>
               </div>
+
+              {proofSubmittedMsg && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2 text-left">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{proofSubmittedMsg}</span>
+                </div>
+              )}
 
               {/* Notice explicative de validation manuelle */}
               <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-left text-xs text-amber-950 space-y-1">
@@ -427,56 +459,74 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                   <span>Activation après contrôle de paiement</span>
                 </div>
                 <p className="text-[11px] text-amber-800 leading-relaxed">
-                  L'administrateur Kinimmo contrôle manuellement les versements. Dès confirmation de votre paiement, votre annonce sera propulsée en tête de liste et portera son badge de visibilité.
+                  Effectuez le versement sur le compte marchand choisi puis indiquez votre référence de transaction ci-dessous. L'administrateur validera votre paiement et émettra votre reçu PDF.
                 </p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left space-y-2 text-xs">
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span className="text-slate-500">Annonce :</span>
-                  <span className="font-bold text-slate-900">{orderSuccess.propertyTitle}</span>
+                  <span className="font-bold text-slate-900 truncate">
+                    {orderSuccess.propertyTitle || orderSuccess.property_title || property.title}
+                  </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span className="text-slate-500">Option choisie :</span>
-                  <span className="font-bold text-amber-700">{orderSuccess.optionName}</span>
+                  <span className="font-bold text-amber-700">
+                    {orderSuccess.optionName || orderSuccess.option_name || selectedOption?.name}
+                  </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span className="text-slate-500">Montant :</span>
-                  <span className="font-black text-slate-900">
-                    {orderSuccess.amount} USD ({Number(orderSuccess.amountCdf).toLocaleString()} CDF)
+                  <span className="font-black text-slate-900 font-mono tabular-nums">
+                    {orderSuccess.amount} USD ({Number(orderSuccess.amountCdf || orderSuccess.amount_cdf || 0).toLocaleString()} CDF)
                   </span>
                 </div>
               </div>
 
-              <div className="space-y-2 text-left">
-                <label className="block text-xs font-bold text-slate-700">
-                  Insérez votre code de transaction SMS (facultatif maintenant) :
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={transactionRef}
-                    onChange={(e) => setTransactionRef(e.target.value)}
-                    placeholder="Ex: MPESA-98745214 ou BORDEREAU-123"
-                    className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-amber-500 font-mono"
-                  />
-                  <button
-                    onClick={handleSubmitProof}
-                    disabled={isSubmitting || !transactionRef}
-                    className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs disabled:opacity-40"
-                  >
-                    Valider le code
-                  </button>
+              {!proofSubmittedMsg && (
+                <div className="space-y-3 text-left">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Référence de transaction Mobile Money (obligatoire pour validation) :
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={transactionRef}
+                      onChange={(e) => setTransactionRef(e.target.value)}
+                      placeholder="Ex: MPESA-98745214 ou BORDEREAU-123"
+                      className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-amber-500 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSubmitProof}
+                      disabled={isSubmitting || !transactionRef.trim()}
+                      className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs disabled:opacity-40"
+                    >
+                      {isSubmitting ? 'Envoi...' : 'Soumettre preuve'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-dashed border-slate-300 bg-slate-50">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                      <Upload className="w-4 h-4 text-slate-500" />
+                      <span>{proofImageUrl ? 'Capture jointe (cliquez pour changer)' : 'Joindre une capture d\'écran (optionnel)'}</span>
+                      <input type="file" accept="image/*" onChange={handleProofFileChange} className="hidden" />
+                    </label>
+                    {proofImageUrl && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-bold">
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>Prête</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <span className="text-[11px] text-slate-500">
-                  Le code SMS aide l'administrateur à identifier et valider plus rapidement votre versement.
-                </span>
-              </div>
+              )}
 
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <a
                   href={`https://wa.me/243845294616?text=${encodeURIComponent(
-                    `Bonjour Kinimmo, je viens de soumettre la demande de boost facture ${orderSuccess.invoiceNumber} pour l'annonce "${orderSuccess.propertyTitle}". Montant: ${orderSuccess.amount} USD.`
+                    `Bonjour Kinimmo, je viens de soumettre la demande de boost facture ${orderSuccess.invoiceNumber || orderSuccess.invoice_number} pour l'annonce "${orderSuccess.propertyTitle || orderSuccess.property_title || property.title}". Montant: ${orderSuccess.amount} USD.`
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -487,6 +537,7 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                 </a>
 
                 <button
+                  type="button"
                   onClick={onClose}
                   className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs"
                 >

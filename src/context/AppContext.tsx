@@ -19,10 +19,28 @@ import {
   PropertyVideoStatus,
   ListingLifecycleStatus,
   AgencyCollaborator,
-  AgencyTransaction
+  AgencyTransaction,
+  PaymentMethodConfig,
+  InAppBillingNotification,
+  BlogArticle,
+  LegalDocument,
+  LegalDocumentSlug
 } from '../types';
+import {
+  DEFAULT_BLOG_ARTICLES,
+  DEFAULT_LEGAL_DOCUMENTS,
+  slugifyText
+} from '../data/contentSeed';
 import { analyzePropertyForFraud } from '../utils/suspiciousListingDetector';
 import { createStatusHistoryEntry } from '../utils/propertyStatusHelpers';
+import {
+  getDefaultPlans,
+  normalizePlan,
+  enforceSoftDowngradeOnProperties,
+  restoreSoftHiddenProperties,
+  getFreePlan,
+  resolveAccountBillingSummary
+} from '../utils/billingHelpers';
 
 export interface ConfirmOptions {
   title?: string;
@@ -85,7 +103,7 @@ import {
 } from '../lib/kinimmoStore';
 import { mysqlApi, getStoredToken } from '../services/mysqlApi';
 import { getAdminCredentials, saveAdminCredentials } from '../lib/adminCredentials';
-import { parsePropertyIdFromUrl, updateBrowserUrlForProperty } from '../utils/shareUtils';
+import { parsePropertyIdFromUrl, resolvePropertyBySlugOrId, updateBrowserUrlForProperty } from '../utils/shareUtils';
 
 interface AppContextType {
   language: LanguageCode;
@@ -158,8 +176,22 @@ interface AppContextType {
   updateAgency: (agency: Agency) => void;
   deleteAgency: (id: string) => void;
   toggleAgencyVisibility: (agencyId: string) => void;
-  updateAgencySubscriptionStatus: (agencyId: string, status: 'Active' | 'Expired', expiresAt?: string) => void;
-  updateUserSubscriptionStatus: (targetIdOrEmail: string, status: 'Active' | 'Expired', expiresAt?: string) => void;
+  updateAgencySubscriptionStatus: (
+    agencyId: string,
+    status: 'Active' | 'Expired',
+    expiresAt?: string,
+    planId?: string,
+    cycle?: 'monthly' | 'yearly',
+    trialEndsAt?: string
+  ) => void;
+  updateUserSubscriptionStatus: (
+    targetIdOrEmail: string,
+    status: 'Active' | 'Expired',
+    expiresAt?: string,
+    planId?: string,
+    cycle?: 'monthly' | 'yearly',
+    trialEndsAt?: string
+  ) => void;
 
   // Subscription Plans & Pricing in Francs Congolais (CDF)
   subscriptionPlans: SubscriptionPlan[];
@@ -169,7 +201,35 @@ interface AppContextType {
   pricingDisplayCurrency: 'CDF' | 'USD' | 'BOTH';
   setPricingDisplayCurrency: (mode: 'CDF' | 'USD' | 'BOTH') => void;
   cdfExchangeRate: number;
+  cdfExchangeRateUpdatedAt: string;
   setCdfExchangeRate: (rate: number) => void;
+
+  // Dynamic Payment Methods & P2 Billing Workflow
+  paymentMethods: PaymentMethodConfig[];
+  savePaymentMethod: (pm: Partial<PaymentMethodConfig>) => Promise<void>;
+  deletePaymentMethod: (id: string) => Promise<void>;
+  inAppBillingNotifications: InAppBillingNotification[];
+  pushBillingNotification: (n: Omit<InAppBillingNotification, 'id' | 'createdAt' | 'isRead'>) => void;
+  markBillingNotificationRead: (id: string) => void;
+  dismissBillingNotification: (id: string) => void;
+  subscribeToPlan: (
+    plan: SubscriptionPlan,
+    cycle: 'monthly' | 'yearly',
+    paymentMethodId?: string,
+    useTrial?: boolean
+  ) => Promise<{ success: boolean; invoice?: Invoice; message?: string }>;
+  submitManualPaymentProof: (
+    invoiceId: string,
+    payload: { paymentMethodId?: string; transactionReference?: string; proofImageUrl?: string }
+  ) => Promise<{ success: boolean; invoice?: Invoice; message?: string }>;
+  approveManualInvoice: (invoiceId: string) => Promise<{ success: boolean; message?: string; restoredCount?: number }>;
+  rejectManualInvoice: (invoiceId: string, reason: string) => Promise<{ success: boolean; message?: string }>;
+  refundManualInvoice: (
+    invoiceId: string,
+    refundNote: string,
+    refundAction: 'revoke' | 'keep'
+  ) => Promise<{ success: boolean; message?: string; softHiddenCount?: number }>;
+  runSubscriptionExpirationAudit: () => { downgradedCount: number; hiddenListingsCount: number; expiringSoonCount: number };
 
   wishlist: string[];
   toggleWishlist: (propertyId: string) => void;
@@ -257,6 +317,13 @@ interface AppContextType {
   }) => Promise<{ success: boolean; message?: string }>;
   updatePropertyVideoStatus: (id: string, status: PropertyVideoStatus, reason?: string) => Promise<void>;
   deletePropertyVideo: (id: string) => Promise<void>;
+
+  // Contenus Éditoriaux P1 (Blog / Guides & Pages Légales CMS)
+  blogArticles: BlogArticle[];
+  legalDocuments: LegalDocument[];
+  upsertBlogArticle: (article: Partial<BlogArticle>) => Promise<{ success: boolean; article?: BlogArticle; message?: string }>;
+  deleteBlogArticle: (id: string) => Promise<{ success: boolean; message?: string }>;
+  updateLegalDocument: (slug: LegalDocumentSlug, payload: Partial<LegalDocument>) => Promise<{ success: boolean; document?: LegalDocument; message?: string }>;
 }
 
 const defaultFilters: PropertyFilters = {
@@ -435,10 +502,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
 
-  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(initialSubscriptionPlans);
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(() => getDefaultPlans(2800));
 
   const [pricingDisplayCurrency, setPricingDisplayCurrency] = useState<'CDF' | 'USD' | 'BOTH'>('CDF');
   const [cdfExchangeRate, setCdfExchangeRate] = useState<number>(2800);
+  const [cdfExchangeRateUpdatedAt, setCdfExchangeRateUpdatedAt] = useState<string>('2026-11-18T10:00:00.000Z');
+
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(() => mysqlApi.getLocalPaymentMethods());
+
+  const BILLING_NOTIF_STORAGE_KEY = 'kinimmo_billing_notifications_v1';
+  const [inAppBillingNotifications, setInAppBillingNotifications] = useState<InAppBillingNotification[]>(() => {
+    try {
+      const raw = localStorage.getItem(BILLING_NOTIF_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const saveBillingNotificationsLocally = (list: InAppBillingNotification[]) => {
+    try {
+      localStorage.setItem(BILLING_NOTIF_STORAGE_KEY, JSON.stringify(list.slice(0, 40)));
+    } catch {}
+  };
+
+  const pushBillingNotification = (n: Omit<InAppBillingNotification, 'id' | 'createdAt' | 'isRead'>) => {
+    const item: InAppBillingNotification = {
+      ...n,
+      id: `bnotif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString(),
+      isRead: false
+    };
+    setInAppBillingNotifications((prev) => {
+      const next = [item, ...prev.filter((x) => !(x.type === item.type && x.invoiceId && x.invoiceId === item.invoiceId))];
+      saveBillingNotificationsLocally(next);
+      return next;
+    });
+  };
+
+  const markBillingNotificationRead = (id: string) => {
+    setInAppBillingNotifications((prev) => {
+      const next = prev.map((x) => (x.id === id ? { ...x, isRead: true } : x));
+      saveBillingNotificationsLocally(next);
+      return next;
+    });
+  };
+
+  const dismissBillingNotification = (id: string) => {
+    setInAppBillingNotifications((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      saveBillingNotificationsLocally(next);
+      return next;
+    });
+  };
 
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [compareList, setCompareList] = useState<string[]>([]);
@@ -814,10 +932,106 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return await mysqlApi.adminUpdateContactSettings(merged);
   };
 
+  // Contenus P1 : Blog / Guides & Pages Légales CMS
+  const [blogArticles, setBlogArticles] = useState<BlogArticle[]>(DEFAULT_BLOG_ARTICLES);
+  const [legalDocuments, setLegalDocuments] = useState<LegalDocument[]>(DEFAULT_LEGAL_DOCUMENTS);
+
+  useEffect(() => {
+    let isMounted = true;
+    const includeDrafts = user?.role === 'admin';
+    mysqlApi.getBlogArticles(includeDrafts).then((res) => {
+      if (isMounted && res?.success && Array.isArray(res.articles) && res.articles.length > 0) {
+        setBlogArticles(res.articles);
+      }
+    }).catch(() => {});
+
+    mysqlApi.getLegalDocuments().then((res) => {
+      if (isMounted && res?.success && Array.isArray(res.documents) && res.documents.length > 0) {
+        setLegalDocuments(res.documents);
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.role]);
+
+  const upsertBlogArticle = async (articleInput: Partial<BlogArticle>) => {
+    const nowIso = new Date().toISOString().split('T')[0];
+    const generatedSlug = slugifyText(articleInput.slug || articleInput.title || `guide-${Date.now()}`);
+    const payload: BlogArticle = {
+      id: articleInput.id || `art_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      slug: generatedSlug,
+      title: (articleInput.title || 'Nouvel article Kinimmo').trim(),
+      excerpt: (articleInput.excerpt || '').trim(),
+      content: (articleInput.content || '').trim(),
+      category: articleInput.category || 'guide_achat',
+      coverImage: articleInput.coverImage || '/og-images/blog_gombe_skyline_1795161879500.jpg',
+      authorName: articleInput.authorName || user?.name || 'Équipe Éditoriale Kinimmo',
+      authorRole: articleInput.authorRole || 'Rédaction Kinimmo',
+      readTimeMinutes: Math.max(1, Number(articleInput.readTimeMinutes || 5)),
+      status: articleInput.status || 'published',
+      featured: Boolean(articleInput.featured),
+      tags: Array.isArray(articleInput.tags) ? articleInput.tags : [],
+      relatedCommune: articleInput.relatedCommune || undefined,
+      publishedAt: articleInput.publishedAt || nowIso,
+      updatedAt: nowIso
+    };
+
+    try {
+      const res = await mysqlApi.saveBlogArticle(articleInput.id ? payload : { ...payload, id: undefined });
+      const saved: BlogArticle = res?.article || payload;
+      setBlogArticles((prev) => {
+        const exists = prev.some((a) => a.id === saved.id || a.slug === saved.slug);
+        if (exists) {
+          return prev.map((a) => (a.id === saved.id || a.slug === saved.slug ? saved : a));
+        }
+        return [saved, ...prev];
+      });
+      return { success: true, article: saved, message: res?.message || 'Article enregistré et publié.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Erreur lors de l’enregistrement.' };
+    }
+  };
+
+  const deleteBlogArticle = async (id: string) => {
+    try {
+      const res = await mysqlApi.deleteBlogArticle(id);
+      setBlogArticles((prev) => prev.filter((a) => a.id !== id));
+      return { success: true, message: res?.message || 'Article supprimé.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Erreur lors de la suppression.' };
+    }
+  };
+
+  const updateLegalDocument = async (slug: LegalDocumentSlug, payload: Partial<LegalDocument>) => {
+    const existing = legalDocuments.find((d) => d.slug === slug) || DEFAULT_LEGAL_DOCUMENTS.find((d) => d.slug === slug)!;
+    const merged: LegalDocument = {
+      ...existing,
+      ...payload,
+      slug,
+      updatedAt: new Date().toISOString().split('T')[0],
+    };
+    try {
+      const res = await mysqlApi.updateLegalDocument(slug, merged);
+      const saved: LegalDocument = res?.document || merged;
+      setLegalDocuments((prev) => {
+        const next = prev.map((d) => (d.slug === slug ? saved : d));
+        if (merged.companyMeta) {
+          return next.map((d) => ({ ...d, companyMeta: saved.companyMeta || merged.companyMeta }));
+        }
+        return next;
+      });
+      return { success: true, document: saved, message: res?.message || 'Document légal mis à jour.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Erreur lors de la mise à jour.' };
+    }
+  };
+
   // Deep-linking URL Synchronization & Browser History Navigation
   useEffect(() => {
     const handlePopState = () => {
-      const propId = parsePropertyIdFromUrl();
+      const propId = parsePropertyIdFromUrl(properties);
       setActivePropertyModalId(propId);
       if (propId) {
         incrementPropertyViews(propId);
@@ -828,18 +1042,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [properties]);
 
-  // Synchronisation de l'URL et récupération de la propriété si nécessaire
+  // Synchronisation de l'URL (/annonces/:slug) et récupération de la propriété si nécessaire
   useEffect(() => {
     if (!activePropertyModalId) {
       updateBrowserUrlForProperty(null);
       return;
     }
 
-    const foundProp = properties.find((p) => p.id === activePropertyModalId);
+    const foundProp = resolvePropertyBySlugOrId(activePropertyModalId, properties);
     if (foundProp) {
-      updateBrowserUrlForProperty(foundProp.id, foundProp.title);
+      if (foundProp.id !== activePropertyModalId) {
+        setActivePropertyModalId(foundProp.id);
+      }
+      updateBrowserUrlForProperty(foundProp, foundProp.title, properties);
     } else {
       // Récupérer depuis le magasin de données
       let isMounted = true;
@@ -849,7 +1066,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (prev.some((p) => p.id === fetchedProp.id)) return prev;
             return [fetchedProp, ...prev];
           });
-          updateBrowserUrlForProperty(fetchedProp.id, fetchedProp.title);
+          updateBrowserUrlForProperty(fetchedProp, fetchedProp.title, [fetchedProp, ...properties]);
         }
       });
       return () => {
@@ -1009,14 +1226,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (typeof firestorePricing.cdfExchangeRate === 'number' && firestorePricing.cdfExchangeRate > 0) {
           setCdfExchangeRate(firestorePricing.cdfExchangeRate);
         }
+        if ((firestorePricing as any).cdfExchangeRateUpdatedAt) {
+          setCdfExchangeRateUpdatedAt((firestorePricing as any).cdfExchangeRateUpdatedAt);
+        }
         if (firestorePricing.pricingDisplayCurrency) {
           setPricingDisplayCurrency(firestorePricing.pricingDisplayCurrency as 'USD' | 'CDF' | 'BOTH');
         }
         if (Array.isArray(firestorePricing.subscriptionPlans) && firestorePricing.subscriptionPlans.length > 0) {
-          setSubscriptionPlans(firestorePricing.subscriptionPlans);
+          setSubscriptionPlans(firestorePricing.subscriptionPlans.map((p: any) => normalizePlan(p, firestorePricing.cdfExchangeRate || 2850)));
         }
       }
     });
+
+    // Synchronize plans & dynamic payment methods from MySQL / Express API
+    mysqlApi.getPricingPlans(undefined, true).then((res) => {
+      if (res && res.success && Array.isArray(res.plans) && res.plans.length > 0) {
+        setSubscriptionPlans(res.plans.map((p: any) => normalizePlan(p, 2850)));
+      }
+    }).catch(() => {});
+
+    mysqlApi.getPaymentMethods(true).then((res) => {
+      if (res && res.success && Array.isArray(res.paymentMethods) && res.paymentMethods.length > 0) {
+        setPaymentMethods(res.paymentMethods);
+      }
+    }).catch(() => {});
 
     // Synchronize custom fields from MySQL API (Hostinger backend)
     mysqlApi.getCustomFields().then((res: any) => {
@@ -1837,10 +2070,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Subscription Plans Management (CDF & USD)
+  // Subscription Plans Management (CDF & USD, Audiences & Quotas)
   const updateSubscriptionPlan = (plan: SubscriptionPlan) => {
+    const normalized = normalizePlan(plan, cdfExchangeRate);
     setSubscriptionPlans((prev) => {
-      const updated = prev.map((p) => (p.id === plan.id ? plan : p));
+      const updated = prev.map((p) => (p.id === normalized.id ? normalized : p));
+      mysqlApi.saveLocalPlans(updated);
+      mysqlApi.adminUpdatePlan(normalized.id, normalized).catch(() => {});
       savePricingConfigToFirestore({
         cdfExchangeRate,
         pricingDisplayCurrency,
@@ -1851,8 +2087,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addSubscriptionPlan = (plan: SubscriptionPlan) => {
+    const normalized = normalizePlan(plan, cdfExchangeRate);
     setSubscriptionPlans((prev) => {
-      const updated = [...prev, plan];
+      const updated = [...prev, normalized];
+      mysqlApi.saveLocalPlans(updated);
+      mysqlApi.adminCreatePlan(normalized).catch(() => {});
       savePricingConfigToFirestore({
         cdfExchangeRate,
         pricingDisplayCurrency,
@@ -1865,6 +2104,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteSubscriptionPlan = (id: string) => {
     setSubscriptionPlans((prev) => {
       const updated = prev.filter((p) => p.id !== id);
+      mysqlApi.saveLocalPlans(updated);
+      mysqlApi.adminDeletePlan(id).catch(() => {});
       savePricingConfigToFirestore({
         cdfExchangeRate,
         pricingDisplayCurrency,
@@ -1874,11 +2115,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const savePaymentMethod = async (pm: Partial<PaymentMethodConfig>) => {
+    if (pm.id && paymentMethods.some((m) => m.id === pm.id)) {
+      const res = await mysqlApi.adminUpdatePaymentMethod(pm.id, pm);
+      const updatedPm = (res as any)?.paymentMethod || { ...paymentMethods.find((m) => m.id === pm.id), ...pm };
+      setPaymentMethods((prev) => {
+        const next = prev.map((m) => (m.id === pm.id ? (updatedPm as PaymentMethodConfig) : m));
+        mysqlApi.saveLocalPaymentMethods(next);
+        return next;
+      });
+    } else {
+      const res = await mysqlApi.adminCreatePaymentMethod(pm);
+      const createdPm: PaymentMethodConfig = (res as any)?.paymentMethod || {
+        id: `pm_${Date.now()}`,
+        provider: (pm.provider as any) || 'mpesa',
+        account_name: pm.account_name || 'Compte Kinimmo',
+        account_number: pm.account_number || '',
+        merchant_code: pm.merchant_code || null,
+        instructions: pm.instructions || '',
+        is_active: pm.is_active !== false
+      };
+      setPaymentMethods((prev) => {
+        const next = [...prev, createdPm];
+        mysqlApi.saveLocalPaymentMethods(next);
+        return next;
+      });
+    }
+  };
+
+  const deletePaymentMethod = async (id: string) => {
+    await mysqlApi.adminDeletePaymentMethod(id);
+    setPaymentMethods((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      mysqlApi.saveLocalPaymentMethods(next);
+      return next;
+    });
+  };
+
   const handleSetCdfExchangeRate = (rate: number) => {
     if (typeof rate === 'number' && rate > 0) {
+      const updatedAt = new Date().toISOString();
       setCdfExchangeRate(rate);
+      setCdfExchangeRateUpdatedAt(updatedAt);
       savePricingConfigToFirestore({
         cdfExchangeRate: rate,
+        cdfExchangeRateUpdatedAt: updatedAt,
         pricingDisplayCurrency,
         subscriptionPlans,
       }).catch(err => console.error('Firestore save cdf exchange rate error:', err));
@@ -1894,10 +2175,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }).catch(err => console.error('Firestore save pricing display currency error:', err));
   };
 
-  const updateAgencySubscriptionStatus = (agencyId: string, status: 'Active' | 'Expired', expiresAt?: string) => {
+  const applySoftDowngradeForTarget = (targetIdOrEmail: string) => {
+    const freeCap = getFreePlan(subscriptionPlans).maxListings;
+    setProperties((prev) => {
+      const res = enforceSoftDowngradeOnProperties(prev, targetIdOrEmail, freeCap);
+      if (res.hiddenIds.length > 0) {
+        saveDurableLocalProperties(res.updatedProperties);
+        res.updatedProperties
+          .filter((p) => res.hiddenIds.includes(p.id))
+          .forEach((p) => {
+            savePropertyToFirestore(p).catch(() => {});
+            mysqlApi.updateProperty(p.id, p).catch(() => {});
+          });
+      }
+      return res.updatedProperties;
+    });
+  };
+
+  const restorePropertiesForTarget = (targetIdOrEmail: string): number => {
+    let restoredTotal = 0;
+    setProperties((prev) => {
+      const res = restoreSoftHiddenProperties(prev, targetIdOrEmail);
+      restoredTotal = res.restoredIds.length;
+      if (restoredTotal > 0) {
+        saveDurableLocalProperties(res.updatedProperties);
+        res.updatedProperties
+          .filter((p) => res.restoredIds.includes(p.id))
+          .forEach((p) => {
+            savePropertyToFirestore(p).catch(() => {});
+            mysqlApi.updateProperty(p.id, p).catch(() => {});
+          });
+      }
+      return res.updatedProperties;
+    });
+    return restoredTotal;
+  };
+
+  const updateAgencySubscriptionStatus = (
+    agencyId: string,
+    status: 'Active' | 'Expired',
+    expiresAt?: string,
+    planId?: string,
+    cycle?: 'monthly' | 'yearly',
+    trialEndsAt?: string
+  ) => {
     const nextExpiry = expiresAt || (status === 'Active'
-      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      ? new Date(Date.now() + (cycle === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       : new Date().toISOString().split('T')[0]);
+    const matchedPlan = planId ? subscriptionPlans.find((p) => p.id === planId) : undefined;
 
     setAgencies((prev) => {
       const updated = prev.map((ag) => {
@@ -1906,7 +2231,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...ag,
             subscriptionStatus: status,
             subscriptionExpiresAt: nextExpiry,
-            ...(status === 'Active' ? { unpaidInvoiceId: undefined } : {})
+            ...(planId
+              ? { planId, subscriptionPlan: planId }
+              : status === 'Expired'
+              ? { planId: 'starter', subscriptionPlan: 'starter' }
+              : {}),
+            ...(cycle ? { billingCycle: cycle } : {}),
+            trialEndsAt,
+            ...(matchedPlan ? { includedBoostsRemaining: matchedPlan.includedBoosts ?? matchedPlan.featuredListings ?? 0 } : {}),
+            ...(status === 'Active' ? { unpaidInvoiceId: undefined, lastPaymentDate: new Date().toISOString().split('T')[0] } : {})
           };
           saveAgencyToFirestore(updatedAg).catch((err) => console.error('Firestore update agency subscription status error:', err));
           return updatedAg;
@@ -1916,22 +2249,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
-    // Also sync user if logged in under this agency
-    if (user && (user.agencyId === agencyId || (user.agencyName && user.agencyName.toLowerCase() === agencyId.toLowerCase()))) {
+    if (user && (user.agencyId === agencyId || user.id === agencyId || (user.agencyName && user.agencyName.toLowerCase() === agencyId.toLowerCase()))) {
       const updatedUser: User = {
         ...user,
         subscriptionStatus: status,
         subscriptionExpiresAt: nextExpiry,
+        ...(planId
+          ? { planId, subscriptionPlan: planId }
+          : status === 'Expired'
+          ? { planId: 'starter', subscriptionPlan: 'starter' }
+          : {}),
+        ...(cycle ? { billingCycle: cycle } : {}),
+        trialEndsAt,
+        ...(matchedPlan ? { includedBoostsRemaining: matchedPlan.includedBoosts ?? matchedPlan.featuredListings ?? 0 } : {})
       };
       setUser(updatedUser);
       saveUserToFirestore(updatedUser).catch((err) => console.error('Firestore update user error:', err));
     }
+
+    if (status === 'Expired') {
+      applySoftDowngradeForTarget(agencyId);
+    } else {
+      restorePropertiesForTarget(agencyId);
+    }
   };
 
-  const updateUserSubscriptionStatus = (targetIdOrEmail: string, status: 'Active' | 'Expired', expiresAt?: string) => {
+  const updateUserSubscriptionStatus = (
+    targetIdOrEmail: string,
+    status: 'Active' | 'Expired',
+    expiresAt?: string,
+    planId?: string,
+    cycle?: 'monthly' | 'yearly',
+    trialEndsAt?: string
+  ) => {
     const nextExpiry = expiresAt || (status === 'Active'
-      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      ? new Date(Date.now() + (cycle === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       : new Date().toISOString().split('T')[0]);
+    const matchedPlan = planId ? subscriptionPlans.find((p) => p.id === planId) : undefined;
 
     setAgents((prev) => {
       const updated = prev.map((agt) => {
@@ -1940,6 +2294,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...agt,
             subscriptionStatus: status,
             subscriptionExpiresAt: nextExpiry,
+            ...(planId
+              ? { planId, subscriptionPlan: planId }
+              : status === 'Expired'
+              ? { planId: 'starter', subscriptionPlan: 'starter' }
+              : {}),
+            ...(cycle ? { billingCycle: cycle } : {}),
+            trialEndsAt
           };
           saveAgentToFirestore(updatedAgt).catch((err) => console.error('Firestore update agent error:', err));
           return updatedAgt;
@@ -1949,14 +2310,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
+    setAllUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === targetIdOrEmail || u.email?.toLowerCase() === targetIdOrEmail.toLowerCase()) {
+          const updatedU: User = {
+            ...u,
+            subscriptionStatus: status,
+            subscriptionExpiresAt: nextExpiry,
+            ...(planId
+              ? { planId, subscriptionPlan: planId }
+              : status === 'Expired'
+              ? { planId: 'starter', subscriptionPlan: 'starter' }
+              : {}),
+            ...(cycle ? { billingCycle: cycle } : {}),
+            trialEndsAt,
+            ...(matchedPlan ? { includedBoostsRemaining: matchedPlan.includedBoosts ?? matchedPlan.featuredListings ?? 0 } : {})
+          };
+          saveUserToFirestore(updatedU).catch(() => {});
+          return updatedU;
+        }
+        return u;
+      })
+    );
+
     if (user && (user.id === targetIdOrEmail || user.email?.toLowerCase() === targetIdOrEmail.toLowerCase())) {
       const updatedUser: User = {
         ...user,
         subscriptionStatus: status,
         subscriptionExpiresAt: nextExpiry,
+        ...(planId
+          ? { planId, subscriptionPlan: planId }
+          : status === 'Expired'
+          ? { planId: 'starter', subscriptionPlan: 'starter' }
+          : {}),
+        ...(cycle ? { billingCycle: cycle } : {}),
+        trialEndsAt,
+        ...(matchedPlan ? { includedBoostsRemaining: matchedPlan.includedBoosts ?? matchedPlan.featuredListings ?? 0 } : {})
       };
       setUser(updatedUser);
       saveUserToFirestore(updatedUser).catch((err) => console.error('Firestore update user error:', err));
+    }
+
+    if (status === 'Expired') {
+      applySoftDowngradeForTarget(targetIdOrEmail);
+    } else {
+      restorePropertiesForTarget(targetIdOrEmail);
     }
   };
 
@@ -2036,7 +2434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteUserFromFirestore(id).catch((err) => console.error(err));
   };
 
-  // Invoices Actions
+  // Invoices Actions & P2 Manual Billing Workflow
   const addInvoice = (invoice: Invoice) => {
     setInvoices((prev) => [invoice, ...prev]);
     saveInvoiceToFirestore(invoice).catch(err => console.error(err));
@@ -2047,69 +2445,453 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     saveInvoiceToFirestore(updatedInvoice).catch(err => console.error(err));
   };
 
+  const subscribeToPlan = async (
+    plan: SubscriptionPlan,
+    cycle: 'monthly' | 'yearly',
+    paymentMethodId?: string,
+    useTrial = false
+  ): Promise<{ success: boolean; invoice?: Invoice; message?: string }> => {
+    if (!user) {
+      return { success: false, message: 'Veuillez vous connecter pour souscrire à un forfait.' };
+    }
+    const normPlan = normalizePlan(plan, cdfExchangeRate);
+    const trialDays = Number(normPlan.trialDays || 0);
+    const isTrial = Boolean(useTrial && trialDays > 0);
+    const priceUsd = isTrial ? 0 : (cycle === 'yearly' ? (normPlan.priceYearly ?? normPlan.priceMonthly * 10) : normPlan.priceMonthly);
+    const priceCdf = isTrial ? 0 : Math.round(priceUsd * cdfExchangeRate);
+    const isZero = priceUsd <= 0;
+    const nowIso = new Date().toISOString();
+    const durationDays = isTrial ? trialDays : (cycle === 'yearly' ? 365 : 30);
+    const periodEnd = new Date(Date.now() + durationDays * 86400000).toISOString().split('T')[0];
+    const pm = paymentMethods.find((m) => m.id === paymentMethodId) || paymentMethods.find((m) => m.is_active !== false);
+
+    // Call backend API if authenticated with token
+    let serverInv: any = null;
+    try {
+      const res = await mysqlApi.createInvoice(normPlan.id, pm?.id, isTrial ? 'free_trial' : 'manual_mobile_money', cycle, isTrial);
+      if (res?.success && res?.invoice) serverInv = res.invoice;
+    } catch {}
+
+    const newInvoice: Invoice = {
+      id: serverInv?.id || `inv_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      invoiceNumber: serverInv?.invoice_number || serverInv?.invoiceNumber || `FAC-KIN-${Math.floor(100000 + Math.random() * 900000)}`,
+      receiptNumber: serverInv?.receipt_number || (isZero ? `REC-KIN-${Math.floor(100000 + Math.random() * 900000)}` : undefined),
+      targetType: user.role === 'agency' ? 'agency' : user.role === 'agent' ? 'agent' : 'user',
+      targetId: user.agencyId || user.id,
+      targetName: user.agencyName || user.name,
+      targetEmail: user.email,
+      targetPhone: user.phone,
+      planId: normPlan.id,
+      planName: normPlan.name,
+      billingCycle: cycle,
+      isTrial,
+      items: [
+        {
+          id: `item_${Date.now()}`,
+          description: isTrial
+            ? `Essai gratuit ${trialDays} jours — ${normPlan.name}`
+            : `Abonnement ${normPlan.name} (${cycle === 'yearly' ? 'Annuel' : 'Mensuel'})`,
+          amount: priceUsd,
+          quantity: 1
+        }
+      ],
+      subtotalAmount: priceUsd,
+      taxAmount: 0,
+      totalAmount: priceUsd,
+      totalAmountCDF: priceCdf,
+      currency: 'USD',
+      status: isZero ? 'paid' : 'pending',
+      paymentMethod: (pm?.provider === 'mpesa' ? 'mpesa' : pm?.provider === 'airtel' ? 'airtel_money' : pm?.provider === 'bank_transfer' ? 'bank_transfer' : 'orange_money'),
+      paymentMethodId: pm?.id,
+      paymentMethodProvider: isTrial ? 'Essai Gratuit Kinimmo' : (pm?.account_name || 'Mobile Money'),
+      periodStart: nowIso.split('T')[0],
+      periodEnd,
+      dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+      createdAt: nowIso,
+      ...(isZero ? { paidAt: nowIso, validatedAt: nowIso, validatedBy: 'Système Kinimmo' } : {})
+    };
+
+    setInvoices((prev) => [newInvoice, ...prev.filter((i) => i.id !== newInvoice.id)]);
+    saveInvoiceToFirestore(newInvoice).catch(() => {});
+
+    if (isZero) {
+      const targetKey = user.role === 'agency' ? (user.agencyId || user.id) : user.id;
+      if (user.role === 'agency') {
+        updateAgencySubscriptionStatus(targetKey, 'Active', periodEnd, normPlan.id, cycle, isTrial ? periodEnd : undefined);
+      } else {
+        updateUserSubscriptionStatus(targetKey, 'Active', periodEnd, normPlan.id, cycle, isTrial ? periodEnd : undefined);
+      }
+      pushBillingNotification({
+        userId: user.id,
+        type: 'payment_approved',
+        title: isTrial ? `Essai gratuit activé (${trialDays} j)` : `Plan ${normPlan.name} activé`,
+        message: `Votre formule ${normPlan.name} est active jusqu'au ${periodEnd}.`,
+        invoiceId: newInvoice.id
+      });
+    }
+
+    return {
+      success: true,
+      invoice: newInvoice,
+      message: isZero ? `Forfait ${normPlan.name} activé avec succès.` : `Facture ${newInvoice.invoiceNumber} créée. Veuillez effectuer le paiement Mobile Money et transmettre la référence.`
+    };
+  };
+
+  const submitManualPaymentProof = async (
+    invoiceId: string,
+    payload: { paymentMethodId?: string; transactionReference?: string; proofImageUrl?: string }
+  ): Promise<{ success: boolean; invoice?: Invoice; message?: string }> => {
+    const pm = paymentMethods.find((m) => m.id === payload.paymentMethodId);
+    const nowIso = new Date().toISOString();
+
+    try {
+      await mysqlApi.submitPaymentProof(invoiceId, {
+        paymentMethodId: payload.paymentMethodId,
+        transactionReference: payload.transactionReference,
+        proofImageUrl: payload.proofImageUrl
+      });
+    } catch {}
+
+    let updatedObj: Invoice | undefined;
+    setInvoices((prev) =>
+      prev.map((inv) => {
+        if (inv.id === invoiceId || inv.invoiceNumber === invoiceId) {
+          updatedObj = {
+            ...inv,
+            status: 'awaiting_validation',
+            paymentMethodId: payload.paymentMethodId || inv.paymentMethodId,
+            paymentMethodProvider: pm?.account_name || inv.paymentMethodProvider,
+            transactionReference: payload.transactionReference || inv.transactionReference,
+            proofImageUrl: payload.proofImageUrl ?? inv.proofImageUrl,
+            paymentSubmittedAt: nowIso,
+            rejectionReason: undefined
+          };
+          saveInvoiceToFirestore(updatedObj).catch(() => {});
+          return updatedObj;
+        }
+        return inv;
+      })
+    );
+
+    if (user) {
+      pushBillingNotification({
+        userId: user.id,
+        type: 'payment_submitted',
+        title: 'Preuve transmise pour validation',
+        message: `Votre preuve pour la facture ${updatedObj?.invoiceNumber || invoiceId} est en attente de vérification par l'administrateur.`,
+        invoiceId
+      });
+    }
+
+    return {
+      success: true,
+      invoice: updatedObj,
+      message: 'Preuve transmise ! Votre facture est maintenant « en attente de validation ».'
+    };
+  };
+
+  const approveManualInvoice = async (invoiceId: string): Promise<{ success: boolean; message?: string; restoredCount?: number }> => {
+    const target = invoices.find((i) => i.id === invoiceId || i.invoiceNumber === invoiceId);
+    if (!target) return { success: false, message: 'Facture introuvable.' };
+
+    try {
+      await mysqlApi.approveInvoice(invoiceId);
+    } catch {}
+
+    const nowIso = new Date().toISOString();
+    const cycle: 'monthly' | 'yearly' = target.billingCycle === 'yearly' ? 'yearly' : 'monthly';
+    const matchedPlan = subscriptionPlans.find((p) => p.id === target.planId);
+    const durationDays = target.isTrial ? Math.max(1, Number(matchedPlan?.trialDays || 7)) : (cycle === 'yearly' ? 365 : 30);
+    const nextExpiry = new Date(Date.now() + durationDays * 86400000).toISOString().split('T')[0];
+    const receiptNum = target.receiptNumber || `REC-KIN-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const updatedInv: Invoice = {
+      ...target,
+      status: 'paid',
+      paidAt: nowIso,
+      validatedAt: nowIso,
+      validatedBy: user?.name || 'Administrateur Kinimmo',
+      receiptNumber: receiptNum,
+      periodStart: nowIso.split('T')[0],
+      periodEnd: nextExpiry,
+      rejectionReason: undefined
+    };
+
+    setInvoices((prev) => prev.map((inv) => (inv.id === target.id ? updatedInv : inv)));
+    saveInvoiceToFirestore(updatedInv).catch(() => {});
+
+    let restoredCount = 0;
+    const anyInv = target as any;
+    const targetPropId = anyInv.propertyId || anyInv.property_id || (String(anyInv.targetType) === 'property' ? target.targetId : null);
+
+    if (targetPropId) {
+      const optionId = String(anyInv.optionId || anyInv.option_id || '').toLowerCase();
+      let boostDays = Number(anyInv.duration_days) || 7;
+      if (optionId.includes('30')) boostDays = 30;
+      else if (optionId.includes('14')) boostDays = 14;
+      const expiresAt = new Date(Date.now() + boostDays * 86400000).toISOString();
+
+      setProperties((curr) => {
+        const updatedProps = curr.map((p) => {
+          if (p.id === targetPropId) {
+            const isPrem = optionId.includes('premium');
+            const isFeat = optionId.includes('featured') || isPrem;
+            const isUrg = optionId.includes('urgent');
+            return {
+              ...p,
+              boostExpiresAt: expiresAt,
+              featured: isFeat || p.featured,
+              isPremium: isPrem || p.isPremium,
+              isUrgent: isUrg || p.isUrgent,
+              listingTier: isPrem ? 'premium' : (isFeat ? 'featured' : p.listingTier),
+              refreshBumpAt: nowIso,
+              updatedAt: nowIso
+            };
+          }
+          return p;
+        });
+        saveDurableLocalProperties(updatedProps);
+        return updatedProps;
+      });
+      promotePropertyToHero(targetPropId);
+    } else {
+      if (target.targetType === 'agency' || target.targetId.startsWith('agency_')) {
+        updateAgencySubscriptionStatus(target.targetId, 'Active', nextExpiry, target.planId, cycle);
+      }
+      updateUserSubscriptionStatus(target.targetId, 'Active', nextExpiry, target.planId, cycle);
+      if (target.targetEmail) {
+        updateUserSubscriptionStatus(target.targetEmail, 'Active', nextExpiry, target.planId, cycle);
+      }
+      restoredCount = restoreSoftHiddenProperties(properties, target.targetId).restoredIds.length;
+    }
+
+    pushBillingNotification({
+      userId: target.targetId,
+      type: 'payment_approved',
+      title: `Paiement validé — ${receiptNum}`,
+      message: `La facture ${target.invoiceNumber} a été validée. Votre reçu PDF est disponible.`,
+      invoiceId: target.id
+    });
+
+    return {
+      success: true,
+      restoredCount,
+      message: `Facture ${target.invoiceNumber} validée (${receiptNum}).`
+    };
+  };
+
+  const rejectManualInvoice = async (invoiceId: string, reason: string): Promise<{ success: boolean; message?: string }> => {
+    const target = invoices.find((i) => i.id === invoiceId || i.invoiceNumber === invoiceId);
+    if (!target) return { success: false, message: 'Facture introuvable.' };
+
+    try {
+      await mysqlApi.rejectInvoice(invoiceId, reason);
+    } catch {}
+
+    const nowIso = new Date().toISOString();
+    const updatedInv: Invoice = {
+      ...target,
+      status: 'rejected',
+      rejectionReason: reason,
+      notes: `Refusé : ${reason}`,
+      validatedAt: nowIso,
+      validatedBy: user?.name || 'Administrateur Kinimmo'
+    };
+
+    setInvoices((prev) => prev.map((inv) => (inv.id === target.id ? updatedInv : inv)));
+    saveInvoiceToFirestore(updatedInv).catch(() => {});
+
+    pushBillingNotification({
+      userId: target.targetId,
+      type: 'payment_rejected',
+      title: `Paiement refusé (${target.invoiceNumber})`,
+      message: reason,
+      invoiceId: target.id
+    });
+
+    return { success: true, message: `Paiement refusé pour ${target.invoiceNumber}.` };
+  };
+
+  const refundManualInvoice = async (
+    invoiceId: string,
+    refundNote: string,
+    refundAction: 'revoke' | 'keep'
+  ): Promise<{ success: boolean; message?: string; softHiddenCount?: number }> => {
+    const target = invoices.find((i) => i.id === invoiceId || i.invoiceNumber === invoiceId);
+    if (!target) return { success: false, message: 'Facture introuvable.' };
+
+    try {
+      await mysqlApi.refundInvoice(invoiceId, { refundNote, refundAction });
+    } catch {}
+
+    const nowIso = new Date().toISOString();
+    const updatedInv: Invoice = {
+      ...target,
+      status: 'refunded',
+      refundNote,
+      refundedAt: nowIso,
+      refundAction,
+      validatedBy: user?.name || 'Administrateur Kinimmo',
+      notes: `Remboursement (${refundAction === 'revoke' ? 'Avantage révoqué' : 'Avantage maintenu'}) : ${refundNote}`
+    };
+
+    setInvoices((prev) => prev.map((inv) => (inv.id === target.id ? updatedInv : inv)));
+    saveInvoiceToFirestore(updatedInv).catch(() => {});
+
+    let softHiddenCount = 0;
+    const anyInv = target as any;
+    const targetPropId = anyInv.propertyId || anyInv.property_id || (String(anyInv.targetType) === 'property' ? target.targetId : null);
+
+    if (refundAction === 'revoke') {
+      if (targetPropId) {
+        setProperties((curr) => {
+          const updatedProps = curr.map((p) =>
+            p.id === targetPropId
+              ? { ...p, featured: false, isPremium: false, isUrgent: false, boostExpiresAt: undefined, listingTier: 'standard' as const, updatedAt: nowIso }
+              : p
+          );
+          saveDurableLocalProperties(updatedProps);
+          return updatedProps;
+        });
+        removePropertyFromHero(targetPropId);
+      } else {
+        const freeCap = getFreePlan(subscriptionPlans).maxListings;
+        softHiddenCount = enforceSoftDowngradeOnProperties(properties, target.targetId, freeCap).hiddenIds.length;
+        if (target.targetType === 'agency' || target.targetId.startsWith('agency_')) {
+          updateAgencySubscriptionStatus(target.targetId, 'Expired');
+        }
+        updateUserSubscriptionStatus(target.targetId, 'Expired');
+        if (target.targetEmail) {
+          updateUserSubscriptionStatus(target.targetEmail, 'Expired');
+        }
+      }
+    }
+
+    pushBillingNotification({
+      userId: target.targetId,
+      type: 'payment_refunded',
+      title: `Remboursement effectué (${target.invoiceNumber})`,
+      message: `${refundNote} — ${refundAction === 'revoke' ? 'Forfait/Boost révoqué' : 'Forfait/Boost maintenu'}.`,
+      invoiceId: target.id
+    });
+
+    return {
+      success: true,
+      softHiddenCount,
+      message: refundAction === 'revoke'
+        ? `Remboursement enregistré et avantage révoqué (${softHiddenCount} annonce(s) excédentaire(s) masquée(s)).`
+        : 'Remboursement enregistré ; le plan/boost reste actif.'
+    };
+  };
+
+  const runSubscriptionExpirationAudit = () => {
+    const freeCap = getFreePlan(subscriptionPlans).maxListings;
+    let downgradedCount = 0;
+    let hiddenListingsCount = 0;
+    let expiringSoonCount = 0;
+    let workingProps = [...properties];
+
+    const accountsToAudit: Array<{ id: string; email?: string; name?: string; type: 'agency' | 'user'; planId?: string; expiresAt?: string; status?: 'Active' | 'Expired' }> = [];
+    agencies.forEach((ag) => accountsToAudit.push({ id: ag.id, email: ag.email, name: ag.name, type: 'agency', planId: ag.planId || ag.subscriptionPlan, expiresAt: ag.subscriptionExpiresAt, status: ag.subscriptionStatus }));
+    allUsers.filter((u) => u.role !== 'admin').forEach((u) => accountsToAudit.push({ id: u.id, email: u.email, name: u.name, type: 'user', planId: u.planId || u.subscriptionPlan, expiresAt: u.subscriptionExpiresAt, status: u.subscriptionStatus }));
+    if (user && user.role !== 'admin' && !accountsToAudit.some((a) => a.id === user.id)) {
+      accountsToAudit.push({ id: user.id, email: user.email, name: user.name, type: user.role === 'agency' ? 'agency' : 'user', planId: user.planId || user.subscriptionPlan, expiresAt: user.subscriptionExpiresAt, status: user.subscriptionStatus });
+    }
+
+    accountsToAudit.forEach((acc) => {
+      const summary = resolveAccountBillingSummary({
+        user: {
+          id: acc.id,
+          email: acc.email,
+          planId: acc.planId || 'starter',
+          subscriptionStatus: acc.status,
+          subscriptionExpiresAt: acc.expiresAt
+        },
+        plans: subscriptionPlans,
+        properties: workingProps,
+        propertyVideos,
+        agents
+      });
+      if (summary.isExpiringSoon) {
+        expiringSoonCount += 1;
+        pushBillingNotification({
+          userId: acc.id,
+          type: 'expiry_warning',
+          title: `Échéance proche : ${summary.plan.name}`,
+          message: `Votre abonnement expire dans ${summary.daysRemaining} jour(s). Renouvelez pour conserver vos quotas.`
+        });
+      }
+      if (summary.isExpired && summary.activePlan.id !== 'starter' && summary.activePlan.priceMonthly > 0) {
+        downgradedCount += 1;
+        const downgradeRes = enforceSoftDowngradeOnProperties(workingProps, acc.id, freeCap);
+        workingProps = downgradeRes.updatedProperties;
+        hiddenListingsCount += downgradeRes.hiddenIds.length;
+        if (acc.type === 'agency') {
+          updateAgencySubscriptionStatus(acc.id, 'Expired');
+        } else {
+          updateUserSubscriptionStatus(acc.id, 'Expired');
+        }
+        pushBillingNotification({
+          userId: acc.id,
+          type: 'expired_downgrade',
+          title: 'Rétrogradation douce appliquée',
+          message: downgradeRes.hiddenIds.length > 0
+            ? `Votre abonnement a expiré. ${freeCap} annonce(s) récentes restent actives et ${downgradeRes.hiddenIds.length} annonce(s) ont été masquées sans suppression.`
+            : 'Votre abonnement a expiré et votre compte est repassé sur le plan gratuit.'
+        });
+      }
+    });
+
+    if (hiddenListingsCount > 0) {
+      setProperties(workingProps);
+      saveDurableLocalProperties(workingProps);
+    }
+    mysqlApi.runExpirationCheck().catch(() => {});
+    return { downgradedCount, hiddenListingsCount, expiringSoonCount };
+  };
+
+  // Audit automatique à l'ouverture de session pour alerter ou appliquer la rétrogradation douce
+  useEffect(() => {
+    if (!user || user.role === 'admin' || properties.length === 0) return;
+    const summary = resolveAccountBillingSummary({
+      user,
+      plans: subscriptionPlans,
+      properties,
+      propertyVideos,
+      agents
+    });
+    if (summary.isExpiringSoon) {
+      pushBillingNotification({
+        userId: user.id,
+        type: 'expiry_warning',
+        title: `Abonnement bientôt expiré (${summary.daysRemaining}j)`,
+        message: `Votre formule ${summary.plan.name} expire le ${new Date(summary.expiresAt || '').toLocaleDateString('fr-FR')}.`
+      });
+    } else if (summary.isExpired && summary.activePlan.id !== 'starter' && summary.activePlan.priceMonthly > 0) {
+      runSubscriptionExpirationAudit();
+    }
+  }, [user?.id]);
+
   const updateInvoiceStatus = (id: string, status: Invoice['status'], paymentMethod?: Invoice['paymentMethod'], notes?: string) => {
-    setInvoices((prev) => {
-      const updated = prev.map((inv) => {
+    if (status === 'paid') {
+      approveManualInvoice(id).catch(() => {});
+      return;
+    }
+    if (status === 'rejected') {
+      rejectManualInvoice(id, notes || 'Paiement refusé par l’administrateur').catch(() => {});
+      return;
+    }
+    setInvoices((prev) =>
+      prev.map((inv) => {
         if (inv.id === id) {
           const updatedInv: Invoice = {
             ...inv,
             status,
             ...(paymentMethod ? { paymentMethod } : {}),
-            ...(notes ? { notes } : {}),
-            ...(status === 'paid' ? { paidAt: new Date().toISOString() } : {})
+            ...(notes ? { notes } : {})
           };
           saveInvoiceToFirestore(updatedInv).catch(err => console.error(err));
-
-          // Auto update subscription status of target
-          if (status === 'paid') {
-            const nextExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            if (inv.targetType === 'agency' || inv.targetId.startsWith('agency_')) {
-              updateAgencySubscriptionStatus(inv.targetId, 'Active', nextExpiry);
-            }
-            updateUserSubscriptionStatus(inv.targetId, 'Active', nextExpiry);
-            if (inv.targetEmail) {
-              updateUserSubscriptionStatus(inv.targetEmail, 'Active', nextExpiry);
-            }
-
-            // Activation automatique du boost sur la propriété après validation du paiement par l'administrateur
-            const anyInv = inv as any;
-            const targetPropId = anyInv.propertyId || anyInv.property_id || (String(anyInv.targetType) === 'property' ? inv.targetId : null);
-            if (targetPropId) {
-              const optionId = String(anyInv.optionId || anyInv.option_id || '').toLowerCase();
-              let durationDays = 7;
-              if (optionId.includes('30')) durationDays = 30;
-              else if (optionId.includes('14')) durationDays = 14;
-              else if (optionId.includes('7')) durationDays = 7;
-
-              const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
-
-              setProperties((curr) => {
-                const updatedProps = curr.map((p) => {
-                  if (p.id === targetPropId) {
-                    const isPrem = optionId.includes('premium');
-                    const isFeat = optionId.includes('featured') || isPrem;
-                    const isUrg = optionId.includes('urgent');
-                    return {
-                      ...p,
-                      boostExpiresAt: expiresAt,
-                      featured: isFeat || p.featured,
-                      isPremium: isPrem || p.isPremium,
-                      isUrgent: isUrg || p.isUrgent,
-                      listingTier: isPrem ? 'premium' : (isFeat ? 'featured' : p.listingTier),
-                      refreshBumpAt: new Date().toISOString(),
-                      updatedAt: new Date().toISOString()
-                    };
-                  }
-                  return p;
-                });
-                saveDurableLocalProperties(updatedProps);
-                return updatedProps;
-              });
-
-              // Projection automatique dans la Vitrine Hero
-              promotePropertyToHero(targetPropId);
-            }
-          } else if (status === 'overdue' || status === 'cancelled') {
+          if (status === 'overdue' || status === 'cancelled') {
             if (inv.targetType === 'agency' || inv.targetId.startsWith('agency_')) {
               updateAgencySubscriptionStatus(inv.targetId, 'Expired');
             }
@@ -2118,13 +2900,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               updateUserSubscriptionStatus(inv.targetEmail, 'Expired');
             }
           }
-
           return updatedInv;
         }
         return inv;
-      });
-      return updated;
-    });
+      })
+    );
   };
 
   const deleteInvoice = (id: string) => {
@@ -2257,8 +3037,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActivePropertyModalId(id);
     if (id) {
       incrementPropertyViews(id);
-      const prop = properties.find((p) => p.id === id);
-      updateBrowserUrlForProperty(id, prop?.title);
+      const prop = properties.find((p) => p.id === id || p.slug === id);
+      updateBrowserUrlForProperty(prop || id, prop?.title, properties);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } else {
       updateBrowserUrlForProperty(null);
     }
@@ -2312,7 +3095,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pricingDisplayCurrency,
         setPricingDisplayCurrency: handleSetPricingDisplayCurrency,
         cdfExchangeRate,
+        cdfExchangeRateUpdatedAt,
         setCdfExchangeRate: handleSetCdfExchangeRate,
+        paymentMethods,
+        savePaymentMethod,
+        deletePaymentMethod,
+        inAppBillingNotifications,
+        pushBillingNotification,
+        markBillingNotificationRead,
+        dismissBillingNotification,
+        subscribeToPlan,
+        submitManualPaymentProof,
+        approveManualInvoice,
+        rejectManualInvoice,
+        refundManualInvoice,
+        runSubscriptionExpirationAudit,
         wishlist,
         toggleWishlist,
         compareList,
@@ -2381,6 +3178,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteAgencyCollaborator,
         agencyTransactions,
         createAgencyTransaction,
+        blogArticles,
+        legalDocuments,
+        upsertBlogArticle,
+        deleteBlogArticle,
+        updateLegalDocument,
       }}
     >
       <div dir={languages.find((l) => l.code === language)?.dir || 'ltr'}>

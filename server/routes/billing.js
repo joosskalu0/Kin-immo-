@@ -21,6 +21,19 @@ router.put('/invoices/:id/pay', authenticateToken, billingController.submitPayme
 // Routes d'administration de la monétisation et validation
 router.put('/invoices/:id/approve', authenticateToken, requireAdmin, billingController.approveInvoice);
 router.put('/invoices/:id/reject', authenticateToken, requireAdmin, billingController.rejectInvoice);
+router.put('/invoices/:id/refund', authenticateToken, requireAdmin, billingController.refundInvoice);
+router.post('/admin/check-expirations', authenticateToken, requireAdmin, billingController.checkExpirationsAndDowngrade);
+router.post('/invoices/check-expirations', authenticateToken, requireAdmin, billingController.checkExpirationsAndDowngrade);
+
+// Routes d'administration des opérateurs Mobile Money & Banques
+router.get('/admin/payment-methods', authenticateToken, requireAdmin, billingController.getPaymentMethods);
+router.post('/admin/payment-methods', authenticateToken, requireAdmin, billingController.createPaymentMethod);
+router.put('/admin/payment-methods/:id', authenticateToken, requireAdmin, billingController.updatePaymentMethod);
+router.delete('/admin/payment-methods/:id', authenticateToken, requireAdmin, billingController.deletePaymentMethod);
+router.post('/payment-methods', authenticateToken, requireAdmin, billingController.createPaymentMethod);
+router.put('/payment-methods/:id', authenticateToken, requireAdmin, billingController.updatePaymentMethod);
+router.delete('/payment-methods/:id', authenticateToken, requireAdmin, billingController.deletePaymentMethod);
+
 router.get('/admin/boost-requests', authenticateToken, requireAdmin, billingController.adminGetBoostRequests);
 router.get('/admin/vitrine-stats', authenticateToken, requireAdmin, billingController.getVitrineStats);
 router.post('/admin/boost-requests/:id/approve', authenticateToken, requireAdmin, billingController.adminApproveBoost);

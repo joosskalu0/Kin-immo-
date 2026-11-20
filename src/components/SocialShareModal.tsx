@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Property } from '../types';
 import {
   X,
@@ -9,15 +9,22 @@ import {
   Send,
   QrCode,
   Smartphone,
-  MessageSquare,
   Sparkles,
-  ExternalLink,
-  Layers,
+  Download,
+  Printer,
+  FileCode2,
+  MessageSquare,
 } from 'lucide-react';
 import { convertAndFormatPrice } from '../utils/currency';
 import { trackSocialShare } from '../utils/analytics';
 import { buildPropertyShareUrl, formatPropertyPitch } from '../utils/shareUtils';
 import { openWhatsApp } from '../utils/whatsapp';
+import {
+  generateListingQrPng,
+  generateListingQrSvg,
+  generateSignboardPosterPDF,
+} from '../utils/pdfGenerator';
+import { useApp } from '../context/AppContext';
 
 interface SocialShareModalProps {
   property: Property | null;
@@ -25,15 +32,38 @@ interface SocialShareModalProps {
 }
 
 export const SocialShareModal: React.FC<SocialShareModalProps> = ({ property, onClose }) => {
+  const { agents, contactSettings } = useApp();
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedPitch, setCopiedPitch] = useState(false);
   const [emailTo, setEmailTo] = useState('');
   const [emailSent, setEmailSent] = useState(false);
   const [activeTab, setActiveTab] = useState<'networks' | 'pitch' | 'qr'>('networks');
+  const [qrPngUrl, setQrPngUrl] = useState<string>('');
+  const [qrSvgMarkup, setQrSvgMarkup] = useState<string>('');
+  const [isPosterBusy, setIsPosterBusy] = useState<boolean>(false);
+
+  const currentUrl = property ? buildPropertyShareUrl(property) : '';
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!property || !currentUrl) return;
+    generateListingQrPng(currentUrl, 512)
+      .then((url) => {
+        if (!cancelled) setQrPngUrl(url);
+      })
+      .catch(() => {});
+    generateListingQrSvg(currentUrl)
+      .then((svg) => {
+        if (!cancelled) setQrSvgMarkup(svg);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [property?.id, currentUrl]);
 
   if (!property) return null;
 
-  const currentUrl = buildPropertyShareUrl(property.id);
   const formattedPrice = convertAndFormatPrice(property.price, 'USD');
 
   // Formatted pitch for social networks and WhatsApp groups
@@ -62,7 +92,7 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({ property, on
           url: currentUrl,
         });
         trackSocialShare('native_share', property.title);
-      } catch (e) {
+      } catch {
         // Share cancelled or not supported
       }
     } else {
@@ -87,8 +117,35 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({ property, on
     }, 2000);
   };
 
-  // QR Code URL using high-speed reliable QR generation API
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(currentUrl)}`;
+  const handleDownloadSvg = () => {
+    if (!qrSvgMarkup) return;
+    const blob = new Blob([qrSvgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `QR_${property.id}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+    trackSocialShare('qr_svg', property.title);
+  };
+
+  const handleSignboardPoster = async (mode: 'download' | 'print') => {
+    setIsPosterBusy(true);
+    try {
+      const matchedAgent = agents.find((a) => a.id === property.agentId);
+      const contactPhone =
+        matchedAgent?.whatsapp ||
+        matchedAgent?.phone ||
+        property.privateFields?.ownerPhone ||
+        contactSettings?.supportWhatsApp ||
+        contactSettings?.supportPhone ||
+        '+243 84 529 4616';
+      await generateSignboardPosterPDF(property, currentUrl, contactPhone, mode);
+      trackSocialShare('signboard_pdf', property.title);
+    } finally {
+      setIsPosterBusy(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
@@ -96,7 +153,7 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({ property, on
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-2xl hover:bg-slate-800 transition-colors z-10"
+          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-2xl hover:bg-slate-800 transition-colors z-10 cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
@@ -406,39 +463,86 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({ property, on
           </div>
         )}
 
-        {/* TAB 3: QR CODE GENERATOR */}
+        {/* TAB 3: QR CODE & AFFICHE PANNEAU (P2) */}
         {activeTab === 'qr' && (
           <div className="text-center space-y-4 py-2">
             <p className="text-xs text-slate-300">
-              Scannez ce QR Code avec un smartphone pour ouvrir instantanément l'annonce et sa visite vidéo.
+              QR Code officiel pour vos panneaux « {property.status === 'for-sale' ? 'À VENDRE' : 'À LOUER'} » et impressions.
             </p>
 
-            <div className="w-52 h-52 mx-auto bg-white p-3 rounded-3xl shadow-2xl border-4 border-emerald-500/40 flex items-center justify-center">
-              <img
-                src={qrCodeUrl}
-                alt={`QR Code ${property.title}`}
-                className="w-full h-full object-contain rounded-xl"
-              />
+            <div className="w-48 h-48 mx-auto bg-white p-3 rounded-3xl shadow-2xl border-4 border-emerald-500/40 flex items-center justify-center">
+              {qrPngUrl ? (
+                <img
+                  src={qrPngUrl}
+                  alt={`QR Code ${property.title}`}
+                  className="w-full h-full object-contain rounded-xl"
+                />
+              ) : (
+                <div className="text-xs text-slate-500 font-medium">Génération QR...</div>
+              )}
             </div>
 
-            <div className="flex justify-center gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <a
-                href={qrCodeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download={`QR_${property.title.slice(0, 15)}.png`}
-                className="px-4 py-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 border border-slate-700"
+                href={qrPngUrl || '#'}
+                download={`QR_${property.id}.png`}
+                onClick={() => trackSocialShare('qr_png', property.title)}
+                className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700"
               >
-                <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
-                Télécharger le QR Code
+                <Download className="w-3.5 h-3.5 text-emerald-400" />
+                <span>QR PNG</span>
               </a>
+
               <button
-                onClick={handleCopyLink}
-                className="px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5"
+                type="button"
+                onClick={handleDownloadSvg}
+                disabled={!qrSvgMarkup}
+                className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700 disabled:opacity-40 cursor-pointer"
               >
-                {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {copiedLink ? 'Lien copié' : 'Copier le lien'}
+                <FileCode2 className="w-3.5 h-3.5 text-sky-400" />
+                <span>QR SVG</span>
               </button>
+
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="col-span-2 sm:col-span-1 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700 cursor-pointer"
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-emerald-400" />}
+                <span>{copiedLink ? 'Copié' : 'Copier lien'}</span>
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 text-left space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-white">
+                  Affiche panneau « {property.status === 'for-sale' ? 'À VENDRE' : 'À LOUER'} » (A4)
+                </span>
+                <span className="text-[11px] font-mono text-emerald-400">PDF Prêt à poser</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Téléchargez ou imprimez une affiche grand format incluant le titre, le prix, le téléphone et le QR code scannable.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  disabled={isPosterBusy}
+                  onClick={() => handleSignboardPoster('download')}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Télécharger Affiche PDF</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isPosterBusy}
+                  onClick={() => handleSignboardPoster('print')}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700 disabled:opacity-50 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Imprimer</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

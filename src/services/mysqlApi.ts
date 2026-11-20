@@ -1,4 +1,5 @@
-import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings, VisibilityOption, PropertyVideo, PropertyVideoStatus, PropertyUserReport } from '../types';
+import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings, VisibilityOption, PropertyVideo, PropertyVideoStatus, PropertyUserReport, PaymentMethodConfig } from '../types';
+import { getDefaultPlans, normalizePlan, DEFAULT_PAYMENT_METHODS_LIST } from '../utils/billingHelpers';
 
 /**
  * Service Client API MySQL REST pour Kinimmo
@@ -103,160 +104,13 @@ const ADS_STORAGE_KEY = 'kinimmo_advertisements_store';
 const ADSENSE_CONFIG_KEY = 'kinimmo_adsense_config';
 const PLANS_STORAGE_KEY = 'kinimmo_pricing_plans_store';
 const OPTIONS_STORAGE_KEY = 'kinimmo_visibility_options_store';
+const PAYMENT_METHODS_STORAGE_KEY = 'kinimmo_payment_methods_v1';
 
 const API_BASE_URL =
   ((import.meta as any).env?.VITE_API_BASE_URL as string) || '/api';
 
-// Formules d'abonnement par défaut certifiées Kinshasa
-const DEFAULT_PRICING_PLANS = [
-  {
-    id: 'starter',
-    name: 'Annonce Gratuite Particulier',
-    description: 'Idéal pour les propriétaires souhaitant publier leurs biens sans aucun frais ni engagement.',
-    category: 'individual' as const,
-    badge: 'Gratuit',
-    priceMonthly: 0,
-    priceMonthlyCDF: 0,
-    price_usd: 0,
-    price_cdf: 0,
-    price: 0,
-    currency: 'USD',
-    billingPeriod: 'month' as const,
-    billing_period: 'monthly',
-    maxListings: 3,
-    max_listings: 3,
-    featuredListings: 0,
-    max_featured_listings: 0,
-    agentAccounts: 1,
-    features: [
-      'Publication de 3 annonces immobilières actives',
-      'Fiche descriptive complète avec photos HD',
-      'Mise en relation directe avec les acheteurs',
-      'Messagerie et contacts WhatsApp directs'
-    ],
-    recommended: false,
-    isActive: true,
-    is_active: true,
-    hasVerifiedBadge: false,
-    has_verified_badge: false,
-    hasCrmLeads: false,
-    has_crm_leads: false,
-    hasPrioritySupport: false,
-    has_priority_support: false
-  },
-  {
-    id: 'pro',
-    name: 'Pro Courtier Indépendant',
-    description: 'Pour courtiers indépendants actifs à Kinshasa avec badge vérifié et gestion prioritaire des leads.',
-    category: 'individual' as const,
-    badge: 'Courtier Pro',
-    priceMonthly: 29,
-    priceMonthlyCDF: 82650,
-    price_usd: 29,
-    price_cdf: 82650,
-    price: 29,
-    currency: 'USD',
-    billingPeriod: 'month' as const,
-    billing_period: 'monthly',
-    maxListings: 25,
-    max_listings: 25,
-    featuredListings: 3,
-    max_featured_listings: 3,
-    agentAccounts: 1,
-    features: [
-      'Jusqu\'à 25 annonces immobilières actives',
-      '3 annonces en vedette (Mise en avant)',
-      'Badge Officiel Courtier Vérifié Kinshasa',
-      'Accès direct aux demandes de Conciergerie (Leads)',
-      'Statistiques des vues et contacts WhatsApp',
-      'Support réactif 6j/7'
-    ],
-    recommended: true,
-    isActive: true,
-    is_active: true,
-    hasVerifiedBadge: true,
-    has_verified_badge: true,
-    hasCrmLeads: true,
-    has_crm_leads: true,
-    hasPrioritySupport: false,
-    has_priority_support: false
-  },
-  {
-    id: 'agency',
-    name: 'Agence Immobilière Certifiée',
-    description: 'Visibilité maximale pour agences immobilières avec agents illimités, CRM et vitrine dédiée.',
-    category: 'agency' as const,
-    badge: 'Agence Agréée',
-    priceMonthly: 79,
-    priceMonthlyCDF: 225150,
-    price_usd: 79,
-    price_cdf: 225150,
-    price: 79,
-    currency: 'USD',
-    billingPeriod: 'month' as const,
-    billing_period: 'monthly',
-    maxListings: 100,
-    max_listings: 100,
-    featuredListings: 10,
-    max_featured_listings: 10,
-    agentAccounts: 10,
-    features: [
-      'Jusqu\'à 100 annonces immobilières actives',
-      '10 annonces en vedette incluses',
-      'Vitrine Agence Immobilière dédiée avec logo et agents',
-      'Gestion multi-comptes pour agents immobiliers',
-      'Badge Agence Certifiée & Agréée RDC',
-      'Rapports d\'activité mensuels et CRM leads',
-      'Support prioritaire dédié 7j/7'
-    ],
-    recommended: true,
-    isActive: true,
-    is_active: true,
-    hasVerifiedBadge: true,
-    has_verified_badge: true,
-    hasCrmLeads: true,
-    has_crm_leads: true,
-    hasPrioritySupport: true,
-    has_priority_support: true
-  },
-  {
-    id: 'enterprise',
-    name: 'Promoteur Immobilier & Constructeur VIP',
-    description: 'Pour promoteurs fonciers, lotissements et grands chantiers avec bannières sponsorisées et multi-diffusion.',
-    category: 'promoter' as const,
-    badge: 'Promoteur VIP',
-    priceMonthly: 149,
-    priceMonthlyCDF: 424650,
-    price_usd: 149,
-    price_cdf: 424650,
-    price: 149,
-    currency: 'USD',
-    billingPeriod: 'month' as const,
-    billing_period: 'monthly',
-    maxListings: 500,
-    max_listings: 500,
-    featuredListings: 30,
-    max_featured_listings: 30,
-    agentAccounts: 25,
-    features: [
-      'Annonces immobilières illimitées (grands chantiers, lotissements)',
-      '30 annonces en tête de liste et carrousel d\'accueil',
-      'Bannières publicitaires régie incluses',
-      'Multi-diffusion WhatsApp VIP & Réseaux sociaux',
-      'Conseiller commercial et juridique dédié',
-      'Gestion prioritaire des visites VIP'
-    ],
-    recommended: false,
-    isActive: true,
-    is_active: true,
-    hasVerifiedBadge: true,
-    has_verified_badge: true,
-    hasCrmLeads: true,
-    has_crm_leads: true,
-    hasPrioritySupport: true,
-    has_priority_support: true
-  }
-];
+// Formules d'abonnement par défaut certifiées Kinshasa (Grand Public + Agence actifs, Promoteur/Entreprise en brouillon)
+const DEFAULT_PRICING_PLANS = getDefaultPlans(2850);
 
 const DEFAULT_VISIBILITY_OPTIONS = [
   {
@@ -336,44 +190,7 @@ const DEFAULT_VISIBILITY_OPTIONS = [
   }
 ];
 
-const DEFAULT_PAYMENT_METHODS = [
-  {
-    id: 'pm_mpesa',
-    provider: 'mpesa',
-    account_name: 'KINIMMO SARL - Vodacom M-Pesa',
-    account_number: '+243 810 000 000',
-    merchant_code: '123456',
-    instructions: 'Envoyer le montant exact via M-Pesa puis insérer le code de transaction.',
-    is_active: true
-  },
-  {
-    id: 'pm_airtel',
-    provider: 'airtel',
-    account_name: 'KINIMMO SARL - Airtel Money RDC',
-    account_number: '+243 990 000 000',
-    merchant_code: '789012',
-    instructions: 'Paiement direct via Airtel Money RDC.',
-    is_active: true
-  },
-  {
-    id: 'pm_orange',
-    provider: 'orange',
-    account_name: 'KINIMMO SARL - Orange Money Kinshasa',
-    account_number: '+243 890 000 000',
-    merchant_code: '345678',
-    instructions: 'Paiement via Orange Money Kinshasa.',
-    is_active: true
-  },
-  {
-    id: 'pm_rawbank',
-    provider: 'bank_transfer',
-    account_name: 'KINIMMO RDC - Rawbank Kinshasa Gombe',
-    account_number: '01002-00012345678-90',
-    merchant_code: null,
-    instructions: 'Virement bancaire ou versement au guichet Rawbank.',
-    is_active: true
-  }
-];
+const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = DEFAULT_PAYMENT_METHODS_LIST;
 
 // Clé unique canonique pour le stockage du jeton d'authentification
 export const AUTH_TOKEN_KEY = 'kinimmo_token';
@@ -857,7 +674,9 @@ export const mysqlApi = {
       const stored = localStorage.getItem(PLANS_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((p: any) => normalizePlan(p, 2850));
+        }
       }
     } catch (e) {}
     return DEFAULT_PRICING_PLANS;
@@ -867,6 +686,24 @@ export const mysqlApi = {
     try {
       localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(plans));
       window.dispatchEvent(new Event('kinimmo_plans_updated'));
+    } catch (e) {}
+  },
+
+  getLocalPaymentMethods(): PaymentMethodConfig[] {
+    try {
+      const stored = localStorage.getItem(PAYMENT_METHODS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return DEFAULT_PAYMENT_METHODS;
+  },
+
+  saveLocalPaymentMethods(methods: PaymentMethodConfig[]): void {
+    try {
+      localStorage.setItem(PAYMENT_METHODS_STORAGE_KEY, JSON.stringify(methods));
+      window.dispatchEvent(new Event('kinimmo_payment_methods_updated'));
     } catch (e) {}
   },
 
@@ -898,45 +735,7 @@ export const mysqlApi = {
       const res = await apiRequest(`/billing/plans${query}`);
       const rawPlans = (res.success && (res.plans || res.data?.plans)) ? (res.plans || res.data?.plans) : null;
       if (Array.isArray(rawPlans) && rawPlans.length > 0) {
-        const normalized = rawPlans.map((p: any) => {
-          const priceUsd = Number(p.priceMonthly ?? p.price_usd ?? p.price ?? 0);
-          const priceCdf = Number(p.priceMonthlyCDF ?? p.price_cdf ?? p.priceCDF ?? (priceUsd * 2850));
-          const maxListings = Number(p.maxListings ?? p.max_listings ?? 3);
-          const featuredListings = Number(p.featuredListings ?? p.max_featured_listings ?? 0);
-
-          let features = p.features;
-          if (typeof features === 'string') {
-            try { features = JSON.parse(features); } catch (e) { features = []; }
-          }
-          if (!Array.isArray(features) || features.length === 0) {
-            const fallbackMatch = DEFAULT_PRICING_PLANS.find(f => f.id === p.id);
-            features = fallbackMatch ? fallbackMatch.features : [
-              'Annonces immobilières actives',
-              'Visibilité sur Kinshasa Immobilier',
-              'Contact direct via WhatsApp'
-            ];
-          }
-
-          return {
-            ...p,
-            priceMonthly: priceUsd,
-            priceMonthlyCDF: priceCdf,
-            price_usd: priceUsd,
-            price_cdf: priceCdf,
-            price: priceUsd,
-            maxListings,
-            max_listings: maxListings,
-            featuredListings,
-            max_featured_listings: featuredListings,
-            currency: 'USD',
-            billingPeriod: 'month',
-            billing_period: p.billing_period || 'monthly',
-            features,
-            recommended: p.id === 'agency' || p.id === 'pro' || Boolean(p.recommended),
-            isActive: p.is_active !== false,
-            is_active: p.is_active !== false
-          };
-        });
+        const normalized = rawPlans.map((p: any) => normalizePlan(p, 2850));
         this.saveLocalPlans(normalized);
         return { success: true, plans: normalized };
       }
@@ -948,33 +747,28 @@ export const mysqlApi = {
 
   async adminUpdatePlan(id: string, data: any) {
     const plans = this.getLocalPlans();
-    const priceUsd = Number(data.priceMonthly ?? data.price_usd ?? data.price ?? 0);
-    const priceCdf = Number(data.priceMonthlyCDF ?? data.price_cdf ?? data.priceCDF ?? (priceUsd * 2850));
-
-    const updated = plans.map(p => {
-      if (p.id === id) {
-        return {
-          ...p,
-          ...data,
-          priceMonthly: priceUsd,
-          priceMonthlyCDF: priceCdf,
-          price_usd: priceUsd,
-          price_cdf: priceCdf,
-          price: priceUsd,
-          maxListings: Number(data.maxListings ?? data.max_listings ?? p.maxListings),
-          max_listings: Number(data.maxListings ?? data.max_listings ?? p.max_listings),
-          featuredListings: Number(data.featuredListings ?? data.max_featured_listings ?? p.featuredListings),
-          max_featured_listings: Number(data.featuredListings ?? data.max_featured_listings ?? p.max_featured_listings)
-        };
-      }
-      return p;
-    });
+    const updated = plans.map(p => (p.id === id ? normalizePlan({ ...p, ...data, id }, 2850) : p));
     this.saveLocalPlans(updated);
 
     try {
+      const payload = {
+        ...data,
+        price_usd: data.priceMonthly ?? data.price_usd,
+        price_cdf: data.priceMonthlyCDF ?? data.price_cdf,
+        price_yearly_usd: data.priceYearly ?? data.price_yearly_usd,
+        price_yearly_cdf: data.priceYearlyCDF ?? data.price_yearly_cdf,
+        trial_days: data.trialDays ?? data.trial_days,
+        max_listings: data.maxListings ?? data.max_listings,
+        max_photos_per_listing: data.maxPhotos ?? data.max_photos_per_listing,
+        max_videos: data.maxVideos ?? data.max_videos,
+        included_boosts: data.includedBoosts ?? data.included_boosts ?? data.featuredListings,
+        max_featured_listings: data.featuredListings ?? data.includedBoosts ?? data.max_featured_listings,
+        max_team_members: data.agentAccounts ?? data.max_team_members,
+        is_active: data.isActive ?? data.is_active
+      };
       const res = await apiRequest(`/billing/plans/${id}`, {
         method: 'PUT',
-        body: JSON.stringify(data)
+        body: JSON.stringify(payload)
       });
       return res;
     } catch (e) {
@@ -984,25 +778,7 @@ export const mysqlApi = {
 
   async adminCreatePlan(data: any) {
     const id = data.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const priceUsd = Number(data.priceMonthly ?? data.price_usd ?? 0);
-    const priceCdf = Number(data.priceMonthlyCDF ?? data.price_cdf ?? (priceUsd * 2850));
-
-    const newPlan = {
-      ...data,
-      id,
-      priceMonthly: priceUsd,
-      priceMonthlyCDF: priceCdf,
-      price_usd: priceUsd,
-      price_cdf: priceCdf,
-      price: priceUsd,
-      currency: 'USD',
-      maxListings: Number(data.maxListings ?? data.max_listings ?? 5),
-      max_listings: Number(data.maxListings ?? data.max_listings ?? 5),
-      featuredListings: Number(data.featuredListings ?? data.max_featured_listings ?? 0),
-      max_featured_listings: Number(data.featuredListings ?? data.max_featured_listings ?? 0),
-      isActive: data.isActive !== false && data.is_active !== false,
-      is_active: data.isActive !== false && data.is_active !== false
-    };
+    const newPlan = normalizePlan({ ...data, id }, 2850);
 
     const plans = this.getLocalPlans();
     this.saveLocalPlans([...plans, newPlan]);
@@ -1014,7 +790,7 @@ export const mysqlApi = {
       });
       return res;
     } catch (e) {
-      return { success: true, message: 'Formule créée avec succès' };
+      return { success: true, message: 'Formule créée avec succès', plan: newPlan };
     }
   },
 
@@ -1123,23 +899,71 @@ export const mysqlApi = {
     }
   },
 
-  async getPaymentMethods() {
+  async getPaymentMethods(includeInactive = false) {
     try {
-      const res = await apiRequest('/billing/payment-methods');
+      const q = includeInactive ? '?include_inactive=true' : '';
+      const res = await apiRequest(`/billing/payment-methods${q}`);
       const rawMethods = (res.success && (res.paymentMethods || res.data?.paymentMethods)) ? (res.paymentMethods || res.data?.paymentMethods) : null;
       if (Array.isArray(rawMethods) && rawMethods.length > 0) {
+        if (includeInactive) this.saveLocalPaymentMethods(rawMethods);
         return { success: true, paymentMethods: rawMethods };
       }
     } catch (e) {
       console.warn('API payment methods unreachable, using default methods:', e);
     }
-    return { success: true, paymentMethods: DEFAULT_PAYMENT_METHODS };
+    const local = this.getLocalPaymentMethods();
+    return { success: true, paymentMethods: includeInactive ? local : local.filter((m) => m.is_active !== false) };
   },
 
-  async createInvoice(planId: string, paymentMethodId?: string, paymentGateway = 'manual_mobile_money') {
+  async adminCreatePaymentMethod(data: Partial<PaymentMethodConfig>) {
+    const pm: PaymentMethodConfig = {
+      id: data.id || `pm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      provider: (data.provider as any) || 'mpesa',
+      account_name: data.account_name || 'Compte Marchand Kinimmo',
+      account_number: data.account_number || '',
+      merchant_code: data.merchant_code || null,
+      instructions: data.instructions || '',
+      is_active: data.is_active !== false
+    };
+    const list = [...this.getLocalPaymentMethods(), pm];
+    this.saveLocalPaymentMethods(list);
+    try {
+      return await apiRequest('/billing/admin/payment-methods', { method: 'POST', body: JSON.stringify(pm) });
+    } catch {
+      return { success: true, paymentMethod: pm };
+    }
+  },
+
+  async adminUpdatePaymentMethod(id: string, data: Partial<PaymentMethodConfig>) {
+    const list = this.getLocalPaymentMethods().map((m) => (m.id === id ? { ...m, ...data, id } : m));
+    this.saveLocalPaymentMethods(list);
+    try {
+      return await apiRequest(`/billing/admin/payment-methods/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    } catch {
+      return { success: true, paymentMethod: list.find((m) => m.id === id) };
+    }
+  },
+
+  async adminDeletePaymentMethod(id: string) {
+    const list = this.getLocalPaymentMethods().filter((m) => m.id !== id);
+    this.saveLocalPaymentMethods(list);
+    try {
+      return await apiRequest(`/billing/admin/payment-methods/${id}`, { method: 'DELETE' });
+    } catch {
+      return { success: true };
+    }
+  },
+
+  async createInvoice(
+    planId: string,
+    paymentMethodId?: string,
+    paymentGateway = 'manual_mobile_money',
+    billingCycle: 'monthly' | 'yearly' = 'monthly',
+    startTrial = false
+  ) {
     return apiRequest('/billing/invoices', {
       method: 'POST',
-      body: JSON.stringify({ planId, paymentMethodId, paymentGateway })
+      body: JSON.stringify({ planId, paymentMethodId, paymentGateway, billingCycle, startTrial })
     });
   },
 
@@ -1175,6 +999,19 @@ export const mysqlApi = {
     return apiRequest(`/billing/invoices/${invoiceId}/reject`, {
       method: 'PUT',
       body: JSON.stringify({ reason })
+    });
+  },
+
+  async refundInvoice(invoiceId: string, data: { refundNote: string; refundAction: 'revoke' | 'keep' }) {
+    return apiRequest(`/billing/invoices/${invoiceId}/refund`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async runExpirationCheck() {
+    return apiRequest('/billing/admin/check-expirations', {
+      method: 'POST'
     });
   },
 
@@ -1708,6 +1545,44 @@ export const mysqlApi = {
     return apiRequest(`/videos/admin/reports/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status })
+    });
+  },
+
+  // ------------------------------------------------------------------
+  // CONTENUS P1 : BLOG / GUIDES & PAGES LÉGALES (CMS)
+  // ------------------------------------------------------------------
+  async getBlogArticles(includeDrafts = false): Promise<{ success: boolean; articles?: any[]; error?: string }> {
+    const query = includeDrafts ? '?include_drafts=true' : '';
+    return apiRequest(`/content/articles${query}`);
+  },
+
+  async saveBlogArticle(article: any): Promise<{ success: boolean; article?: any; message?: string; error?: string }> {
+    if (article.id) {
+      return apiRequest(`/content/articles/${encodeURIComponent(article.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(article),
+      });
+    }
+    return apiRequest('/content/articles', {
+      method: 'POST',
+      body: JSON.stringify(article),
+    });
+  },
+
+  async deleteBlogArticle(id: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    return apiRequest(`/content/articles/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getLegalDocuments(): Promise<{ success: boolean; documents?: any[]; error?: string }> {
+    return apiRequest('/content/legal');
+  },
+
+  async updateLegalDocument(slug: string, payload: any): Promise<{ success: boolean; document?: any; message?: string; error?: string }> {
+    return apiRequest(`/content/legal/${encodeURIComponent(slug)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     });
   }
 };

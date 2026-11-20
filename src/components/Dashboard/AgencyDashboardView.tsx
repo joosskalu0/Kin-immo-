@@ -9,6 +9,8 @@ import {
 } from '../../utils/propertyStatusHelpers';
 import { TrustBadge } from '../Trust/TrustBadge';
 import { TrustVerificationModal } from '../Trust/TrustVerificationModal';
+import { AccountBillingPortal } from './AccountBillingPortal';
+import { PaymentReminderBanner } from './PaymentReminderBanner';
 import {
   Building2,
   Users,
@@ -297,6 +299,7 @@ export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
 
   return (
     <div className="space-y-6">
+      <PaymentReminderBanner onOpenBilling={() => setActiveSection('subscriptions')} />
       {/* En-tête Espace Agence */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-3xl p-6 relative overflow-hidden shadow-2xl">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -1005,83 +1008,10 @@ export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
       )}
 
       {/* ======================================================== */}
-      {/* 6. GESTION DES ABONNEMENTS ET PROMOTIONS */}
+      {/* 6. GESTION DES ABONNEMENTS ET FACTURATION AGENCE (P2) */}
       {/* ======================================================== */}
       {activeSection === 'subscriptions' && (
-        <div className="space-y-6">
-          <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-            <div className="space-y-2">
-              <span className="px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/40 text-xs font-black uppercase">
-                Formule Professionnelle Agence
-              </span>
-              <h3 className="text-2xl font-black text-white">Agence Immobilière Certifiée Kinimmo</h3>
-              <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-                Votre formule inclut l'intégration d'un nombre illimité de collaborateurs, le module multi-mandats, les rapports d'audit Kinshasa Trust et la vitrine exclusive.
-              </p>
-            </div>
-
-            <div className="bg-slate-950/80 border border-slate-800 p-5 rounded-2xl text-center min-w-[200px]">
-              <span className="text-xs text-slate-400 uppercase font-bold block">Tarif Mensuel</span>
-              <div className="text-3xl font-black text-emerald-400">79 USD</div>
-              <span className="text-xs text-slate-400 font-mono mt-1 block">{formatCDF(79)} / mois</span>
-              <span className="mt-2 inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
-                Abonnement Actif
-              </span>
-            </div>
-          </div>
-
-          {/* Factures de l'agence */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-emerald-400" />
-                Historique des Factures & Règlements de l’Agence
-              </h4>
-              <span className="text-xs text-slate-400">Devise : USD & Franc Congolais</span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold">
-                  <tr>
-                    <th className="py-3 px-4">Numéro</th>
-                    <th className="py-3 px-4">Objet</th>
-                    <th className="py-3 px-4">Montant USD</th>
-                    <th className="py-3 px-4">Montant CDF</th>
-                    <th className="py-3 px-4">Statut</th>
-                    <th className="py-3 px-4">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-200">
-                  {invoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 px-4 font-mono font-bold text-indigo-400">
-                        {inv.invoiceNumber || (inv as any).invoice_number || inv.id}
-                      </td>
-                      <td className="py-3.5 px-4 font-semibold text-white">
-                        {(inv as any).plan_name || (inv.planId ? `Formule ${inv.planId}` : 'Abonnement Agence Kinimmo')}
-                      </td>
-                      <td className="py-3.5 px-4 font-black text-white">
-                        {formatUSD(inv.totalAmount || inv.amount || 79)}
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-slate-300">
-                        {formatCDF(inv.totalAmount || inv.amount || 79)}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-black uppercase">
-                          Payé & Validé
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-400 text-[11px]">
-                        {new Date(inv.createdAt || (inv as any).created_at || Date.now()).toLocaleDateString('fr-FR')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <AccountBillingPortal />
       )}
 
       {/* ======================================================== */}

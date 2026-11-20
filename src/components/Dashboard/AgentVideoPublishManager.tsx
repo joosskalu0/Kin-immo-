@@ -36,6 +36,7 @@ import {
   getCloudinaryAutoThumbnail,
   CloudinaryConfig
 } from '../../services/cloudinaryService';
+import { resolveAccountBillingSummary } from '../../utils/billingHelpers';
 
 interface AgentVideoPublishManagerProps {
   myProperties: Property[];
@@ -50,7 +51,12 @@ export const AgentVideoPublishManager: React.FC<AgentVideoPublishManagerProps> =
     propertyVideos,
     addPropertyVideo,
     deletePropertyVideo,
-    user
+    user,
+    properties,
+    subscriptionPlans,
+    agents,
+    agencies,
+    agencyCollaborators
   } = useApp();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -117,6 +123,30 @@ export const AgentVideoPublishManager: React.FC<AgentVideoPublishManagerProps> =
     drafts: userVideos.filter((v) => v.status === 'draft').length,
     totalViews: userVideos.reduce((acc, v) => acc + (v.viewsCount || 0), 0)
   };
+
+  const userAgency = user
+    ? agencies.find(
+        (a) =>
+          a.id === user.agencyId ||
+          (a.name && user.agencyName && a.name.toLowerCase() === user.agencyName.toLowerCase()) ||
+          (a.email && user.email && a.email.toLowerCase() === user.email.toLowerCase())
+      )
+    : undefined;
+  const collabCount = userAgency
+    ? Math.max(1, agencyCollaborators.filter((c) => c.agencyId === userAgency.id).length)
+    : undefined;
+  const billingSummary = resolveAccountBillingSummary({
+    user,
+    agency: userAgency,
+    plans: subscriptionPlans,
+    properties,
+    propertyVideos,
+    agents,
+    collaboratorsCount: collabCount
+  });
+  const isAdminUser = user?.role === 'admin';
+  const maxVideosCap = billingSummary.limits.maxVideos;
+  const isVideoQuotaReached = !isAdminUser && billingSummary.usage.videosCount >= maxVideosCap;
 
   // Sélection d'un fichier vidéo et déclenchement du téléversement Cloudinary
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -231,6 +261,14 @@ export const AgentVideoPublishManager: React.FC<AgentVideoPublishManagerProps> =
   };
 
   const handleSubmit = async (targetStatus: PropertyVideoStatus) => {
+    if (isVideoQuotaReached) {
+      setErrorToast(
+        maxVideosCap === 0
+          ? `Votre formule ${billingSummary.plan.name} n'inclut pas la publication vidéo. Passez à une formule supérieure dans « Abonnement & Factures ».`
+          : `Quota vidéo atteint (${billingSummary.usage.videosCount}/${maxVideosCap}) pour votre formule ${billingSummary.plan.name}.`
+      );
+      return;
+    }
     if (!selectedPropertyId) {
       setErrorToast('Veuillez sélectionner une annonce immobilière existante.');
       return;
@@ -394,15 +432,29 @@ export const AgentVideoPublishManager: React.FC<AgentVideoPublishManagerProps> =
           <button
             onClick={() => {
               if (myProperties.length === 0) {
-                alert('Vous devez d\'abord créer au moins une annonce immobilière avant de pouvoir publier une vidéo.');
+                setErrorToast('Vous devez d\'abord créer au moins une annonce immobilière avant de pouvoir publier une vidéo.');
+                return;
+              }
+              if (isVideoQuotaReached) {
+                setErrorToast(
+                  maxVideosCap === 0
+                    ? `Votre formule ${billingSummary.plan.name} n'inclut pas encore la publication vidéo. Passez à une formule supérieure dans Abonnement & Factures.`
+                    : `Quota vidéo atteint (${billingSummary.usage.videosCount}/${maxVideosCap}) pour votre formule ${billingSummary.plan.name}.`
+                );
                 return;
               }
               setIsModalOpen(true);
             }}
-            className="flex-1 sm:flex-initial px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
+            className={`flex-1 sm:flex-initial px-5 py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              isVideoQuotaReached
+                ? 'bg-slate-800 text-amber-300 border border-amber-500/40'
+                : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 shadow-lg shadow-emerald-500/20 active:scale-95'
+            }`}
           >
             <Plus className="w-4 h-4" />
-            <span>Publier une Vidéo</span>
+            <span>
+              Publier une Vidéo {!isAdminUser ? `(${billingSummary.usage.videosCount}/${maxVideosCap})` : ''}
+            </span>
           </button>
         </div>
       </div>

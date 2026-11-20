@@ -3,6 +3,7 @@ import { Property } from '../types';
 import { useApp } from '../context/AppContext';
 import { convertAndFormatPrice } from '../utils/currency';
 import { buildPropertyShareUrl } from '../utils/shareUtils';
+import { canUserManageProperty } from '../utils/propertyPermissions';
 import {
   Bed,
   Bath,
@@ -55,6 +56,7 @@ interface PropertyCardProps {
 export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare }) => {
   const {
     currency,
+    cdfExchangeRate,
     wishlist,
     toggleWishlist,
     compareList,
@@ -66,7 +68,6 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
     user,
     recordPropertyAction,
     updateProperty,
-    deleteProperty,
     setEditingProperty,
     setIsSubmitPropertyOpen,
     requestConfirm,
@@ -80,8 +81,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
   const isCompared = compareList.includes(property.id);
   const isSold = property.status === 'sold' || property.listingStatus === 'SOLD';
   const isRented = property.listingStatus === 'RENTED';
-  const isUnavailable = isSold || isRented || property.listingStatus === 'ARCHIVED';
-  const formattedPrice = convertAndFormatPrice(property.price, currency);
+  const formattedPrice = convertAndFormatPrice(property.price, currency, cdfExchangeRate, property.currency || 'USD');
   const labels = Array.isArray(property.labels) ? property.labels : [];
 
   const agent = agents.find((a) => a.id === property.agentId || a.name === property.agentId || (property.contactEmail && a.email === property.contactEmail));
@@ -100,23 +100,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
       ? agencies?.find((ag) => ag.name?.toLowerCase().trim() === property.agencyName?.toLowerCase().trim())
       : null);
 
-  const canManageProperty = Boolean(
-    user && (
-      user.role === 'admin' ||
-      user.role === 'agent' ||
-      user.role === 'agency' ||
-      property.agentId === user.id ||
-      property.agentId === user.agentId ||
-      property.agencyId === user.agencyId ||
-      property.agencyId === user.id ||
-      (user.agencyName && property.agencyName?.toLowerCase() === user.agencyName.toLowerCase()) ||
-      (user.email && (
-        user.email === property.contactEmail ||
-        user.email === property.agentId ||
-        user.email === property.privateFields?.ownerEmail
-      ))
-    )
-  );
+  const canManageProperty = canUserManageProperty(user, property, agents);
 
   const images = Array.isArray(property.images) && property.images.length > 0
     ? property.images
@@ -337,7 +321,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
             onClick={(e) => {
               e.stopPropagation();
               recordPropertyAction(property.id, 'share');
-              const shareUrl = buildPropertyShareUrl(property.id);
+              const shareUrl = buildPropertyShareUrl(property);
               if (onShare) {
                 onShare(property.id);
               } else if (navigator.share) {

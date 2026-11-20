@@ -1,0 +1,47 @@
+[
+  {
+    "id": "pm_mpesa",
+    "provider": "mpesa",
+    "account_name": "KINIMMO SARL - Vodacom M-Pesa",
+    "account_number": "+243 810 000 000",
+    "merchant_code": "123456",
+    "instructions": "Envoyer le montant exact via M-Pesa puis insérer le code de transaction pour validation instantanée.",
+    "is_active": true
+  },
+  {
+    "id": "pm_airtel",
+    "provider": "airtel",
+    "account_name": "KINIMMO SARL - Airtel Money RDC",
+    "account_number": "+243 990 000 000",
+    "merchant_code": "789012",
+    "instructions": "Paiement direct via Airtel Money RDC. Indiquez votre numéro de facture en référence.",
+    "is_active": true
+  },
+  {
+    "id": "pm_orange",
+    "provider": "orange",
+    "account_name": "KINIMMO SARL - Orange Money Kinshasa",
+    "account_number": "+243 890 000 000",
+    "merchant_code": "345678",
+    "instructions": "Paiement direct via Orange Money Kinshasa.",
+    "is_active": true
+  },
+  {
+    "id": "pm_rawbank",
+    "provider": "bank_transfer",
+    "account_name": "KINIMMO RDC - Rawbank Kinshasa Gombe",
+    "account_number": "01002-00012345678-90",
+    "merchant_code": null,
+    "instructions": "Virement bancaire ou versement au guichet Rawbank. Joindre le bordereau de versement comme preuve.",
+    "is_active": true
+  },
+  {
+    "id": "pm_equity",
+    "provider": "bank_transfer",
+    "account_name": "KINIMMO RDC - Equity BCDC Kinshasa",
+    "account_number": "00014-00987654321-12",
+    "merchant_code": null,
+    "instructions": "Virement bancaire ou versement au guichet Equity BCDC.",
+    "is_active": true
+  }
+]

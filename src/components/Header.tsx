@@ -25,6 +25,9 @@ import {
   Briefcase,
   Phone,
   Film,
+  BookOpen,
+  HelpCircle,
+  Compass,
 } from 'lucide-react';
 import { CurrencyCode, LanguageCode } from '../types';
 
@@ -32,9 +35,10 @@ interface HeaderProps {
   currentTab: string;
   setCurrentTab: (tab: string) => void;
   onOpenAssistant?: () => void;
+  onNavigatePath?: (path: string) => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => {
+export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onNavigatePath }) => {
   const {
     language,
     setLanguage,
@@ -210,6 +214,20 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
             >
               <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
               <span>Conciergerie</span>
+            </button>
+            <button
+              onClick={() => {
+                if (onNavigatePath) onNavigatePath('/blog');
+                else setCurrentTab('blog');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentTab === 'blog'
+                  ? 'bg-emerald-50 text-emerald-800 font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              Guides
             </button>
             <button
               onClick={() => {
@@ -637,6 +655,54 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab }) => 
                   >
                     <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>Conciergerie Immobilière</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (onNavigatePath) onNavigatePath('/quartiers/gombe');
+                      else setCurrentTab('neighborhood');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
+                      currentTab === 'neighborhood'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <Compass className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Quartiers</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (onNavigatePath) onNavigatePath('/blog');
+                      else setCurrentTab('blog');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
+                      currentTab === 'blog'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Blog & Guides</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (onNavigatePath) onNavigatePath('/aide');
+                      else setCurrentTab('aide');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer col-span-2 ${
+                      currentTab === 'aide'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <HelpCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Centre d’aide & FAQ</span>
                   </button>
                 </div>
               </div>

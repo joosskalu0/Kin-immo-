@@ -13,6 +13,8 @@ import { VisibilityBoostModal } from '../Monetization/VisibilityBoostModal';
 import { TrustBadge } from '../Trust/TrustBadge';
 import { TrustVerificationModal } from '../Trust/TrustVerificationModal';
 import { AgentTrustSpace } from '../Trust/AgentTrustSpace';
+import { AccountBillingPortal } from './AccountBillingPortal';
+import { PaymentReminderBanner } from './PaymentReminderBanner';
 import {
   Building2,
   Plus,
@@ -233,6 +235,7 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
 
   return (
     <div className="space-y-6">
+      <PaymentReminderBanner onOpenBilling={() => setActiveSection('billing_subscription')} />
       {/* Navigation Sub-Tabs pour le tableau de bord Agent */}
       <div className="flex border-b border-slate-800 gap-1.5 overflow-x-auto text-xs font-semibold pb-1">
         {[
@@ -1118,58 +1121,10 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
       )}
 
       {/* ======================================================== */}
-      {/* 9. ABONNEMENT ET FACTURES */}
+      {/* 9. ABONNEMENT ET FACTURES (PORTAIL P2 REEL) */}
       {/* ======================================================== */}
       {activeSection === 'billing_subscription' && (
-        <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-6 shadow-xl">
-          <div>
-            <h3 className="text-lg font-black text-white">Abonnement & Historique des Paiements</h3>
-            <p className="text-xs text-slate-400">
-              Suivi de votre formule, quotas d'annonces et justificatifs de règlement Mobile Money.
-            </p>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
-                Formule Pro Active
-              </span>
-              <h4 className="text-base font-bold text-white mt-2">Formule Pro Courtier Indépendant</h4>
-              <p className="text-xs text-slate-400 mt-1">
-                Jusqu'à 25 annonces actives, 3 boosts inclus et contact WhatsApp direct certifié.
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-xl font-black text-emerald-400">29 $ / mois</span>
-              <span className="text-[11px] text-slate-400 block">(~{(29 * cdfExchangeRate).toLocaleString()} CDF)</span>
-            </div>
-          </div>
-
-          <div className="space-y-3 pt-2">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">Historique des factures</h4>
-            <div className="divide-y divide-slate-800">
-              {myInvoices.map((inv) => (
-                <div key={inv.id} className="py-3 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-bold text-white">{inv.invoiceNumber || (inv as any).invoice_number || inv.id}</span>
-                    <p className="text-[11px] text-slate-400">{inv.createdAt || (inv as any).created_at || 'Facture récente'}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-white">{inv.totalAmount || inv.amount || 0} USD</span>
-                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                      inv.status === 'paid' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
-                    }`}>
-                      {inv.status === 'paid' ? 'Payée' : 'En attente'}
-                    </span>
-                  </div>
-                </div>
-              ))}
-              {myInvoices.length === 0 && (
-                <p className="text-slate-400 text-xs py-4 text-center">Aucune facture émise pour le moment.</p>
-              )}
-            </div>
-          </div>
-        </div>
+        <AccountBillingPortal />
       )}
 
       {/* ======================================================== */}

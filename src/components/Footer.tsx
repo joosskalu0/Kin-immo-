@@ -1,14 +1,25 @@
 import React from 'react';
-import { Heart, ShieldCheck, Mail, Phone, MapPin, SlidersHorizontal, Sparkles, Building, Key, Award } from 'lucide-react';
+import { ShieldCheck, Mail, Phone, MapPin, BookOpen, HelpCircle, Compass } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
-export const Footer: React.FC = () => {
-  const { setIsFieldsBuilderOpen, contactSettings, setFilters } = useApp();
+interface FooterProps {
+  onNavigate?: (path: string) => void;
+}
+
+export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
+  const { contactSettings } = useApp();
 
   const officeAddress = contactSettings?.officeAddress || 'Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC';
   const supportPhone = contactSettings?.supportPhone || '+243 84 529 4616';
   const contactEmail = contactSettings?.contactEmail || 'joosskalu72@gmail.com';
   const cleanPhone = supportPhone.replace(/\s+/g, '');
+
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (onNavigate) {
+      e.preventDefault();
+      onNavigate(path);
+    }
+  };
 
   return (
     <footer className="bg-slate-950 border-t border-slate-800 text-slate-400 text-sm mt-16">
@@ -31,7 +42,7 @@ export const Footer: React.FC = () => {
             </div>
           </div>
           <p className="text-xs leading-relaxed text-slate-400">
-            La référence immobilière à Kinshasa et en République Démocratique du Congo. Recherche interactive sur carte, plateforme sécurisée en temps réel et vérification certifiée des titres fonciers.
+            La référence immobilière à Kinshasa et en République Démocratique du Congo. Recherche interactive sur carte, annonces vérifiées et accompagnement juridique.
           </p>
           <div className="flex items-center gap-2 pt-2 text-xs text-emerald-400 font-semibold">
             <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -39,34 +50,58 @@ export const Footer: React.FC = () => {
           </div>
         </div>
 
-        {/* Col 2: Quick Links */}
+        {/* Col 2: Quartiers & Ressources */}
         <div>
-          <h4 className="text-white font-semibold text-sm mb-4">Outils & Services Pro</h4>
+          <h4 className="text-white font-semibold text-sm mb-4">Quartiers, Guides & Aide</h4>
           <ul className="space-y-2.5 text-xs">
             <li>
-              <a href="#properties" className="hover:text-emerald-400 transition-colors flex items-center gap-1.5 text-left">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                Catalogue des Propriétés Vérifiées
+              <a
+                href="/quartiers/gombe"
+                onClick={(e) => handleLinkClick(e, '/quartiers/gombe')}
+                className="hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+              >
+                <Compass className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                Immobilier à Gombe
               </a>
             </li>
             <li>
-              <a href="#map" className="hover:text-emerald-400 transition-colors">
-                Recherche Cartographique par Commune
+              <a
+                href="/quartiers/ngaliema"
+                onClick={(e) => handleLinkClick(e, '/quartiers/ngaliema')}
+                className="hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+              >
+                <Compass className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                Immobilier à Ngaliema & Ma Campagne
               </a>
             </li>
             <li>
-              <a href="#compare" className="hover:text-emerald-400 transition-colors">
-                Comparateur de Biens Détaillé
+              <a
+                href="/quartiers/limete"
+                onClick={(e) => handleLinkClick(e, '/quartiers/limete')}
+                className="hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+              >
+                <Compass className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                Immobilier à Limete Résidentiel
               </a>
             </li>
             <li>
-              <a href="#agents" className="hover:text-emerald-400 transition-colors">
-                Annuaire des Agents & Agences Agréés
+              <a
+                href="/blog"
+                onClick={(e) => handleLinkClick(e, '/blog')}
+                className="hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                Blog & Guides Immobiliers RDC
               </a>
             </li>
             <li>
-              <a href="#pdf" className="hover:text-emerald-400 transition-colors">
-                Brochures & Fiches PDF Imprimables
+              <a
+                href="/aide"
+                onClick={(e) => handleLinkClick(e, '/aide')}
+                className="hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                Centre d’aide & FAQ
               </a>
             </li>
           </ul>
@@ -114,148 +149,35 @@ export const Footer: React.FC = () => {
         </div>
       </div>
 
-      {/* SEO KEYWORDS HUB - Mots-clés stratégiques pour le référencement naturel Kinshasa & RDC */}
-      <div className="border-t border-slate-900 bg-slate-950/60 py-8 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900 pb-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-white font-extrabold text-xs uppercase tracking-wider">
-                Index Immobilier Kinshasa & Recherches Populaires (RDC)
-              </h3>
-            </div>
-            <span className="text-[11px] text-slate-500">
-              Mots-clés certifiés pour le cadastre, la vente et la location à Kinshasa
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs text-slate-400">
-            {/* Colonne 1: Vente Kinshasa */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-slate-200">
-                <Building className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Vente Immobilière Kinshasa</span>
-              </div>
-              <ul className="space-y-1.5 text-[11px]">
-                {[
-                  { text: 'Maison à vendre Kinshasa Gombe', q: 'Gombe', s: 'for-sale' },
-                  { text: 'Villa avec piscine Ngaliema Macampagne', q: 'piscine Macampagne', s: 'for-sale' },
-                  { text: 'Appartement standing Boulevard 30 Juin', q: '30 Juin', s: 'for-sale' },
-                  { text: 'Duplex moderne Limete Résidentiel', q: 'Duplex Limete', s: 'for-sale' },
-                  { text: 'Vente villa Binza Pigeon & Météo', q: 'Binza', s: 'for-sale' },
-                  { text: 'Maison basse Bandalungwa & Kintambo', q: 'Bandalungwa', s: 'for-sale' },
-                ].map((item, i) => (
-                  <li key={i}>
-                    <button
-                      onClick={() => {
-                        setFilters((prev) => ({ ...prev, searchQuery: item.q, status: item.s as any }));
-                        const el = document.getElementById('properties');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
-                      }}
-                      className="hover:text-emerald-400 hover:underline text-left transition-colors"
-                    >
-                      {item.text}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Colonne 2: Location Kinshasa */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-slate-200">
-                <Key className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Location Immobilière Kinshasa</span>
-              </div>
-              <ul className="space-y-1.5 text-[11px]">
-                {[
-                  { text: 'Location appartement Kinshasa Gombe', q: 'appartement Gombe', s: 'for-rent' },
-                  { text: 'Appartement meublé court séjour Kinshasa', q: 'meublé', s: 'for-rent' },
-                  { text: 'Villa de luxe à louer Ngaliema', q: 'villa Ngaliema', s: 'for-rent' },
-                  { text: 'Bureaux et espaces pro Boulevard du 30 Juin', q: 'bureau 30 Juin', s: 'for-rent' },
-                  { text: 'Studio moderne à louer Kinshasa', q: 'studio', s: 'for-rent' },
-                  { text: 'Hangar et entrepôt commercial Limete', q: 'Limete', s: 'for-rent' },
-                ].map((item, i) => (
-                  <li key={i}>
-                    <button
-                      onClick={() => {
-                        setFilters((prev) => ({ ...prev, searchQuery: item.q, status: item.s as any }));
-                        const el = document.getElementById('properties');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
-                      }}
-                      className="hover:text-emerald-400 hover:underline text-left transition-colors"
-                    >
-                      {item.text}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Colonne 3: Terrains & Cadastre */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-slate-200">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Terrains & Sécurité Foncière RDC</span>
-              </div>
-              <ul className="space-y-1.5 text-[11px]">
-                {[
-                  { text: 'Terrain avec Certificat d\'Enregistrement', q: 'certificat' },
-                  { text: 'Parcelle titrée Mont-Ngafula', q: 'Mont-Ngafula', t: 'land' },
-                  { text: 'Concession foncière titrée Maluku & Nsele', q: 'concession' },
-                  { text: 'Achat terrain sécurisé cadastre RDC', q: 'cadastre' },
-                  { text: 'Vente terrain résidentiel Ma Campagne', q: 'Macampagne', t: 'land' },
-                  { text: 'Parcelle avec plan cadastral certifié', q: 'cadastre' },
-                ].map((item, i) => (
-                  <li key={i}>
-                    <button
-                      onClick={() => {
-                        setFilters((prev) => ({
-                          ...prev,
-                          searchQuery: item.q,
-                          type: (item.t as any) || prev.type,
-                        }));
-                        const el = document.getElementById('properties');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
-                      }}
-                      className="hover:text-emerald-400 hover:underline text-left transition-colors"
-                    >
-                      {item.text}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Colonne 4: Services & Confiance */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-slate-200">
-                <Award className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Services Agréés & Confiance</span>
-              </div>
-              <ul className="space-y-1.5 text-[11px]">
-                {[
-                  { text: 'Agences immobilières agréées Kinshasa' },
-                  { text: 'Courtiers et agents immobiliers certifiés' },
-                  { text: 'Conciergerie immobilière VIP Kinshasa' },
-                  { text: 'Estimation prix au m² à Kinshasa' },
-                  { text: 'Visites immersives vidéos 30s Kinimmo' },
-                  { text: 'Conseils investissement diaspora RDC' },
-                ].map((item, i) => (
-                  <li key={i} className="text-slate-400">
-                    {item.text}
-                  </li>
-                ))}
-              </ul>
-            </div>
+      <div className="border-t border-slate-900 bg-slate-950/80 py-4 px-4 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p>
+            © {new Date().getFullYear()} KIN IMMOBILIER — Plateforme Immobilière Officielle Kinshasa & RDC.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-4">
+            <a
+              href="/conditions-utilisation"
+              onClick={(e) => handleLinkClick(e, '/conditions-utilisation')}
+              className="hover:text-emerald-400 transition-colors"
+            >
+              Conditions d’utilisation
+            </a>
+            <a
+              href="/confidentialite"
+              onClick={(e) => handleLinkClick(e, '/confidentialite')}
+              className="hover:text-emerald-400 transition-colors"
+            >
+              Confidentialité
+            </a>
+            <a
+              href="/mentions-legales"
+              onClick={(e) => handleLinkClick(e, '/mentions-legales')}
+              className="hover:text-emerald-400 transition-colors"
+            >
+              Mentions légales
+            </a>
           </div>
         </div>
-      </div>
-
-      <div className="border-t border-slate-900 bg-slate-950/80 py-4 text-center text-xs text-slate-500">
-        <p className="flex items-center justify-center gap-1">
-          © {new Date().getFullYear()} KIN IMMOBILIER — Plateforme Immobilière Officielle Kinshasa & RDC. Tous droits réservés.
-        </p>
       </div>
     </footer>
   );

@@ -42,6 +42,7 @@ import { SAMPLE_REAL_ESTATE_VIDEOS, detectVideoType } from '../utils/videoHelper
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
 import { analyzePropertyForFraud } from '../utils/suspiciousListingDetector';
 import { getStoredToken } from '../services/mysqlApi';
+import { resolveAccountBillingSummary } from '../utils/billingHelpers';
 
 export const PropertyFormModal: React.FC = () => {
   const {
@@ -56,6 +57,11 @@ export const PropertyFormModal: React.FC = () => {
     user,
     properties,
     reports,
+    subscriptionPlans,
+    propertyVideos,
+    agents,
+    agencies,
+    agencyCollaborators,
   } = useApp();
 
   const [step, setStep] = useState(1);
@@ -232,11 +238,45 @@ export const PropertyFormModal: React.FC = () => {
     );
   }
 
+  const userAgency = user
+    ? agencies.find(
+        (a) =>
+          a.id === user.agencyId ||
+          (a.name && user.agencyName && a.name.toLowerCase() === user.agencyName.toLowerCase()) ||
+          (a.email && user.email && a.email.toLowerCase() === user.email.toLowerCase())
+      )
+    : undefined;
+  const collabCount = userAgency
+    ? Math.max(1, agencyCollaborators.filter((c) => c.agencyId === userAgency.id).length)
+    : undefined;
+  const billingSummary = resolveAccountBillingSummary({
+    user,
+    agency: userAgency,
+    plans: subscriptionPlans,
+    properties,
+    propertyVideos,
+    agents,
+    collaboratorsCount: collabCount,
+  });
+  const isAdminUser = user.role === 'admin';
+  const maxListingsCap = billingSummary.limits.maxListings;
+  const maxPhotosCap = billingSummary.limits.maxPhotos;
+  const maxVideosCap = billingSummary.limits.maxVideos;
+  const activeListingsUsed = billingSummary.usage.activeListings;
+  const videosUsed = billingSummary.usage.videosCount;
+  const isNewListingQuotaExceeded = !isAdminUser && !editingProperty && activeListingsUsed >= maxListingsCap;
+
   const handleAddImage = () => {
-    if (newImageUrl.trim()) {
-      setImageUrls((prev) => [...prev, newImageUrl.trim()]);
-      setNewImageUrl('');
+    if (!newImageUrl.trim()) return;
+    if (!isAdminUser && imageUrls.length >= maxPhotosCap) {
+      setSubmitError(
+        `Limite de photos atteinte (${maxPhotosCap} photos max par annonce avec votre formule ${billingSummary.plan.name}). Passez à une formule supérieure pour en ajouter davantage.`
+      );
+      return;
     }
+    setSubmitError(null);
+    setImageUrls((prev) => [...prev, newImageUrl.trim()]);
+    setNewImageUrl('');
   };
 
   const compressImageFile = (file: File): Promise<string> => {
@@ -298,9 +338,23 @@ export const PropertyFormModal: React.FC = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    if (!isAdminUser && imageUrls.length >= maxPhotosCap) {
+      setSubmitError(
+        `Limite atteinte : votre formule ${billingSummary.plan.name} autorise ${maxPhotosCap} photo(s) par annonce.`
+      );
+      e.target.value = '';
+      return;
+    }
+
     setIsCompressingImages(true);
     try {
-      const fileList = Array.from(files);
+      const remainingSlots = isAdminUser ? files.length : Math.max(0, maxPhotosCap - imageUrls.length);
+      const fileList = Array.from(files).slice(0, remainingSlots);
+      if (!isAdminUser && files.length > remainingSlots) {
+        setSubmitError(
+          `Seules ${remainingSlots} photo(s) ont été ajoutées pour respecter la limite de ${maxPhotosCap} photos de votre formule ${billingSummary.plan.name}.`
+        );
+      }
       const results = await Promise.all(fileList.map((f) => compressImageFile(f)));
       const valid = results.filter((url) => typeof url === 'string' && url.length > 0);
       setImageUrls((prev) => [...prev, ...valid]);
@@ -319,6 +373,17 @@ export const PropertyFormModal: React.FC = () => {
   const handleVideoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const isAddingNewVideo = !editingProperty?.videoUrl;
+    if (!isAdminUser && isAddingNewVideo && videosUsed >= maxVideosCap) {
+      setVideoUploadError(
+        maxVideosCap === 0
+          ? `Votre formule ${billingSummary.plan.name} n'inclut pas la publication vidéo. Passez à une formule supérieure dans Abonnement & Factures.`
+          : `Quota vidéo atteint (${videosUsed}/${maxVideosCap} vidéo(s) pour votre formule ${billingSummary.plan.name}).`
+      );
+      e.target.value = '';
+      return;
+    }
 
     // Check size limit: 100MB
     const maxSizeBytes = 100 * 1024 * 1024;
@@ -470,6 +535,34 @@ export const PropertyFormModal: React.FC = () => {
       return;
     }
 
+    // Enforce P2 Subscription Quotas for non-admin accounts
+    if (!isAdminUser) {
+      const willPublishSlot = !editingProperty || editingProperty.softHiddenByPlan || editingProperty.published === false;
+      if (willPublishSlot && activeListingsUsed >= maxListingsCap) {
+        setSubmitError(
+          `Quota d'annonces actives atteint (${activeListingsUsed}/${maxListingsCap}) pour votre formule ${billingSummary.plan.name}. Passez à une formule supérieure dans « Abonnement & Factures » ou archivez une annonce existante.`
+        );
+        return;
+      }
+      if (imageUrls.length > maxPhotosCap) {
+        setSubmitError(
+          `Votre formule ${billingSummary.plan.name} limite chaque annonce à ${maxPhotosCap} photo(s) (actuellement ${imageUrls.length}). Retirez l'excédent à l'étape 4.`
+        );
+        setStep(4);
+        return;
+      }
+      const isAttachingNewVideo = Boolean(videoUrl.trim()) && !editingProperty?.videoUrl;
+      if (isAttachingNewVideo && videosUsed >= maxVideosCap) {
+        setSubmitError(
+          maxVideosCap === 0
+            ? `Votre formule ${billingSummary.plan.name} n'autorise pas l'ajout de vidéo. Retirez le lien vidéo à l'étape 4 ou passez à une formule supérieure.`
+            : `Quota vidéo atteint (${videosUsed}/${maxVideosCap}) pour votre formule ${billingSummary.plan.name}.`
+        );
+        setStep(4);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     const propertyData: Property = {
@@ -603,6 +696,24 @@ export const PropertyFormModal: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Plan Quota Indicator */}
+        {!isAdminUser && (
+          <div className={`px-6 py-2.5 border-b text-[11px] flex flex-wrap items-center justify-between gap-2 font-mono tabular-nums ${
+            isNewListingQuotaExceeded
+              ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+              : 'bg-slate-900/80 border-slate-800 text-slate-300'
+          }`}>
+            <span className="font-sans font-bold text-white">
+              Formule : <span className="text-emerald-400">{billingSummary.plan.name}</span>
+            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <span>Annonces : <strong>{activeListingsUsed}/{maxListingsCap >= 500 ? '∞' : maxListingsCap}</strong></span>
+              <span>Photos/bien : <strong>{imageUrls.length}/{maxPhotosCap}</strong></span>
+              <span>Vidéos : <strong>{videosUsed}/{maxVideosCap}</strong></span>
+            </div>
+          </div>
+        )}
 
         {/* Submit Error Banner */}
         {submitError && (

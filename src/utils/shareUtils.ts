@@ -1,32 +1,127 @@
 import { Property } from '../types';
 
 /**
- * Builds a clean, canonical share URL for a property that works reliably across
- * WhatsApp, Facebook, Twitter, Telegram, SMS, Email, QR codes, and web browsers.
+ * Normalise une chaîne de caractères en slug URL propre (sans accents, minuscules, tirets)
  */
-export const buildPropertyShareUrl = (propertyId: string): string => {
-  if (typeof window === 'undefined') return '';
+export function slugifyText(value: string): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 72);
+}
+
+/**
+ * Génère un slug canonique déterministe et sans collision pour une annonce :
+ * ex: villa-contemporaine-piscine-gombe--prop-1
+ */
+export function getPropertySlug(
+  propertyOrMeta:
+    | Property
+    | { id: string; slug?: string; title?: string; commune?: string; city?: string }
+): string {
+  if (propertyOrMeta.slug && propertyOrMeta.slug.trim()) {
+    return propertyOrMeta.slug.trim();
+  }
+  const titlePart = slugifyText(propertyOrMeta.title || 'annonce-kinimmo');
+  const locPart = slugifyText(propertyOrMeta.commune || propertyOrMeta.city || 'kinshasa');
+  const rawId = String(propertyOrMeta.id || '').trim();
+  const base = [titlePart, locPart].filter(Boolean).join('-') || 'annonce';
+  return rawId ? `${base}--${rawId}` : base;
+}
+
+/**
+ * Extrait l'identifiant d'annonce depuis un slug ou résout l'annonce correspondante dans une liste
+ */
+export function extractPropertyIdFromSlug(slugOrId: string): string {
+  const clean = decodeURIComponent(String(slugOrId || '').trim());
+  if (!clean) return '';
+  const separatorIdx = clean.lastIndexOf('--');
+  if (separatorIdx !== -1 && separatorIdx + 2 < clean.length) {
+    return clean.slice(separatorIdx + 2);
+  }
+  return clean;
+}
+
+export function resolvePropertyBySlugOrId(
+  slugOrId: string,
+  properties: Property[]
+): Property | undefined {
+  const clean = decodeURIComponent(String(slugOrId || '').trim());
+  if (!clean) return undefined;
+
+  // 1. Correspondance directe par id ou slug explicite
+  const direct = properties.find((p) => p.id === clean || p.slug === clean);
+  if (direct) return direct;
+
+  // 2. Correspondance via le suffixe --id
+  const extractedId = extractPropertyIdFromSlug(clean);
+  if (extractedId && extractedId !== clean) {
+    const byExtracted = properties.find((p) => p.id === extractedId);
+    if (byExtracted) return byExtracted;
+  }
+
+  // 3. Correspondance par slug généré dynamiquement
+  return properties.find((p) => getPropertySlug(p) === clean);
+}
+
+type PropertyUrlInput =
+  | string
+  | Property
+  | { id: string; slug?: string; title?: string; commune?: string; city?: string };
+
+/**
+ * Construit le chemin relatif propre : /annonces/:slug
+ */
+export function buildPropertyPath(
+  propertyOrId: PropertyUrlInput,
+  propertiesList: Property[] = []
+): string {
+  const prop =
+    typeof propertyOrId === 'string'
+      ? propertiesList.find((p) => p.id === propertyOrId) || { id: propertyOrId }
+      : propertyOrId;
+  return `/annonces/${encodeURIComponent(getPropertySlug(prop))}`;
+}
+
+/**
+ * Construit l'URL canonique partageable et indexable : https://domaine/annonces/:slug
+ */
+export const buildPropertyShareUrl = (
+  propertyOrId: PropertyUrlInput,
+  propertiesList: Property[] = []
+): string => {
+  const path = buildPropertyPath(propertyOrId, propertiesList);
+  if (typeof window === 'undefined') return path;
   try {
-    const origin = window.location.origin;
-    const pathname = window.location.pathname;
-    const cleanPath = pathname.endsWith('/') ? pathname : `${pathname}/`;
-    return `${origin}${cleanPath}?property=${encodeURIComponent(propertyId)}`;
-  } catch (e) {
-    return `/?property=${encodeURIComponent(propertyId)}`;
+    return `${window.location.origin}${path}`;
+  } catch {
+    return path;
   }
 };
 
 /**
- * Robustly parses property ID from the current browser location.
- * Supports:
- * - Query params: ?property=id, ?prop=id, ?id=id, ?annonce=id, ?property_id=id
- * - Hash routing: #property=id, #/property/id, #prop_123
- * - Path pattern: /property/id, /annonce/id
+ * Analyse l'URL courante (/annonces/:slug, /annonce/:id, ?property=id, hash)
+ * et retourne l'identifiant (ou le slug) du bien ciblé.
  */
-export const parsePropertyIdFromUrl = (): string | null => {
+export const parsePropertyIdFromUrl = (propertiesList: Property[] = []): string | null => {
   if (typeof window === 'undefined') return null;
   try {
-    // 1. Search Query Parameters
+    // 1. Chemin canonique /annonces/:slug (prioritaire)
+    const pathname = window.location.pathname;
+    const slugPathMatch = pathname.match(/^\/(?:annonces|annonce|property|bien)\/([^/?#]+)/i);
+    if (slugPathMatch && slugPathMatch[1]) {
+      const token = decodeURIComponent(slugPathMatch[1].trim());
+      if (propertiesList.length > 0) {
+        const matched = resolvePropertyBySlugOrId(token, propertiesList);
+        if (matched) return matched.id;
+      }
+      return extractPropertyIdFromSlug(token);
+    }
+
+    // 2. Paramètres de requête historiques (?property=id, etc.)
     const searchParams = new URLSearchParams(window.location.search);
     const fromSearch =
       searchParams.get('property') ||
@@ -39,7 +134,7 @@ export const parsePropertyIdFromUrl = (): string | null => {
       return decodeURIComponent(fromSearch.trim());
     }
 
-    // 2. Hash Fragment
+    // 3. Fragment Hash historique
     const hash = window.location.hash;
     if (hash) {
       const cleanHash = hash.replace(/^#\/?/, '');
@@ -54,21 +149,14 @@ export const parsePropertyIdFromUrl = (): string | null => {
         return decodeURIComponent(fromHash.trim());
       }
 
-      const pathMatch = cleanHash.match(/(?:property|annonce|bien)\/([a-zA-Z0-9_-]+)/i);
-      if (pathMatch && pathMatch[1]) {
-        return decodeURIComponent(pathMatch[1]);
+      const hashPathMatch = cleanHash.match(/(?:annonces|property|annonce|bien)\/([^/?#]+)/i);
+      if (hashPathMatch && hashPathMatch[1]) {
+        return extractPropertyIdFromSlug(hashPathMatch[1]);
       }
 
       if (cleanHash.startsWith('prop_')) {
         return decodeURIComponent(cleanHash);
       }
-    }
-
-    // 3. Path Parameters (fallback)
-    const pathname = window.location.pathname;
-    const pathMatch = pathname.match(/\/(?:property|annonce|bien)\/([a-zA-Z0-9_-]+)/i);
-    if (pathMatch && pathMatch[1]) {
-      return decodeURIComponent(pathMatch[1]);
     }
   } catch (err) {
     console.error('Error parsing property ID from URL:', err);
@@ -77,57 +165,68 @@ export const parsePropertyIdFromUrl = (): string | null => {
 };
 
 /**
- * Synchronizes the browser address bar with the currently viewed property
- * without reloading the page, enabling back-button navigation and URL copying.
+ * Synchronise la barre d'adresse vers /annonces/:slug sans rechargement de page.
  */
 export const updateBrowserUrlForProperty = (
-  propertyId: string | null,
-  propertyTitle?: string
+  propertyOrId: Property | string | null,
+  propertyTitle?: string,
+  propertiesList: Property[] = []
 ): void => {
   if (typeof window === 'undefined') return;
   try {
-    const url = new URL(window.location.href);
+    if (propertyOrId) {
+      const propObj =
+        typeof propertyOrId === 'string'
+          ? propertiesList.find((p) => p.id === propertyOrId) || {
+              id: propertyOrId,
+              title: propertyTitle,
+            }
+          : propertyOrId;
 
-    if (propertyId) {
-      // Check if URL already has this property to avoid duplicate history states
-      const currentParam = url.searchParams.get('property');
-      if (currentParam === propertyId) {
+      const targetPath = buildPropertyPath(propObj, propertiesList);
+      const pageTitle =
+        (typeof propObj !== 'string' && propObj.title) || propertyTitle
+          ? `${(typeof propObj !== 'string' && propObj.title) || propertyTitle} | Kinimmo`
+          : 'Annonce Immobilière | Kinimmo';
+
+      if (window.location.pathname === targetPath && !window.location.search.includes('property=')) {
+        document.title = pageTitle;
         return;
       }
 
-      url.searchParams.set('property', propertyId);
-      url.searchParams.delete('prop');
-      url.searchParams.delete('id');
-      url.searchParams.delete('annonce');
-      url.searchParams.delete('property_id');
-
-      const pageTitle = propertyTitle
-        ? `${propertyTitle} | Kinshasa Immobilier`
-        : 'Annonce Immobilière | Kinshasa Immobilier';
-
-      window.history.pushState({ propertyId }, pageTitle, url.toString());
+      // Si on vient d'une ancienne URL ?property= ou d'un autre chemin, on passe proprement sur /annonces/:slug
+      const propId = typeof propObj === 'string' ? propObj : propObj.id;
+      if (window.location.search.includes('property=')) {
+        window.history.replaceState({ propertyId: propId }, pageTitle, targetPath);
+      } else {
+        window.history.pushState({ propertyId: propId }, pageTitle, targetPath);
+      }
       document.title = pageTitle;
     } else {
-      // If closing modal and URL contains property param
-      if (
+      const pathname = window.location.pathname;
+      const url = new URL(window.location.href);
+      const isListingPath = /^\/(?:annonces|annonce|property|bien)\//i.test(pathname);
+      const hasLegacyParam =
         url.searchParams.has('property') ||
         url.searchParams.has('prop') ||
         url.searchParams.has('id') ||
         url.searchParams.has('annonce') ||
-        url.searchParams.has('property_id')
-      ) {
+        url.searchParams.has('property_id');
+
+      if (isListingPath || hasLegacyParam) {
         url.searchParams.delete('property');
         url.searchParams.delete('prop');
         url.searchParams.delete('id');
         url.searchParams.delete('annonce');
         url.searchParams.delete('property_id');
-
+        if (isListingPath) {
+          url.pathname = '/';
+        }
         if (window.location.hash.includes('property') || window.location.hash.includes('prop_')) {
           url.hash = '';
         }
-
         const defaultTitle = 'Kinshasa Immobilier - Plateforme Immobilière & Gestion RDC';
-        window.history.replaceState({}, defaultTitle, url.toString());
+        window.history.replaceState({}, defaultTitle, url.pathname + url.search);
         document.title = defaultTitle;
       }
     }
@@ -137,20 +236,21 @@ export const updateBrowserUrlForProperty = (
 };
 
 /**
- * Formats standard professional pitch text for social sharing
+ * Formate le texte de partage standard Kinimmo
  */
 export const formatPropertyPitch = (
   property: Property,
   shareUrl: string,
   formattedPrice: string
 ): string => {
+  const isSale = property.status === 'for-sale' || property.category === 'sale';
   return (
-    `🏡 *${property.title.toUpperCase()}*\n` +
-    `📍 Localisation : ${property.commune || property.city} (${property.quartier || 'Kinshasa'})\n` +
-    `💰 Prix : ${formattedPrice}${property.period === 'month' ? '/mois' : ''}\n` +
-    `📐 Surface : ${property.area} m² | 🛏️ ${property.bedrooms} Chambres | 🚿 ${property.bathrooms} Salles de bain\n` +
-    `✨ Type : ${property.type.toUpperCase()} - ${property.category === 'sale' ? 'À VENDRE' : 'À LOUER'}\n` +
-    `\n🔗 Consulter la fiche complète & photos HD :\n${shareUrl}\n` +
-    `\n🏢 Publié via ImmoCraft RDC - Plateforme Immobilière`
+    `*${property.title.toUpperCase()}*\n` +
+    `Localisation : ${property.commune || property.city}${property.quartier ? ` (${property.quartier})` : ''}\n` +
+    `Prix : ${formattedPrice}${property.period === 'month' ? '/mois' : ''}\n` +
+    `Surface : ${property.area} m² | ${property.bedrooms} Chambres | ${property.bathrooms} Salles de bain\n` +
+    `Type : ${property.type.toUpperCase()} - ${isSale ? 'À VENDRE' : 'À LOUER'}\n` +
+    `\nConsulter la fiche complète & photos HD :\n${shareUrl}\n` +
+    `\nPublié sur Kinimmo RDC — Immobilier Kinshasa`
   );
 };

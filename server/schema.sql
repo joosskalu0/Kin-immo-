@@ -24,7 +24,11 @@ CREATE TABLE IF NOT EXISTS `users` (
   `kinshasa_badge_verified` BOOLEAN NOT NULL DEFAULT FALSE,
   `rccm_or_nif` VARCHAR(100) DEFAULT NULL,
   `plan_id` VARCHAR(50) NOT NULL DEFAULT 'starter',
+  `billing_cycle` ENUM('monthly', 'yearly', 'trial') NOT NULL DEFAULT 'monthly',
   `subscription_status` ENUM('Active', 'Expired') NOT NULL DEFAULT 'Active',
+  `subscription_expires_at` TIMESTAMP NULL DEFAULT NULL,
+  `trial_ends_at` TIMESTAMP NULL DEFAULT NULL,
+  `included_boosts_remaining` INT NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -52,7 +56,12 @@ CREATE TABLE IF NOT EXISTS `agencies` (
   `nif` VARCHAR(100) DEFAULT NULL,
   `description` TEXT DEFAULT NULL,
   `is_verified` BOOLEAN NOT NULL DEFAULT FALSE,
+  `plan_id` VARCHAR(50) NOT NULL DEFAULT 'agency',
+  `billing_cycle` ENUM('monthly', 'yearly', 'trial') NOT NULL DEFAULT 'monthly',
   `subscription_status` ENUM('Active', 'Expired') NOT NULL DEFAULT 'Active',
+  `subscription_expires_at` TIMESTAMP NULL DEFAULT NULL,
+  `trial_ends_at` TIMESTAMP NULL DEFAULT NULL,
+  `included_boosts_remaining` INT NOT NULL DEFAULT 0,
   `is_hidden` BOOLEAN NOT NULL DEFAULT FALSE,
   `owner_user_id` VARCHAR(64) DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -132,6 +141,8 @@ CREATE TABLE IF NOT EXISTS `properties` (
   `boost_expires_at` TIMESTAMP NULL DEFAULT NULL,
   `refresh_bump_at` TIMESTAMP NULL DEFAULT NULL,
   `published` BOOLEAN NOT NULL DEFAULT TRUE,
+  `soft_hidden_by_plan` BOOLEAN NOT NULL DEFAULT FALSE,
+  `soft_hidden_at` TIMESTAMP NULL DEFAULT NULL,
   `views_count` INT NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -211,12 +222,22 @@ CREATE TABLE IF NOT EXISTS `pricing_plans` (
   `name` VARCHAR(100) NOT NULL,
   `description` TEXT DEFAULT NULL,
   `category` ENUM('general', 'individual', 'agency', 'promoter') NOT NULL DEFAULT 'general',
+  `audience` ENUM('grand_public', 'agence', 'promoteur', 'entreprise') NOT NULL DEFAULT 'grand_public',
   `badge` VARCHAR(50) DEFAULT NULL,
   `price_usd` DECIMAL(10, 2) NOT NULL,
   `price_cdf` DECIMAL(15, 2) NOT NULL,
+  `price_yearly_usd` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  `price_yearly_cdf` DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
   `billing_period` ENUM('monthly', 'quarterly', 'yearly') NOT NULL DEFAULT 'monthly',
+  `trial_days` INT NOT NULL DEFAULT 0,
   `max_listings` INT NOT NULL DEFAULT 5,
   `max_featured_listings` INT NOT NULL DEFAULT 0,
+  `max_photos_per_listing` INT NOT NULL DEFAULT 8,
+  `max_videos` INT NOT NULL DEFAULT 1,
+  `included_boosts` INT NOT NULL DEFAULT 0,
+  `max_team_members` INT NOT NULL DEFAULT 1,
+  `features` JSON DEFAULT NULL,
+  `recommended` BOOLEAN NOT NULL DEFAULT FALSE,
   `has_verified_badge` BOOLEAN NOT NULL DEFAULT FALSE,
   `has_crm_leads` BOOLEAN NOT NULL DEFAULT FALSE,
   `has_priority_support` BOOLEAN NOT NULL DEFAULT FALSE,
@@ -224,7 +245,8 @@ CREATE TABLE IF NOT EXISTS `pricing_plans` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  INDEX `idx_plans_category` (`category`)
+  INDEX `idx_plans_category` (`category`),
+  INDEX `idx_plans_audience` (`audience`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------------------------------------
@@ -342,8 +364,20 @@ CREATE TABLE IF NOT EXISTS `invoices` (
   `transaction_reference` VARCHAR(100) DEFAULT NULL,
   `gateway_transaction_id` VARCHAR(100) DEFAULT NULL,
   `gateway_metadata` JSON DEFAULT NULL,
-  `status` ENUM('pending', 'paid', 'failed', 'refunded') NOT NULL DEFAULT 'pending',
-  `proof_image_url` TEXT DEFAULT NULL,
+  `billing_cycle` ENUM('monthly', 'yearly', 'trial', 'one_time') NOT NULL DEFAULT 'monthly',
+  `is_trial` BOOLEAN NOT NULL DEFAULT FALSE,
+  `status` ENUM('pending', 'awaiting_validation', 'paid', 'rejected', 'failed', 'refunded') NOT NULL DEFAULT 'pending',
+  `proof_image_url` LONGTEXT DEFAULT NULL,
+  `payment_submitted_at` TIMESTAMP NULL DEFAULT NULL,
+  `rejection_reason` TEXT DEFAULT NULL,
+  `refund_note` TEXT DEFAULT NULL,
+  `refunded_at` TIMESTAMP NULL DEFAULT NULL,
+  `refund_action` ENUM('revoke', 'keep') DEFAULT NULL,
+  `receipt_number` VARCHAR(64) DEFAULT NULL,
+  `period_start` DATE DEFAULT NULL,
+  `period_end` DATE DEFAULT NULL,
+  `validated_at` TIMESTAMP NULL DEFAULT NULL,
+  `validated_by` VARCHAR(64) DEFAULT NULL,
   `due_date` DATE NOT NULL,
   `paid_at` TIMESTAMP NULL DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -421,13 +455,25 @@ ON DUPLICATE KEY UPDATE `label_fr` = VALUES(`label_fr`);
 -- ----------------------------------------------------------
 -- DONNÉES PAR DÉFAUT : Formules de Tarification Immobilières Kinshasa
 -- ----------------------------------------------------------
-INSERT INTO `pricing_plans` (`id`, `name`, `description`, `category`, `badge`, `price_usd`, `price_cdf`, `billing_period`, `max_listings`, `max_featured_listings`, `has_verified_badge`, `has_crm_leads`, `has_priority_support`, `is_active`)
+INSERT INTO `pricing_plans` (`id`, `name`, `description`, `category`, `audience`, `badge`, `price_usd`, `price_cdf`, `price_yearly_usd`, `price_yearly_cdf`, `billing_period`, `trial_days`, `max_listings`, `max_featured_listings`, `max_photos_per_listing`, `max_videos`, `included_boosts`, `max_team_members`, `recommended`, `has_verified_badge`, `has_crm_leads`, `has_priority_support`, `is_active`)
 VALUES
-  ('starter', 'Annonce Gratuite Particulier', 'Idéal pour les propriétaires souhaitant publier leurs biens sans aucun frais ni engagement.', 'individual', 'Gratuit', 0.00, 0.00, 'monthly', 3, 0, FALSE, FALSE, FALSE, TRUE),
-  ('pro', 'Pro Courtier Indépendant', 'Pour courtiers indépendants actifs à Kinshasa avec badge vérifié et gestion prioritaire des leads.', 'individual', 'Courtier Pro', 29.00, 81200.00, 'monthly', 25, 3, TRUE, TRUE, FALSE, TRUE),
-  ('agency', 'Agence Immobilière Partenaire', 'Visibilité maximale pour agences immobilières avec agents illimités, CRM et vitrine dédiée.', 'agency', 'Agence Certifiée', 79.00, 221200.00, 'monthly', 100, 10, TRUE, TRUE, TRUE, TRUE),
-  ('enterprise', 'Promoteur Immobilier & Constructeur VIP', 'Pour promoteurs fonciers, lotissements et grands chantiers avec bannières sponsorisées et multi-diffusion.', 'promoter', 'Promoteur VIP', 149.00, 417200.00, 'monthly', 500, 30, TRUE, TRUE, TRUE, TRUE)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `category` = VALUES(`category`), `badge` = VALUES(`badge`);
+  ('starter', 'Annonce Gratuite Particulier', 'Idéal pour les propriétaires souhaitant publier leurs biens sans aucun frais ni engagement.', 'individual', 'grand_public', 'Gratuit', 0.00, 0.00, 0.00, 0.00, 'monthly', 0, 3, 0, 6, 1, 0, 1, FALSE, FALSE, FALSE, FALSE, TRUE),
+  ('pro', 'Pro Courtier Indépendant', 'Pour courtiers indépendants actifs à Kinshasa avec badge vérifié et gestion prioritaire des leads.', 'individual', 'grand_public', 'Courtier Pro', 29.00, 82650.00, 290.00, 826500.00, 'monthly', 14, 25, 3, 15, 5, 3, 1, TRUE, TRUE, TRUE, FALSE, TRUE),
+  ('agency', 'Agence Immobilière Partenaire', 'Visibilité maximale pour agences immobilières avec équipe multi-agents, CRM et vitrine dédiée.', 'agency', 'agence', 'Agence Certifiée', 79.00, 225150.00, 790.00, 2251500.00, 'monthly', 14, 100, 10, 25, 20, 10, 10, TRUE, TRUE, TRUE, TRUE, TRUE),
+  ('promoter_vip', 'Promoteur Immobilier VIP (Brouillon)', 'Audience Promoteur réservée aux programmes neufs et lotissements fonciers (lancement ultérieur).', 'promoter', 'promoteur', 'Promoteur VIP', 149.00, 424650.00, 1490.00, 4246500.00, 'monthly', 7, 500, 30, 35, 50, 20, 25, FALSE, TRUE, TRUE, TRUE, FALSE),
+  ('enterprise', 'Entreprise & Groupe Foncier (Brouillon)', 'Audience Entreprise sur mesure pour groupes immobiliers et grands comptes institutionnels.', 'promoter', 'entreprise', 'Entreprise', 299.00, 852150.00, 2990.00, 8521500.00, 'monthly', 7, 1000, 60, 50, 100, 40, 50, FALSE, TRUE, TRUE, TRUE, FALSE)
+ON DUPLICATE KEY UPDATE
+  `name` = VALUES(`name`),
+  `category` = VALUES(`category`),
+  `audience` = VALUES(`audience`),
+  `badge` = VALUES(`badge`),
+  `price_yearly_usd` = VALUES(`price_yearly_usd`),
+  `price_yearly_cdf` = VALUES(`price_yearly_cdf`),
+  `trial_days` = VALUES(`trial_days`),
+  `max_photos_per_listing` = VALUES(`max_photos_per_listing`),
+  `max_videos` = VALUES(`max_videos`),
+  `included_boosts` = VALUES(`included_boosts`),
+  `max_team_members` = VALUES(`max_team_members`);
 
 -- ----------------------------------------------------------
 -- DONNÉES PAR DÉFAUT : Options de Visibilité à la carte (Boosts)
@@ -1040,3 +1086,83 @@ CREATE TABLE IF NOT EXISTS `trust_notifications` (
 -- Réactivation des vérifications de clés étrangères
 SET FOREIGN_KEY_CHECKS = 1;
 
+-- ==========================================================
+-- MIGRATIONS IDEMPOTENTES P2 (Hostinger / Bases existantes)
+-- ==========================================================
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `billing_cycle` ENUM('monthly', 'yearly', 'trial') NOT NULL DEFAULT 'monthly';
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `subscription_expires_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `trial_ends_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `included_boosts_remaining` INT NOT NULL DEFAULT 0;
+
+ALTER TABLE `agencies` ADD COLUMN IF NOT EXISTS `plan_id` VARCHAR(50) NOT NULL DEFAULT 'agency';
+ALTER TABLE `agencies` ADD COLUMN IF NOT EXISTS `billing_cycle` ENUM('monthly', 'yearly', 'trial') NOT NULL DEFAULT 'monthly';
+ALTER TABLE `agencies` ADD COLUMN IF NOT EXISTS `subscription_expires_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `agencies` ADD COLUMN IF NOT EXISTS `trial_ends_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `agencies` ADD COLUMN IF NOT EXISTS `included_boosts_remaining` INT NOT NULL DEFAULT 0;
+
+ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `soft_hidden_by_plan` BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `soft_hidden_at` TIMESTAMP NULL DEFAULT NULL;
+
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `audience` ENUM('grand_public', 'agence', 'promoteur', 'entreprise') NOT NULL DEFAULT 'grand_public';
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `price_yearly_usd` DECIMAL(10, 2) NOT NULL DEFAULT 0.00;
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `price_yearly_cdf` DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `trial_days` INT NOT NULL DEFAULT 0;
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `max_photos_per_listing` INT NOT NULL DEFAULT 8;
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `max_videos` INT NOT NULL DEFAULT 1;
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `included_boosts` INT NOT NULL DEFAULT 0;
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `max_team_members` INT NOT NULL DEFAULT 1;
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `features` JSON DEFAULT NULL;
+ALTER TABLE `pricing_plans` ADD COLUMN IF NOT EXISTS `recommended` BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE `invoices` MODIFY COLUMN `status` ENUM('pending', 'awaiting_validation', 'paid', 'rejected', 'failed', 'refunded') NOT NULL DEFAULT 'pending';
+ALTER TABLE `invoices` MODIFY COLUMN `proof_image_url` LONGTEXT DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `billing_cycle` ENUM('monthly', 'yearly', 'trial', 'one_time') NOT NULL DEFAULT 'monthly';
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `is_trial` BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `payment_submitted_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `rejection_reason` TEXT DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `refund_note` TEXT DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `refunded_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `refund_action` ENUM('revoke', 'keep') DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `receipt_number` VARCHAR(64) DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `period_start` DATE DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `period_end` DATE DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `validated_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `validated_by` VARCHAR(64) DEFAULT NULL;
+
+-- ==========================================================
+-- TABLES CONTENUS P1 : BLOG / GUIDES & PAGES LÉGALES (CMS)
+-- ==========================================================
+CREATE TABLE IF NOT EXISTS `blog_articles` (
+  `id` VARCHAR(64) NOT NULL,
+  `slug` VARCHAR(220) NOT NULL UNIQUE,
+  `title` VARCHAR(255) NOT NULL,
+  `excerpt` TEXT NOT NULL,
+  `content` LONGTEXT NOT NULL,
+  `category` ENUM('guide_achat', 'guide_location', 'juridique_foncier', 'quartiers_marche', 'conseils_pro') NOT NULL DEFAULT 'guide_achat',
+  `cover_image` TEXT DEFAULT NULL,
+  `author_name` VARCHAR(120) NOT NULL,
+  `author_role` VARCHAR(120) DEFAULT NULL,
+  `read_time_minutes` INT NOT NULL DEFAULT 5,
+  `status` ENUM('published', 'draft') NOT NULL DEFAULT 'published',
+  `featured` BOOLEAN NOT NULL DEFAULT FALSE,
+  `tags` JSON DEFAULT NULL,
+  `related_commune` VARCHAR(100) DEFAULT NULL,
+  `published_at` DATE NOT NULL,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_blog_status` (`status`),
+  INDEX `idx_blog_category` (`category`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `legal_documents` (
+  `slug` VARCHAR(80) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `subtitle` TEXT DEFAULT NULL,
+  `needs_legal_review` BOOLEAN NOT NULL DEFAULT TRUE,
+  `legal_review_notice` TEXT DEFAULT NULL,
+  `effective_date` DATE NOT NULL,
+  `company_meta` JSON DEFAULT NULL,
+  `sections` JSON NOT NULL,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`slug`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

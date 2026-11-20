@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Invoice, InvoiceItem, Agent, Agency, User } from '../../types';
+import { Invoice, InvoiceItem, PaymentMethodConfig, User } from '../../types';
 import { AdminPlansPricingManager } from './AdminPlansPricingManager';
+import {
+  buildEmailReminderMailto,
+  buildWhatsAppReminderUrl,
+  formatInvoiceStatusInfo,
+  matchesAccountOwner
+} from '../../utils/billingHelpers';
+import { generatePaymentReceiptPDF } from '../../utils/pdfGenerator';
 import {
   Receipt,
   CreditCard,
   Plus,
   Search,
-  Send,
   CheckCircle2,
   Clock,
   AlertTriangle,
@@ -16,23 +22,23 @@ import {
   Users,
   Printer,
   Download,
-  Phone,
   MessageSquare,
   Filter,
   Trash2,
   ShieldCheck,
-  Sparkles,
-  ArrowUpRight,
-  FileText,
   Check,
   X,
   Eye,
-  Calendar,
-  Zap,
-  Globe,
   Edit3,
   Gift,
-  Coins
+  Coins,
+  RotateCcw,
+  Ban,
+  Mail,
+  RefreshCw,
+  EyeOff,
+  Loader2,
+  Save
 } from 'lucide-react';
 
 export const AdminBillingManager: React.FC = () => {
@@ -40,13 +46,22 @@ export const AdminBillingManager: React.FC = () => {
     invoices,
     addInvoice,
     updateInvoice,
-    updateInvoiceStatus,
     deleteInvoice,
     deleteUser,
     deleteAgent,
     deleteAgency,
     updateAgencySubscriptionStatus,
     updateUserSubscriptionStatus,
+    approveManualInvoice,
+    rejectManualInvoice,
+    refundManualInvoice,
+    runSubscriptionExpirationAudit,
+    paymentMethods,
+    savePaymentMethod,
+    deletePaymentMethod,
+    subscriptionPlans,
+    properties,
+    cdfExchangeRate,
     requestConfirm,
     agents,
     agencies,
@@ -55,16 +70,27 @@ export const AdminBillingManager: React.FC = () => {
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'invoices' | 'subscriptions' | 'plans_pricing' | 'settings'>('invoices');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'pending' | 'overdue'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'awaiting_validation' | 'pending' | 'paid' | 'rejected' | 'refunded' | 'overdue'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Modals state
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = useState(false);
   const [selectedInvoiceModal, setSelectedInvoiceModal] = useState<Invoice | null>(null);
   const [markPaidModalInvoice, setMarkPaidModalInvoice] = useState<Invoice | null>(null);
+  const [reviewProofInvoice, setReviewProofInvoice] = useState<Invoice | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [refundModalInvoice, setRefundModalInvoice] = useState<Invoice | null>(null);
+  const [refundNoteInput, setRefundNoteInput] = useState('');
+  const [refundActionSelect, setRefundActionSelect] = useState<'revoke' | 'keep'>('revoke');
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
+
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [paymentRefInput, setPaymentRefInput] = useState('');
-  const [paymentMethodSelect, setPaymentMethodSelect] = useState<Invoice['paymentMethod']>('orange_money');
+  const [paymentMethodSelect, setPaymentMethodSelect] = useState<string>(() => paymentMethods[0]?.id || 'pm_mpesa');
+
+  // Mobile Money Operators CRUD state
+  const [editingPm, setEditingPm] = useState<Partial<PaymentMethodConfig> | null>(null);
 
   // New Invoice Form State
   const [targetType, setTargetType] = useState<'agency' | 'agent' | 'custom'>('agency');
@@ -77,18 +103,23 @@ export const AdminBillingManager: React.FC = () => {
   const [currency, setCurrency] = useState<'USD' | 'CDF'>('USD');
   const [dueDate, setDueDate] = useState<string>(() => {
     const d = new Date();
-    d.setDate(d.getDate() + 14); // default 14 days
+    d.setDate(d.getDate() + 14);
     return d.toISOString().split('T')[0];
   });
   const [items, setItems] = useState<InvoiceItem[]>([
     {
       id: 'item_1',
-      description: 'Abonnement Mensuel Pack Agence Immobilière Elite (150 annonces)',
-      amount: 99,
+      description: 'Abonnement Mensuel Pack Agence Partenaire',
+      amount: 79,
       quantity: 1
     }
   ]);
-  const [notes, setNotes] = useState('Paiement par Orange Money RDC : +243 84 529 4616 (Titulaire : IMMOCRAFT / KIN IMMOBILIER SARL)');
+  const [notes, setNotes] = useState('Règlement via Mobile Money Kinimmo (M-Pesa, Airtel Money ou Orange Money). Indiquez la référence de transaction dans votre espace pro.');
+
+  const notifyAdmin = (type: 'success' | 'error', text: string) => {
+    setActionFeedback({ type, text });
+    setTimeout(() => setActionFeedback(null), 5000);
+  };
 
   // Registered Users state (Nouveaux venus & membres inscrits)
   const registeredUsers = React.useMemo(() => {
@@ -317,30 +348,108 @@ export const AdminBillingManager: React.FC = () => {
     alert(`Facture ${invNum} créée avec succès pour ${customName} !`);
   };
 
-  const handleConfirmPayment = (e: React.FormEvent) => {
+  const handleConfirmPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!markPaidModalInvoice) return;
+    setIsProcessingAction(true);
+    try {
+      const selectedPm = paymentMethods.find((m) => m.id === paymentMethodSelect || m.provider === paymentMethodSelect);
+      updateInvoice({
+        ...markPaidModalInvoice,
+        paymentMethodId: selectedPm?.id,
+        paymentMethodProvider: selectedPm?.account_name || 'Validation Admin',
+        transactionReference: paymentRefInput || markPaidModalInvoice.transactionReference || 'Direct Admin'
+      });
+      const res = await approveManualInvoice(markPaidModalInvoice.id);
+      setMarkPaidModalInvoice(null);
+      setPaymentRefInput('');
+      notifyAdmin(res.success ? 'success' : 'error', res.message || `Facture ${markPaidModalInvoice.invoiceNumber} validée.`);
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
 
-    const note = `Paiement enregistré le ${new Date().toLocaleDateString('fr-FR')} via ${paymentMethodSelect?.toUpperCase()} Ref: ${paymentRefInput || 'Direct Admin'}`;
-    updateInvoiceStatus(markPaidModalInvoice.id, 'paid', paymentMethodSelect, note);
-    setMarkPaidModalInvoice(null);
-    setPaymentRefInput('');
-    alert(`Paiement de la facture ${markPaidModalInvoice.invoiceNumber} validé avec succès !`);
+  const handleApproveProof = async () => {
+    if (!reviewProofInvoice) return;
+    setIsProcessingAction(true);
+    try {
+      const res = await approveManualInvoice(reviewProofInvoice.id);
+      setReviewProofInvoice(null);
+      setRejectReasonInput('');
+      notifyAdmin(res.success ? 'success' : 'error', res.message || 'Paiement validé et plan/boost activé.');
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
+  const handleRejectProof = async () => {
+    if (!reviewProofInvoice) return;
+    const reason = rejectReasonInput.trim() || 'Référence de transaction introuvable ou montant non reçu.';
+    setIsProcessingAction(true);
+    try {
+      const res = await rejectManualInvoice(reviewProofInvoice.id, reason);
+      setReviewProofInvoice(null);
+      setRejectReasonInput('');
+      notifyAdmin(res.success ? 'success' : 'error', res.message || 'Preuve refusée.');
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
+  const handleConfirmRefund = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!refundModalInvoice) return;
+    const note = refundNoteInput.trim() || 'Remboursement manuel validé par l’administration';
+    setIsProcessingAction(true);
+    try {
+      const res = await refundManualInvoice(refundModalInvoice.id, note, refundActionSelect);
+      setRefundModalInvoice(null);
+      setRefundNoteInput('');
+      notifyAdmin(res.success ? 'success' : 'error', res.message || 'Remboursement enregistré.');
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
+  const handleSaveOperator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPm || !editingPm.account_name?.trim() || !editingPm.account_number?.trim()) return;
+    setIsProcessingAction(true);
+    try {
+      await savePaymentMethod({
+        ...editingPm,
+        id: editingPm.id || `pm_${Date.now()}`,
+        provider: editingPm.provider || 'mpesa',
+        is_active: editingPm.is_active !== false,
+        display_order: Number(editingPm.display_order || paymentMethods.length + 1)
+      });
+      setEditingPm(null);
+      notifyAdmin('success', 'Opérateur Mobile Money enregistré avec succès.');
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
+  const handleRunAudit = () => {
+    const res = runSubscriptionExpirationAudit();
+    notifyAdmin(
+      'success',
+      `Audit terminé : ${res.downgradedCount} rétrogradation(s) douce(s), ${res.hiddenListingsCount} annonce(s) excédentaire(s) masquée(s), ${res.expiringSoonCount} alerte(s) d'échéance.`
+    );
   };
 
   const handleSendWhatsAppReminder = (inv: Invoice) => {
-    const text = encodeURIComponent(
-      `Bonjour ${inv.targetName},\n\nVoici votre facture *${inv.invoiceNumber}* émise par *KIN IMMOBILIER RDC*:\n` +
-      `📌 Service: ${inv.items.map(i => i.description).join(', ')}\n` +
-      `💰 Montant Total: *${inv.totalAmount} ${inv.currency}*\n` +
-      `📅 Date d'échéance: ${new Date(inv.dueDate).toLocaleDateString('fr-FR')}\n\n` +
-      `Mode de paiement exclusif Orange Money RDC:\n` +
-      `📱 Orange Money: *+243 84 529 4616*\n` +
-      `👤 Titulaire: IMMOCRAFT / KIN IMMOBILIER SARL\n\n` +
-      `Veuillez nous envoyer la référence du transfert. Merci pour votre confiance !`
-    );
-    const phone = inv.targetPhone ? inv.targetPhone.replace(/[^0-9]/g, '') : '243845294616';
-    window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
+    const url = buildWhatsAppReminderUrl({
+      recipientName: inv.targetName,
+      recipientPhone: inv.targetPhone,
+      invoiceNumber: inv.invoiceNumber,
+      planName: inv.planName || inv.items?.[0]?.description,
+      amountUsd: inv.totalAmount,
+      amountCdf: inv.totalAmountCDF ?? Math.round(inv.totalAmount * cdfExchangeRate),
+      dueDate: inv.dueDate,
+      paymentMethods
+    });
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handlePrintInvoice = () => {
@@ -350,15 +459,16 @@ export const AdminBillingManager: React.FC = () => {
   // KPIs
   const totalRevenuePaid = invoices
     .filter(i => i.status === 'paid')
-    .reduce((sum, i) => sum + i.totalAmount, 0);
+    .reduce((sum, i) => sum + Number(i.totalAmount || 0), 0);
 
+  const awaitingValidationList = invoices.filter(i => i.status === 'awaiting_validation');
   const totalPending = invoices
-    .filter(i => i.status === 'pending')
-    .reduce((sum, i) => sum + i.totalAmount, 0);
+    .filter(i => i.status === 'pending' || i.status === 'awaiting_validation')
+    .reduce((sum, i) => sum + Number(i.totalAmount || 0), 0);
 
   const totalOverdue = invoices
     .filter(i => i.status === 'overdue')
-    .reduce((sum, i) => sum + i.totalAmount, 0);
+    .reduce((sum, i) => sum + Number(i.totalAmount || 0), 0);
 
   // Filtering
   const filteredInvoices = invoices.filter(inv => {
@@ -366,40 +476,57 @@ export const AdminBillingManager: React.FC = () => {
     const q = searchQuery.toLowerCase();
     const matchesQuery =
       !q ||
-      inv.invoiceNumber.toLowerCase().includes(q) ||
-      inv.targetName.toLowerCase().includes(q) ||
-      inv.targetEmail.toLowerCase().includes(q);
+      (inv.invoiceNumber || '').toLowerCase().includes(q) ||
+      (inv.targetName || '').toLowerCase().includes(q) ||
+      (inv.targetEmail || '').toLowerCase().includes(q) ||
+      (inv.transactionReference || '').toLowerCase().includes(q);
     return matchesStatus && matchesQuery;
   });
 
   return (
     <div className="space-y-6">
+      {actionFeedback && (
+        <div
+          className={`p-4 rounded-2xl border text-xs font-bold flex items-center justify-between gap-3 ${
+            actionFeedback.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+              : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {actionFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+            <span>{actionFeedback.text}</span>
+          </div>
+          <button type="button" onClick={() => setActionFeedback(null)} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Banner & Header */}
       <div className="p-6 bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl relative overflow-hidden shadow-2xl">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" /> Module Administrateur Kinshasa & RDC
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-3 py-1 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" /> Module Facturation & Paiements Manuels
               </span>
               <span className="text-xs text-slate-400 font-mono">
-                RCCM & TVA DGI Compliant
+                M-Pesa • Airtel Money • Orange Money • Reçus PDF
               </span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-3">
               <Receipt className="w-7 h-7 text-emerald-400" />
-              Facturation Agences & Agents Immobiliers
+              Facturation, Preuves Mobile Money & Remboursements
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
-              Émettez des factures d'abonnements mensuels (Pack Agent $35, Pack Agence $99), encaissez par Orange Money RDC (+243 84 529 4616) et relancez directement par WhatsApp.
+              Validez les références Mobile Money soumises, générez les reçus PDF, contrôlez les échéances (rétrogradation douce) et gérez vos numéros marchands.
             </p>
           </div>
 
           <button
             onClick={() => setIsNewInvoiceOpen(true)}
-            className="px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-xl shadow-emerald-500/20 flex items-center gap-2.5 shrink-0 hover:scale-105"
+            className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2.5 shrink-0"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
             Créer une Facture
@@ -410,10 +537,10 @@ export const AdminBillingManager: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-6 mt-6 border-t border-slate-800/80">
           <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">MRR / Recettes Encaissées</div>
-              <div className="text-2xl font-black text-emerald-400 mt-1">${totalRevenuePaid} <span className="text-xs text-slate-400">USD</span></div>
-              <div className="text-[10px] text-orange-400 font-bold flex items-center gap-1 mt-0.5">
-                <Sparkles className="w-3 h-3" /> Orange Money RDC
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Recettes Validées</div>
+              <div className="text-2xl font-black font-mono tabular-nums text-emerald-400 mt-1">${totalRevenuePaid.toLocaleString()}</div>
+              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                ~{Math.round(totalRevenuePaid * cdfExchangeRate).toLocaleString('fr-FR')} CDF
               </div>
             </div>
             <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
@@ -421,36 +548,49 @@ export const AdminBillingManager: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('invoices');
+              setStatusFilter('awaiting_validation');
+            }}
+            className={`text-left bg-slate-950/80 border rounded-2xl p-4 flex items-center justify-between transition-colors ${
+              awaitingValidationList.length > 0 ? 'border-blue-500/50 bg-blue-950/20' : 'border-slate-800'
+            }`}
+          >
             <div>
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Factures En Attente</div>
-              <div className="text-2xl font-black text-amber-400 mt-1">${totalPending} <span className="text-xs text-slate-400">USD</span></div>
-              <div className="text-[10px] text-amber-400 font-semibold mt-0.5">
-                {invoices.filter(i => i.status === 'pending').length} factures à encaisser
+              <div className="text-[11px] font-semibold text-blue-300 uppercase tracking-wider">Preuves à Valider</div>
+              <div className="text-2xl font-black font-mono tabular-nums text-blue-400 mt-1">
+                {awaitingValidationList.length}
+              </div>
+              <div className="text-[10px] text-blue-300/80 font-semibold mt-0.5">
+                {awaitingValidationList.length > 0 ? 'Contrôle référence requis' : 'Aucune preuve en attente'}
               </div>
             </div>
-            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center">
               <Clock className="w-5 h-5" />
             </div>
-          </div>
+          </button>
 
           <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Factures En Retard</div>
-              <div className="text-2xl font-black text-rose-400 mt-1">${totalOverdue} <span className="text-xs text-slate-400">USD</span></div>
-              <div className="text-[10px] text-rose-400 font-semibold mt-0.5">
-                Relance WhatsApp recommandée
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Encours & Échues</div>
+              <div className="text-2xl font-black font-mono tabular-nums text-amber-400 mt-1">${(totalPending + totalOverdue).toLocaleString()}</div>
+              <div className="text-[10px] text-amber-400 font-semibold mt-0.5">
+                {invoices.filter(i => i.status === 'pending' || i.status === 'overdue').length} facture(s) à recouvrer
               </div>
             </div>
-            <div className="w-11 h-11 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
               <AlertTriangle className="w-5 h-5" />
             </div>
           </div>
 
           <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Agences & Agents Actifs</div>
-              <div className="text-2xl font-black text-white mt-1">{agencies.length + agents.length} <span className="text-xs text-slate-400">Comptes</span></div>
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Opérateurs Actifs</div>
+              <div className="text-2xl font-black font-mono tabular-nums text-white mt-1">
+                {paymentMethods.filter((m) => m.is_active !== false).length}
+              </div>
               <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
                 {agencies.length} Agences • {agents.length} Agents
               </div>
@@ -510,7 +650,7 @@ export const AdminBillingManager: React.FC = () => {
             }`}
           >
             <CreditCard className="w-4 h-4" />
-            Coordonnées Orange Money
+            Opérateurs Mobile Money ({paymentMethods.length})
           </button>
         </div>
       </div>
@@ -518,33 +658,35 @@ export const AdminBillingManager: React.FC = () => {
       {/* TAB 1: INVOICES LIST & MANAGEMENT */}
       {activeTab === 'invoices' && (
         <div className="space-y-4">
-          {/* Filters Bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900 p-4 rounded-2xl border border-slate-800">
             <div className="relative w-full sm:w-80">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Rechercher facture, agence, agent..."
+                placeholder="Rechercher facture, client, réf. transaction..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto text-xs font-semibold">
-              <span className="text-slate-400 flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto text-xs font-semibold">
+              <span className="text-slate-400 flex items-center gap-1 mr-1">
                 <Filter className="w-3 h-3" /> Statut:
               </span>
               {[
                 { id: 'all', label: 'Toutes' },
+                { id: 'awaiting_validation', label: `À valider (${awaitingValidationList.length})` },
+                { id: 'pending', label: 'À régler' },
                 { id: 'paid', label: 'Payées' },
-                { id: 'pending', label: 'En Attente' },
-                { id: 'overdue', label: 'En Retard' }
+                { id: 'rejected', label: 'Refusées' },
+                { id: 'refunded', label: 'Remboursées' },
+                { id: 'overdue', label: 'Échues' }
               ].map(st => (
                 <button
                   key={st.id}
                   onClick={() => setStatusFilter(st.id as any)}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${
+                  className={`px-2.5 py-1.5 rounded-lg transition-all ${
                     statusFilter === st.id
                       ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold'
                       : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
@@ -556,17 +698,15 @@ export const AdminBillingManager: React.FC = () => {
             </div>
           </div>
 
-          {/* Invoices Table */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 font-bold uppercase tracking-wider">
-                    <th className="p-3.5">N° Facture</th>
-                    <th className="p-3.5">Client (Agence / Agent)</th>
-                    <th className="p-3.5">Pack / Prestation</th>
-                    <th className="p-3.5">Montant Total</th>
-                    <th className="p-3.5">Échéance</th>
+                    <th className="p-3.5">N° Facture / Reçu</th>
+                    <th className="p-3.5">Client</th>
+                    <th className="p-3.5">Objet & Preuve Mobile Money</th>
+                    <th className="p-3.5">Montant</th>
                     <th className="p-3.5">Statut</th>
                     <th className="p-3.5 text-right">Actions Admin</th>
                   </tr>
@@ -574,118 +714,200 @@ export const AdminBillingManager: React.FC = () => {
                 <tbody className="divide-y divide-slate-800/60 text-slate-300">
                   {filteredInvoices.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-500">
-                        Aucune facture ne correspond à la recherche.
+                      <td colSpan={6} className="p-8 text-center text-slate-500">
+                        Aucune facture ne correspond à ce filtre.
                       </td>
                     </tr>
                   ) : (
-                    filteredInvoices.map(inv => (
-                      <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="p-3.5 font-mono font-bold text-emerald-400 whitespace-nowrap">
-                          {inv.invoiceNumber}
-                        </td>
+                    filteredInvoices.map(inv => {
+                      const st = formatInvoiceStatusInfo(inv.status);
+                      const mailtoUrl = inv.targetEmail
+                        ? buildEmailReminderMailto({
+                            recipientName: inv.targetName,
+                            recipientEmail: inv.targetEmail,
+                            invoiceNumber: inv.invoiceNumber,
+                            planName: inv.planName || inv.items?.[0]?.description,
+                            amountUsd: inv.totalAmount,
+                            amountCdf: inv.totalAmountCDF ?? Math.round(inv.totalAmount * cdfExchangeRate),
+                            dueDate: inv.dueDate,
+                            paymentMethods
+                          })
+                        : '#';
 
-                        <td className="p-3.5">
-                          <div className="font-bold text-white text-sm">{inv.targetName}</div>
-                          <div className="text-[11px] text-slate-400">{inv.targetEmail} {inv.targetPhone && `• ${inv.targetPhone}`}</div>
-                          {inv.targetNifRccm && (
-                            <div className="text-[10px] text-slate-500 font-mono">RCCM: {inv.targetNifRccm}</div>
-                          )}
-                        </td>
-
-                        <td className="p-3.5">
-                          <span className="font-medium text-slate-200">
-                            {inv.items[0]?.description || 'Service Immobilier'}
-                          </span>
-                          {inv.items.length > 1 && (
-                            <span className="block text-[10px] text-slate-400">+{inv.items.length - 1} options supplémentaires</span>
-                          )}
-                        </td>
-
-                        <td className="p-3.5 font-black text-sm text-white whitespace-nowrap">
-                          {inv.totalAmount} {inv.currency}
-                        </td>
-
-                        <td className="p-3.5 whitespace-nowrap text-slate-400">
-                          {new Date(inv.dueDate).toLocaleDateString('fr-FR')}
-                        </td>
-
-                        <td className="p-3.5 whitespace-nowrap">
-                          {inv.status === 'paid' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold text-[11px]">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Payée
-                            </span>
-                          )}
-                          {inv.status === 'pending' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-bold text-[11px]">
-                              <Clock className="w-3.5 h-3.5" /> En Attente
-                            </span>
-                          )}
-                          {inv.status === 'overdue' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30 font-bold text-[11px]">
-                              <AlertTriangle className="w-3.5 h-3.5" /> En Retard
-                            </span>
-                          )}
-                          {inv.status === 'cancelled' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-bold text-[11px]">
-                              Annulée
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="p-3.5 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => setEditingInvoice(inv)}
-                              className="p-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center gap-1 transition-all"
-                              title="Modifier le montant ou les détails de la facture"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" /> Modifier Montant
-                            </button>
-
-                            <button
-                              onClick={() => setSelectedInvoiceModal(inv)}
-                              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-medium text-xs flex items-center gap-1 transition-all"
-                              title="Voir & Imprimer Facture Détaillée"
-                            >
-                              <Eye className="w-3.5 h-3.5" /> Facture
-                            </button>
-
-                            <button
-                              onClick={() => handleSendWhatsAppReminder(inv)}
-                              className="p-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1 transition-all"
-                              title="Envoyer Rappel WhatsApp"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" /> WhatsApp
-                            </button>
-
-                            {inv.status !== 'paid' && (
-                              <button
-                                onClick={() => setMarkPaidModalInvoice(inv)}
-                                className="p-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition-all shadow-md"
-                                title="Enregistrer le Paiement"
-                              >
-                                <Check className="w-3.5 h-3.5 stroke-[3]" /> Encasser
-                              </button>
+                      return (
+                        <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-3.5 whitespace-nowrap align-top">
+                            <div className="font-mono font-bold text-emerald-400">{inv.invoiceNumber}</div>
+                            {inv.receiptNumber && (
+                              <div className="text-[10px] font-mono text-slate-400 mt-0.5">Reçu: {inv.receiptNumber}</div>
                             )}
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              Échéance: {new Date(inv.dueDate).toLocaleDateString('fr-FR')}
+                            </div>
+                          </td>
 
-                            <button
-                              onClick={() => {
-                                requestConfirm({
-                                  title: "Suppression de la facture",
-                                  message: `Voulez-vous vraiment supprimer la facture ${inv.invoiceNumber} ?`,
-                                  onConfirm: () => deleteInvoice(inv.id)
-                                });
-                              }}
-                              className="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400 transition-all"
-                              title="Supprimer"
+                          <td className="p-3.5 align-top">
+                            <div className="font-bold text-white text-sm">{inv.targetName}</div>
+                            <div className="text-[11px] text-slate-400">{inv.targetEmail}</div>
+                            {inv.targetPhone && <div className="text-[10px] text-slate-500 font-mono">{inv.targetPhone}</div>}
+                          </td>
+
+                          <td className="p-3.5 align-top">
+                            <div className="font-medium text-slate-200">
+                              {inv.planName || inv.items?.[0]?.description || 'Service Kinimmo'}
+                            </div>
+                            {(inv.paymentMethodProvider || inv.transactionReference) && (
+                              <div className="mt-1 text-[11px] text-slate-400 font-mono">
+                                {inv.paymentMethodProvider || 'Mobile Money'}
+                                {inv.transactionReference ? ` • Réf: ${inv.transactionReference}` : ''}
+                              </div>
+                            )}
+                            {inv.rejectionReason && (
+                              <div className="text-[10px] text-rose-400 mt-0.5">Motif: {inv.rejectionReason}</div>
+                            )}
+                            {inv.status === 'refunded' && inv.refundNote && (
+                              <div className="text-[10px] text-purple-300 mt-0.5">
+                                Remboursement ({inv.refundAction === 'keep' ? 'Maintenu' : 'Révoqué'}): {inv.refundNote}
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="p-3.5 font-mono tabular-nums align-top whitespace-nowrap">
+                            <div className="font-black text-sm text-white">${inv.totalAmount} {inv.currency}</div>
+                            <div className="text-[10px] text-slate-400">
+                              ~{(inv.totalAmountCDF ?? Math.round(inv.totalAmount * cdfExchangeRate)).toLocaleString('fr-FR')} FC
+                            </div>
+                          </td>
+
+                          <td className="p-3.5 whitespace-nowrap align-top">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-md border font-bold text-[11px] ${
+                                st.tone === 'emerald'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                  : st.tone === 'blue'
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                                  : st.tone === 'amber'
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                  : st.tone === 'rose'
+                                  ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                  : 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                              }`}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                              {st.label}
+                            </span>
+                          </td>
+
+                          <td className="p-3.5 text-right whitespace-nowrap align-top">
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              {inv.status === 'awaiting_validation' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReviewProofInvoice(inv);
+                                    setRejectReasonInput('');
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-400 text-slate-950 font-black text-xs inline-flex items-center gap-1"
+                                >
+                                  <ShieldCheck className="w-3.5 h-3.5" /> Contrôler Preuve
+                                </button>
+                              )}
+
+                              {(inv.status === 'pending' || inv.status === 'overdue' || inv.status === 'rejected') && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMarkPaidModalInvoice(inv);
+                                    setPaymentMethodSelect(inv.paymentMethodId || paymentMethods[0]?.id || 'pm_mpesa');
+                                    setPaymentRefInput(inv.transactionReference || '');
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs inline-flex items-center gap-1"
+                                >
+                                  <Check className="w-3.5 h-3.5" /> Valider
+                                </button>
+                              )}
+
+                              {(inv.status === 'paid' || inv.status === 'refunded') && (
+                                <button
+                                  type="button"
+                                  onClick={() => generatePaymentReceiptPDF(inv, { cdfExchangeRate })}
+                                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-bold text-xs inline-flex items-center gap-1"
+                                  title="Télécharger le reçu PDF officiel"
+                                >
+                                  <Download className="w-3.5 h-3.5" /> Reçu PDF
+                                </button>
+                              )}
+
+                              {inv.status === 'paid' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRefundModalInvoice(inv);
+                                    setRefundNoteInput('');
+                                    setRefundActionSelect('revoke');
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 font-bold text-xs inline-flex items-center gap-1"
+                                  title="Effectuer un remboursement manuel avec note"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" /> Rembourser
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setSelectedInvoiceModal(inv)}
+                                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
+                                title="Aperçu Facture"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setEditingInvoice(inv)}
+                                className="p-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                title="Modifier montant"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleSendWhatsAppReminder(inv)}
+                                className="p-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30"
+                                title="Relancer WhatsApp"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              </button>
+
+                              {inv.targetEmail && (
+                                <a
+                                  href={mailtoUrl}
+                                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700"
+                                  title="Relancer par E-mail"
+                                >
+                                  <Mail className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  requestConfirm({
+                                    title: 'Suppression de la facture',
+                                    message: `Voulez-vous vraiment supprimer la facture ${inv.invoiceNumber} ?`,
+                                    onConfirm: () => deleteInvoice(inv.id)
+                                  });
+                                }}
+                                className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400"
+                                title="Supprimer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -697,111 +919,161 @@ export const AdminBillingManager: React.FC = () => {
       {/* TAB 2: SUBSCRIPTIONS & ACCOUNTS OVERVIEW */}
       {activeTab === 'subscriptions' && (
         <div className="space-y-6">
+          <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="text-xs space-y-0.5">
+              <p className="font-bold text-white flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-amber-400" />
+                Contrôle des Échéances & Rétrogradation Douce Automatique
+              </p>
+              <p className="text-slate-400">
+                Conserve les annonces les plus récentes dans le plafond du plan gratuit et masque l&apos;excédent sans jamais le supprimer.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRunAudit}
+              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shrink-0 flex items-center gap-2"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Contrôler échéances & Rétrograder</span>
+            </button>
+          </div>
+
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <Building2 className="w-5 h-5 text-emerald-400" />
-              Répertoire des Agences Immobilières à Kinshasa
+              Agences Immobilières ({agencies.length})
             </h3>
-            <p className="text-xs text-slate-400">
-              Gérez les abonnements mensuels des agences (Pack Elite $99/mois), ajustez les crédits d'annonces et émettez des factures récurrentes.
-            </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
               {agencies.map(ag => {
                 const isExpired = ag.subscriptionStatus === 'Expired';
+                const realPlan = subscriptionPlans.find((p) => p.id === (ag.planId || ag.subscriptionPlan || 'agency')) || subscriptionPlans[0];
+                const softHiddenCount = properties.filter(
+                  (p) => matchesAccountOwner(p, ag.id, ag.name) && Boolean(p.softHiddenByPlan)
+                ).length;
+
                 return (
-                  <div key={ag.id} className={`bg-slate-950 border rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all ${
-                    isExpired ? 'border-rose-500/40 ring-1 ring-rose-500/20' : 'border-slate-800'
-                  }`}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-4">
-                        <img src={ag.logo} alt={ag.name} className="w-14 h-14 rounded-2xl object-cover ring-2 ring-emerald-500/20 shrink-0" />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-white text-base">{ag.name}</h4>
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                  <div
+                    key={ag.id}
+                    className={`bg-slate-950 border rounded-2xl p-5 flex flex-col justify-between gap-4 ${
+                      isExpired ? 'border-rose-500/40' : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <img src={ag.logo} alt={ag.name} className="w-14 h-14 rounded-2xl object-cover ring-2 ring-emerald-500/20 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="font-bold text-white text-base truncate">{ag.name}</h4>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
                               isExpired
-                                ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+                                ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
                                 : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                            }`}>
-                              {isExpired ? '🔴 Expiré' : '🟢 Actif'}
+                            }`}
+                          >
+                            {isExpired ? 'Expiré (Rétrogradé)' : 'Actif'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-emerald-400 font-mono mt-0.5 truncate">{ag.email} • {ag.phone}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-bold">
+                            {realPlan?.name || 'Plan Agence'} (${realPlan?.priceMonthly ?? 79}/mois)
+                          </span>
+                          {softHiddenCount > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold inline-flex items-center gap-1">
+                              <EyeOff className="w-3 h-3" /> {softHiddenCount} annonce(s) masquée(s)
                             </span>
-                          </div>
-                          <p className="text-xs text-slate-400">📍 {ag.address}, Kinshasa</p>
-                          <p className="text-xs text-emerald-400 font-mono mt-0.5">{ag.email} • {ag.phone}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-bold">
-                              Pack Agence Elite ($99/mois)
-                            </span>
-                            <span className="text-[11px] text-slate-400 font-medium">{ag.agentsCount} agents rattachés</span>
-                          </div>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs gap-2">
                       <div>
-                        <span className="text-slate-400 font-medium">Statut Abonnement: </span>
-                        <span className={`font-bold ${isExpired ? 'text-rose-400' : 'text-emerald-400'}`}>
-                          {isExpired ? 'Paiement en retard / Compte Expiré' : 'Abonnement Actif'}
+                        <span className="text-slate-400">Échéance : </span>
+                        <span className="font-mono text-white font-semibold">
+                          {ag.subscriptionExpiresAt ? new Date(ag.subscriptionExpiresAt).toLocaleDateString('fr-FR') : 'Non définie'}
                         </span>
-                        {ag.subscriptionExpiresAt && (
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                            Échéance: {new Date(ag.subscriptionExpiresAt).toLocaleDateString('fr-FR')}
-                          </div>
-                        )}
                       </div>
 
                       <button
-                        onClick={() => {
-                          const nextStatus = isExpired ? 'Active' : 'Expired';
-                          updateAgencySubscriptionStatus(ag.id, nextStatus);
-                        }}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                        type="button"
+                        onClick={() => updateAgencySubscriptionStatus(ag.id, isExpired ? 'Active' : 'Expired')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
                           isExpired
-                            ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20'
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 border-emerald-400'
                             : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
                         }`}
                       >
-                        {isExpired ? 'Re-Activer (Paiement Reçu)' : 'Marquer comme Expiré'}
+                        {isExpired ? 'Réactiver' : 'Marquer Expiré'}
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between border-t border-slate-800/80 pt-3 text-xs">
-                      <span className="text-slate-400 font-medium flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Agence Vérifiée & Agréée RDC
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            requestConfirm({
-                              title: "Suppression de l'agence / concessionnaire",
-                              message: `Voulez-vous vraiment supprimer l'agence / concessionnaire "${ag.name}" ?`,
-                              onConfirm: () => deleteAgency(ag.id)
-                            });
-                          }}
-                          className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all shrink-0"
-                          title="Supprimer cette agence"
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800/80 pt-3 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href={buildWhatsAppReminderUrl({
+                            recipientName: ag.name,
+                            recipientPhone: ag.phone,
+                            planName: realPlan?.name,
+                            amountUsd: realPlan?.priceMonthly,
+                            dueDate: ag.subscriptionExpiresAt,
+                            paymentMethods
+                          })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                          <MessageSquare className="w-3.5 h-3.5" /> Relancer WA
+                        </a>
+                        {ag.email && (
+                          <a
+                            href={buildEmailReminderMailto({
+                              recipientName: ag.name,
+                              recipientEmail: ag.email,
+                              planName: realPlan?.name,
+                              amountUsd: realPlan?.priceMonthly,
+                              dueDate: ag.subscriptionExpiresAt,
+                              paymentMethods
+                            })}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 font-bold inline-flex items-center gap-1"
+                          >
+                            <Mail className="w-3.5 h-3.5" /> Mail
+                          </a>
+                        )}
+                      </div>
 
+                      <div className="flex items-center gap-1.5">
                         <button
+                          type="button"
                           onClick={() => handleGrantFreeMonth('agency', ag.id, ag.name, ag.email, ag.phone)}
-                          className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold flex items-center gap-1.5 transition-all text-xs"
-                          title="Offrir 1 mois d'abonnement gratuit"
+                          className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold flex items-center gap-1"
                         >
-                          <Gift className="w-3.5 h-3.5 text-amber-400" /> 1 Mois Gratuit ($0)
+                          <Gift className="w-3.5 h-3.5" /> 1 Mois Offert
                         </button>
-
                         <button
+                          type="button"
                           onClick={() => {
                             handleTargetChange('agency', ag.id);
                             setIsNewInvoiceOpen(true);
                           }}
-                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center gap-1.5 transition-all"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center gap-1"
                         >
-                          <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Facturer Agence
+                          <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Facturer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            requestConfirm({
+                              title: "Suppression de l'agence",
+                              message: `Voulez-vous vraiment supprimer l'agence "${ag.name}" ?`,
+                              onConfirm: () => deleteAgency(ag.id)
+                            });
+                          }}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -814,39 +1086,42 @@ export const AdminBillingManager: React.FC = () => {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <Users className="w-5 h-5 text-emerald-400" />
-              Répertoire des Agents Immobilier Indépendants & Membres Inscrits ({combinedAgentTargets.length})
+              Agents Indépendants & Comptes Inscrits ({combinedAgentTargets.length})
             </h3>
-            <p className="text-xs text-slate-400">
-              Abonnements individuels (Pack Agent Pro $35/mois ou Starter $20/mois). Émettez des factures directement pour les nouveaux venus et agents de démonstration.
-            </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
               {combinedAgentTargets.map((agt) => {
-                // Find agent or user matching status
                 const existingAgent = agents.find(a => a.id === agt.id || a.email === agt.email);
                 const isExpired = agt.subscriptionStatus === 'Expired' || existingAgent?.subscriptionStatus === 'Expired';
-                
+                const realPlan = subscriptionPlans.find((p) => p.id === (agt.planId || 'starter')) || subscriptionPlans[0];
+                const softHiddenCount = properties.filter(
+                  (p) => (matchesAccountOwner(p, agt.id) || (agt.email ? matchesAccountOwner(p, agt.email) : false)) && Boolean(p.softHiddenByPlan)
+                ).length;
+
                 return (
-                  <div key={agt.id} className={`bg-slate-950 border rounded-2xl p-4 space-y-3 relative overflow-hidden transition-all ${
-                    isExpired ? 'border-rose-500/40 ring-1 ring-rose-500/20' : 'border-slate-800'
-                  }`}>
+                  <div
+                    key={agt.id}
+                    className={`bg-slate-950 border rounded-2xl p-4 space-y-3 ${
+                      isExpired ? 'border-rose-500/40' : 'border-slate-800'
+                    }`}
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${
-                        isExpired
-                          ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
-                          : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                      }`}>
-                        {isExpired ? '🔴 Compte Expiré' : '🟢 Abonnement Actif'}
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                          isExpired
+                            ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                            : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                        }`}
+                      >
+                        {isExpired ? 'Expiré' : 'Actif'}
                       </span>
-                      {agt.isNew && (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 font-bold text-[9px] uppercase tracking-wider">
-                          🆕 Nouveau Membre
-                        </span>
-                      )}
+                      <span className="text-[10px] font-mono text-emerald-300 font-bold">
+                        {realPlan?.name || 'Gratuit'}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <img src={agt.avatar} alt={agt.name} className="w-12 h-12 rounded-xl object-cover ring-2 ring-emerald-500/20 shrink-0" />
+                      <img src={agt.avatar} alt={agt.name} className="w-11 h-11 rounded-xl object-cover shrink-0" />
                       <div className="overflow-hidden">
                         <h4 className="font-bold text-white text-sm truncate">{agt.name}</h4>
                         <p className="text-[11px] text-slate-400 truncate">{agt.agencyName}</p>
@@ -854,63 +1129,95 @@ export const AdminBillingManager: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between border-t border-slate-800 pt-2 text-[11px]">
-                      <span className="text-slate-400">📱 {agt.phone}</span>
-                      <span className="text-emerald-400 font-bold">{agt.planId === 'starter' ? '$20' : '$35'} / mois</span>
-                    </div>
+                    {softHiddenCount > 0 && (
+                      <div className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1 flex items-center gap-1">
+                        <EyeOff className="w-3 h-3 shrink-0" /> {softHiddenCount} annonce(s) masquée(s) sans suppression
+                      </div>
+                    )}
 
-                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-800/60">
                       <button
+                        type="button"
                         onClick={() => {
                           const nextStatus = isExpired ? 'Active' : 'Expired';
                           updateUserSubscriptionStatus(agt.id, nextStatus);
-                          if (agt.email) {
-                            updateUserSubscriptionStatus(agt.email, nextStatus);
-                          }
+                          if (agt.email) updateUserSubscriptionStatus(agt.email, nextStatus);
                         }}
-                        className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all ${
+                        className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
                           isExpired
-                            ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40'
-                            : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                         }`}
                       >
-                        {isExpired ? 'Activer Compte' : 'Marquer Expiré'}
+                        {isExpired ? 'Activer' : 'Expirer'}
                       </button>
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleGrantFreeMonth('agent', agt.id, agt.name, agt.email, agt.phone)}
-                          className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-bold flex items-center gap-1 transition-all"
-                          title="Offrir 1 mois d'abonnement gratuit à cet agent"
+                      <div className="flex items-center gap-1">
+                        <a
+                          href={buildWhatsAppReminderUrl({
+                            recipientName: agt.name,
+                            recipientPhone: agt.phone,
+                            planName: realPlan?.name,
+                            amountUsd: realPlan?.priceMonthly,
+                            paymentMethods
+                          })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-500/30"
+                          title="Relancer WhatsApp"
                         >
-                          <Gift className="w-3 h-3 text-amber-400" /> 1 Mois Gratuit
-                        </button>
-
+                          <MessageSquare className="w-3 h-3" />
+                        </a>
+                        {agt.email && (
+                          <a
+                            href={buildEmailReminderMailto({
+                              recipientName: agt.name,
+                              recipientEmail: agt.email,
+                              planName: realPlan?.name,
+                              amountUsd: realPlan?.priceMonthly,
+                              paymentMethods
+                            })}
+                            className="p-1.5 rounded-lg bg-slate-800 text-sky-300 border border-slate-700"
+                            title="Relancer par E-mail"
+                          >
+                            <Mail className="w-3 h-3" />
+                          </a>
+                        )}
                         <button
+                          type="button"
+                          onClick={() => handleGrantFreeMonth('agent', agt.id, agt.name, agt.email, agt.phone)}
+                          className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                          title="Offrir 1 mois gratuit"
+                        >
+                          <Gift className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => {
                             handleTargetChange('agent', agt.id);
                             setIsNewInvoiceOpen(true);
                           }}
-                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1 transition-all"
+                          className="p-1.5 rounded-lg bg-slate-800 text-emerald-400"
+                          title="Créer facture"
                         >
-                          <Receipt className="w-3 h-3 text-emerald-400" /> Facturer
+                          <Receipt className="w-3 h-3" />
                         </button>
-
                         <button
+                          type="button"
                           onClick={() => {
                             requestConfirm({
-                              title: "Suppression du membre / agent",
-                              message: `Voulez-vous vraiment supprimer le membre / agent "${agt.name}" (${agt.email}) ?`,
+                              title: 'Suppression du membre / agent',
+                              message: `Voulez-vous vraiment supprimer "${agt.name}" (${agt.email}) ?`,
                               onConfirm: () => {
                                 deleteUser(agt.id);
                                 deleteAgent(agt.id);
                               }
                             });
                           }}
-                          className="p-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all shrink-0"
-                          title="Supprimer cet utilisateur"
+                          className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/30"
+                          title="Supprimer"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
@@ -927,83 +1234,191 @@ export const AdminBillingManager: React.FC = () => {
         <AdminPlansPricingManager />
       )}
 
-      {/* TAB 3: PAYMENT GATEWAYS & SETTINGS */}
+      {/* TAB 3: DYNAMIC MOBILE MONEY OPERATORS CRUD */}
       {activeTab === 'settings' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
-          <div>
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-emerald-400" />
-              Coordonnées de Facturation & Règlement Mobile Money (Orange Money RDC Exclusif)
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Ce numéro Orange Money apparaît automatiquement sur toutes les factures, fiches d'encaissement et liens de paiement transmis aux agences & agents.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-emerald-400" />
+                Opérateurs Mobile Money & Moyens de Paiement Manuels
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Configurez librement vos numéros marchands M-Pesa, Airtel Money, Orange Money ou comptes bancaires affichés aux clients lors du paiement.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setEditingPm({
+                  id: `pm_${Date.now()}`,
+                  provider: 'mpesa',
+                  account_name: '',
+                  account_number: '+243 ',
+                  merchant_code: '',
+                  instructions: '',
+                  is_active: true,
+                  display_order: paymentMethods.length + 1
+                })
+              }
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-2 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Ajouter un Opérateur</span>
+            </button>
           </div>
 
-          <div className="space-y-6">
-            {/* Unique Active Payment Method: Orange Money RDC */}
-            <div className="bg-gradient-to-r from-orange-950/40 via-slate-950 to-slate-950 border-2 border-orange-500/50 rounded-3xl p-6 space-y-4 shadow-xl">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-orange-500 flex items-center justify-center text-slate-950 font-black text-sm shadow-lg shadow-orange-500/30">
-                    OM
-                  </div>
-                  <div>
-                    <span className="font-black text-white text-base flex items-center gap-2">
-                      Orange Money RDC
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {paymentMethods.map((pm) => (
+              <div
+                key={pm.id}
+                className={`p-5 rounded-2xl border space-y-3 flex flex-col justify-between ${
+                  pm.is_active !== false ? 'bg-slate-950 border-slate-800' : 'bg-slate-950/40 border-slate-800/60 opacity-70'
+                }`}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-700 text-[10px] font-bold uppercase text-amber-300">
+                      {pm.provider}
                     </span>
-                    <p className="text-xs text-orange-400 font-semibold">Moyen de Paiement Exclusif Activé</p>
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                        pm.is_active !== false
+                          ? 'bg-emerald-500/15 text-emerald-400'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {pm.is_active !== false ? 'Actif' : 'Désactivé'}
+                    </span>
                   </div>
-                </div>
-                <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold self-start sm:self-center">
-                  Actif Principal (100%)
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 text-xs">
-                <div className="bg-slate-900/90 border border-orange-500/30 p-4 rounded-2xl">
-                  <span className="text-slate-400 text-[11px] block font-medium">Numéro Orange Money de Facturation :</span>
-                  <span className="font-mono text-orange-400 font-black text-base mt-1 block">
-                    +243 84 529 4616
-                  </span>
-                  <span className="text-[10px] text-slate-400">RDC Kinshasa (+243)</span>
+                  <h4 className="font-bold text-white text-sm">{pm.account_name}</h4>
+                  <div className="font-mono text-base font-black text-emerald-400">{pm.account_number}</div>
+                  {pm.merchant_code && (
+                    <div className="text-xs font-mono text-amber-300">Code Marchand : {pm.merchant_code}</div>
+                  )}
+                  {pm.instructions && (
+                    <p className="text-[11px] text-slate-400 leading-relaxed">{pm.instructions}</p>
+                  )}
                 </div>
 
-                <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl">
-                  <span className="text-slate-400 text-[11px] block font-medium">Titulaire du Compte :</span>
-                  <span className="font-bold text-white text-sm mt-1 block">
-                    IMMOCRAFT / KIN IMMOBILIER SARL
-                  </span>
-                  <span className="text-[10px] text-slate-400">Compte vérifié professionnel</span>
+                <div className="flex items-center gap-2 pt-3 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setEditingPm(pm)}
+                    className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" /> Modifier
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      savePaymentMethod({ ...pm, is_active: pm.is_active === false })
+                    }
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs"
+                  >
+                    {pm.is_active !== false ? 'Désactiver' : 'Activer'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      requestConfirm({
+                        title: "Supprimer l'opérateur",
+                        message: `Supprimer le compte "${pm.account_name}" ?`,
+                        onConfirm: () => deletePaymentMethod(pm.id)
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-
-                <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl">
-                  <span className="text-slate-400 text-[11px] block font-medium">Réception & Confirmation :</span>
-                  <span className="font-bold text-emerald-400 text-sm mt-1 block">
-                    Validation Instantanée
-                  </span>
-                  <span className="text-[10px] text-slate-400">Notification WhatsApp automatique</span>
-                </div>
               </div>
-
-              <div className="p-3 rounded-2xl bg-orange-500/10 border border-orange-500/20 text-xs text-orange-200/90 flex items-center gap-2">
-                <span className="font-bold">Information :</span>
-                <span>Tous les règlements de factures, d'abonnements agences et de vérifications foncières sont actuellement centralisés sur le numéro Orange Money <strong>+243 84 529 4616</strong>.</span>
-              </div>
-            </div>
-
-            {/* Inactive other methods notice */}
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 text-xs text-slate-400 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-slate-300 block">Autres moyens de paiement (M-Pesa, Airtel Money, Virement bancaire)</span>
-                <span className="text-[11px] text-slate-400 mt-0.5 block">Désactivés temporairement selon la configuration active. Seul Orange Money est actif.</span>
-              </div>
-              <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-400 font-bold text-[10px] shrink-0">
-                Désactivés
-              </span>
-            </div>
+            ))}
           </div>
+
+          {editingPm && (
+            <form onSubmit={handleSaveOperator} className="p-5 rounded-2xl bg-slate-950 border border-emerald-500/50 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black text-white">Configurer Opérateur Mobile Money / Banque</h4>
+                <button type="button" onClick={() => setEditingPm(null)} className="text-slate-400 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Opérateur</label>
+                  <select
+                    value={editingPm.provider || 'mpesa'}
+                    onChange={(e) => setEditingPm({ ...editingPm, provider: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white"
+                  >
+                    <option value="mpesa">M-Pesa (Vodacom)</option>
+                    <option value="airtel">Airtel Money RDC</option>
+                    <option value="orange">Orange Money RDC</option>
+                    <option value="bank_transfer">Virement Bancaire</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Libellé affiché *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingPm.account_name || ''}
+                    onChange={(e) => setEditingPm({ ...editingPm, account_name: e.target.value })}
+                    placeholder="KINIMMO SARL - M-Pesa"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Numéro / Compte *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingPm.account_number || ''}
+                    onChange={(e) => setEditingPm({ ...editingPm, account_number: e.target.value })}
+                    placeholder="+243 810 000 000"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Code Marchand (optionnel)</label>
+                  <input
+                    type="text"
+                    value={editingPm.merchant_code || ''}
+                    onChange={(e) => setEditingPm({ ...editingPm, merchant_code: e.target.value })}
+                    placeholder="Ex: 123456"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+              </div>
+              <div className="text-xs">
+                <label className="block text-slate-400 mb-1 font-semibold">Instructions affichées à l&apos;utilisateur</label>
+                <textarea
+                  rows={2}
+                  value={editingPm.instructions || ''}
+                  onChange={(e) => setEditingPm({ ...editingPm, instructions: e.target.value })}
+                  placeholder="Instructions claires pour effectuer le dépôt Mobile Money et soumettre la référence..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPm(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingAction}
+                  className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" /> Enregistrer Opérateur
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
 
@@ -1291,13 +1706,17 @@ export const AdminBillingManager: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Moyen de Paiement Utilisé</label>
+                <label className="text-xs font-semibold text-slate-300">Opérateur Mobile Money utilisé</label>
                 <select
                   value={paymentMethodSelect}
-                  onChange={e => setPaymentMethodSelect(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-orange-500/50 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  onChange={e => setPaymentMethodSelect(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 >
-                  <option value="orange_money">Orange Money RDC (+243 84 529 4616)</option>
+                  {paymentMethods.map((pm) => (
+                    <option key={pm.id} value={pm.id}>
+                      {pm.account_name} ({pm.account_number})
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1305,7 +1724,7 @@ export const AdminBillingManager: React.FC = () => {
                 <label className="text-xs font-semibold text-slate-300">Numéro / Référence de Transaction (ID)</label>
                 <input
                   type="text"
-                  placeholder="Ex: MP260808.1042 ou Ref BCDC-9921"
+                  placeholder="Ex: MP260808.1042 ou ID SMS opérateur"
                   value={paymentRefInput}
                   onChange={e => setPaymentRefInput(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
@@ -1314,12 +1733,200 @@ export const AdminBillingManager: React.FC = () => {
 
               <button
                 type="submit"
-                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 transition-all"
+                disabled={isProcessingAction}
+                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2"
               >
-                Valider & Débloquer l'Abonnement
+                {isProcessingAction && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Valider, Activer & Générer Reçu</span>
               </button>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* MODAL: REVIEW MOBILE MONEY PROOF & APPROVE / REJECT */}
+      {reviewProofInvoice && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-5 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+              <div>
+                <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-bold uppercase">
+                  Contrôle Paiement Mobile Money
+                </span>
+                <h3 className="text-lg font-black text-white mt-1">
+                  Facture {reviewProofInvoice.invoiceNumber} — ${reviewProofInvoice.totalAmount} USD
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {reviewProofInvoice.targetName} ({reviewProofInvoice.targetEmail})
+                </p>
+              </div>
+              <button type="button" onClick={() => setReviewProofInvoice(null)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Opérateur déclaré :</span>
+                  <strong className="text-white">{reviewProofInvoice.paymentMethodProvider || 'Mobile Money'}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Référence SMS / ID :</span>
+                  <strong className="text-emerald-400 font-mono">
+                    {reviewProofInvoice.transactionReference || 'Non renseignée'}
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Montant attendu :</span>
+                  <strong className="text-white font-mono">
+                    ${reviewProofInvoice.totalAmount} USD (~{(reviewProofInvoice.totalAmountCDF ?? Math.round(reviewProofInvoice.totalAmount * cdfExchangeRate)).toLocaleString('fr-FR')} CDF)
+                  </strong>
+                </div>
+              </div>
+
+              {reviewProofInvoice.proofImageUrl ? (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-300 block">Capture de transaction jointe :</span>
+                  <img
+                    src={reviewProofInvoice.proofImageUrl}
+                    alt="Capture paiement"
+                    className="w-full max-h-64 object-contain rounded-xl border border-slate-800 bg-slate-950"
+                  />
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 text-[11px]">
+                  Aucune capture jointe (vérification sur la référence transaction SMS ci-dessus).
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Motif en cas de refus (obligatoire uniquement pour refuser) :
+                </label>
+                <input
+                  type="text"
+                  value={rejectReasonInput}
+                  onChange={(e) => setRejectReasonInput(e.target.value)}
+                  placeholder="Ex: Référence introuvable sur M-Pesa / Montant incomplet"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={isProcessingAction}
+                onClick={handleRejectProof}
+                className="flex-1 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5"
+              >
+                <Ban className="w-4 h-4" /> Refuser
+              </button>
+              <button
+                type="button"
+                disabled={isProcessingAction}
+                onClick={handleApproveProof}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5"
+              >
+                {isProcessingAction ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                <span>Valider & Activer</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: MANUAL REFUND WITH NOTE & REVOKE/KEEP CHOICE */}
+      {refundModalInvoice && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <form
+            onSubmit={handleConfirmRefund}
+            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-5 shadow-2xl relative"
+          >
+            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+              <div>
+                <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-bold uppercase">
+                  Remboursement Manuel Admin
+                </span>
+                <h3 className="text-lg font-black text-white mt-1">
+                  Facture {refundModalInvoice.invoiceNumber} — ${refundModalInvoice.totalAmount}
+                </h3>
+                <p className="text-xs text-slate-400">{refundModalInvoice.targetName}</p>
+              </div>
+              <button type="button" onClick={() => setRefundModalInvoice(null)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-300 mb-1.5">Effet sur l&apos;abonnement / boost lié *</label>
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="refundAction"
+                      checked={refundActionSelect === 'revoke'}
+                      onChange={() => setRefundActionSelect('revoke')}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-bold text-rose-300">Révoquer le plan ou le boost</div>
+                      <p className="text-[11px] text-slate-400">
+                        Applique la rétrogradation douce (conserve les annonces récentes dans le quota gratuit) ou désactive le boost.
+                      </p>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="refundAction"
+                      checked={refundActionSelect === 'keep'}
+                      onChange={() => setRefundActionSelect('keep')}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-bold text-emerald-300">Maintenir le plan ou le boost actif</div>
+                      <p className="text-[11px] text-slate-400">
+                        Geste commercial : le remboursement est tracé mais l&apos;accès reste actif jusqu&apos;à l&apos;échéance.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300 mb-1">Note justificative du remboursement *</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={refundNoteInput}
+                  onChange={(e) => setRefundNoteInput(e.target.value)}
+                  placeholder="Ex: Double paiement M-Pesa constaté — remboursé vers +243..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRefundModalInvoice(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={isProcessingAction}
+                className="flex-1 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5"
+              >
+                {isProcessingAction ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                <span>Confirmer Remboursement</span>
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
@@ -1447,16 +2054,23 @@ export const AdminBillingManager: React.FC = () => {
                 </div>
               </div>
 
-              {/* Payment Instructions RDC */}
-              <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-600 space-y-2 bg-orange-50/50 p-4 rounded-xl border border-orange-200">
-                <p className="font-bold text-slate-900">Instructions de Paiement Mobile Money Officiel RDC :</p>
+              {/* Payment Instructions RDC (Dynamic Operators) */}
+              <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-600 space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <p className="font-bold text-slate-900">Instructions de Paiement Mobile Money Kinimmo RDC :</p>
                 <div className="space-y-1 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-orange-600 font-mono">▶ Orange Money RDC :</span>
-                    <span className="font-mono font-black text-slate-950 text-sm bg-white px-2 py-0.5 rounded border border-orange-300">+243 84 529 4616</span>
-                  </div>
-                  <div className="text-[11px] text-slate-600">
-                    Titulaire : <strong>IMMOCRAFT / KIN IMMOBILIER SARL</strong> • Mentionnez le N° de facture <strong>{selectedInvoiceModal.invoiceNumber}</strong> en référence
+                  {paymentMethods
+                    .filter((m) => m.is_active !== false)
+                    .map((pm) => (
+                      <div key={pm.id} className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-emerald-700 font-mono">▶ {pm.account_name} :</span>
+                        <span className="font-mono font-black text-slate-950 bg-white px-2 py-0.5 rounded border border-slate-300">
+                          {pm.account_number}
+                        </span>
+                        {pm.merchant_code && <span className="text-[11px] text-slate-600 font-mono">(Code {pm.merchant_code})</span>}
+                      </div>
+                    ))}
+                  <div className="text-[11px] text-slate-600 pt-1">
+                    Mentionnez la facture <strong>{selectedInvoiceModal.invoiceNumber}</strong> puis saisissez votre référence SMS dans votre tableau de bord.
                   </div>
                 </div>
               </div>

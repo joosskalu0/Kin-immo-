@@ -51,6 +51,7 @@ export interface PropertyStatusHistoryEntry {
 
 export interface Property {
   id: string;
+  slug?: string;
   title: string;
   description: string;
   price: number;
@@ -129,6 +130,8 @@ export interface Property {
   boostExpiresAt?: string;
   refreshBumpAt?: string;
   published: boolean;
+  softHiddenByPlan?: boolean;
+  softHiddenAt?: string;
 
   // Historique des changements de statut
   statusHistory?: PropertyStatusHistoryEntry[];
@@ -197,6 +200,10 @@ export interface Agent {
   rccmOrNif?: string;
   subscriptionStatus?: 'Active' | 'Expired';
   subscriptionExpiresAt?: string;
+  planId?: string;
+  subscriptionPlan?: string;
+  billingCycle?: 'monthly' | 'yearly' | 'trial';
+  trialEndsAt?: string;
   isHidden?: boolean; // When true, hidden from public directory and visitors (Admin toggle)
 }
 
@@ -224,6 +231,10 @@ export interface Agency {
   subscriptionStatus?: 'Active' | 'Expired';
   subscriptionExpiresAt?: string;
   planId?: string;
+  subscriptionPlan?: string;
+  billingCycle?: 'monthly' | 'yearly' | 'trial';
+  trialEndsAt?: string;
+  includedBoostsRemaining?: number;
   lastPaymentDate?: string;
   unpaidInvoiceId?: string;
   createdAt?: string;
@@ -275,7 +286,11 @@ export interface User {
   agencyName?: string;
   rccmOrNif?: string; // RCCM / NIF Impôts RDC
   planId: string; // 'starter' | 'pro' | 'agency'
+  subscriptionPlan?: string;
+  billingCycle?: 'monthly' | 'yearly' | 'trial';
   planExpiry?: string;
+  trialEndsAt?: string;
+  includedBoostsRemaining?: number;
   subscriptionStatus?: 'Active' | 'Expired';
   subscriptionExpiresAt?: string;
   provider?: 'google' | 'facebook' | 'email' | 'phone';
@@ -392,25 +407,41 @@ export interface Language {
   dir: 'ltr' | 'rtl';
 }
 
+export type PlanAudience = 'grand_public' | 'agence' | 'promoteur' | 'entreprise';
+
 export interface SubscriptionPlan {
   id: string;
   name: string;
   description?: string;
-  category?: 'general' | 'individual' | 'agency' | 'promoter';
+  audience?: PlanAudience;
+  category?: 'general' | 'individual' | 'agency' | 'promoter' | 'enterprise';
   badge?: string;
   priceMonthly: number; // in USD
   priceMonthlyCDF?: number; // in CDF (Francs Congolais)
+  priceYearly?: number; // in USD (annual subscription)
+  priceYearlyCDF?: number; // in CDF (annual subscription)
   price_usd?: number;
   price_cdf?: number;
+  price_yearly_usd?: number;
+  price_yearly_cdf?: number;
   price?: number;
   currency: string;
   billingPeriod?: 'month' | 'year';
   billing_period?: string;
+  trialDays?: number;
+  trial_days?: number;
   maxListings: number;
   max_listings?: number;
+  maxPhotos?: number;
+  max_photos?: number;
+  maxVideos?: number;
+  max_videos?: number;
+  includedBoosts?: number;
+  included_boosts?: number;
   featuredListings: number;
   max_featured_listings?: number;
   agentAccounts: number;
+  max_team_members?: number;
   features: string[];
   recommended?: boolean;
   isActive?: boolean;
@@ -421,6 +452,17 @@ export interface SubscriptionPlan {
   has_crm_leads?: boolean;
   hasPrioritySupport?: boolean;
   has_priority_support?: boolean;
+}
+
+export interface PaymentMethodConfig {
+  id: string;
+  provider: 'mpesa' | 'airtel' | 'orange' | 'bank_transfer' | 'card' | string;
+  account_name: string;
+  account_number: string;
+  merchant_code?: string | null;
+  instructions?: string;
+  is_active: boolean;
+  display_order?: number;
 }
 
 export type BoostType = 'featured' | 'premium' | 'urgent' | 'refresh' | 'social_blast';
@@ -529,6 +571,8 @@ export interface Invoice {
   targetPhone?: string;
   targetNifRccm?: string;
   planId?: string; // 'pro' | 'agency' | 'custom'
+  planName?: string;
+  plan_name?: string;
   propertyId?: string;
   property_id?: string;
   propertyTitle?: string;
@@ -543,17 +587,44 @@ export interface Invoice {
   subtotalAmount?: number;
   taxAmount?: number; // e.g. TVA DGI RDC 16% or 0%
   totalAmount: number;
+  totalAmountCDF?: number;
   amount?: number; // convenience alias
   amount_usd?: number;
   amount_cdf?: number;
   total_amount?: number;
   total_amount_cdf?: number;
   currency: 'USD' | 'CDF';
-  status: 'paid' | 'pending' | 'overdue' | 'cancelled' | 'failed';
+  status: 'paid' | 'pending' | 'awaiting_validation' | 'rejected' | 'overdue' | 'cancelled' | 'failed' | 'refunded';
+  billingCycle?: 'monthly' | 'yearly' | 'trial' | 'one_time';
+  billing_cycle?: 'monthly' | 'yearly' | 'trial' | 'one_time';
+  isTrial?: boolean;
+  is_trial?: boolean;
   paymentMethod?: 'mpesa' | 'orange_money' | 'airtel_money' | 'card' | 'bank_transfer' | 'cash' | string;
+  paymentMethodId?: string;
+  payment_method_id?: string;
+  paymentMethodProvider?: string;
   payment_method_provider?: string;
   transactionReference?: string;
   transaction_reference?: string;
+  proofImageUrl?: string;
+  proof_image_url?: string;
+  paymentSubmittedAt?: string;
+  payment_submitted_at?: string;
+  rejectionReason?: string;
+  rejection_reason?: string;
+  refundNote?: string;
+  refund_note?: string;
+  refundedAt?: string;
+  refund_at?: string;
+  refunded_at?: string;
+  refundAction?: 'revoke' | 'keep';
+  refund_action?: 'revoke' | 'keep';
+  receiptNumber?: string;
+  receipt_number?: string;
+  validatedAt?: string;
+  validated_at?: string;
+  validatedBy?: string;
+  validated_by?: string;
   dueDate: string;
   due_date?: string;
   issuedDate?: string;
@@ -565,8 +636,22 @@ export interface Invoice {
   notes?: string;
   periodStart?: string;
   periodEnd?: string;
+  period_start?: string;
+  period_end?: string;
   invoice_type?: 'subscription' | 'boost' | 'advertisement';
   invoiceType?: 'subscription' | 'boost' | 'advertisement';
+}
+
+export interface InAppBillingNotification {
+  id: string;
+  userId?: string;
+  userEmail?: string;
+  type: 'expiry_warning' | 'expired_downgrade' | 'payment_submitted' | 'payment_approved' | 'payment_rejected' | 'payment_refunded';
+  title: string;
+  message: string;
+  invoiceId?: string;
+  createdAt: string;
+  isRead: boolean;
 }
 
 export interface TrackingConfig {
@@ -845,6 +930,104 @@ export interface PropertyVideo {
   agentWhatsapp?: string;
   agentAvatar?: string;
   agentVerified?: boolean;
+}
+
+/**
+ * -------------------------------------------------------------
+ * TYPES CONTENUS, BLOG, PAGES LÉGALES, FAQ & QUARTIERS (P1)
+ * -------------------------------------------------------------
+ */
+export type BlogCategory =
+  | 'guide_achat'
+  | 'guide_location'
+  | 'juridique_foncier'
+  | 'quartiers_marche'
+  | 'conseils_pro';
+
+export interface BlogArticle {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  category: BlogCategory;
+  coverImage: string;
+  authorName: string;
+  authorRole?: string;
+  readTimeMinutes: number;
+  status: 'published' | 'draft';
+  featured?: boolean;
+  tags: string[];
+  relatedCommune?: string;
+  publishedAt: string;
+  updatedAt: string;
+}
+
+export type LegalDocumentSlug = 'conditions-utilisation' | 'confidentialite' | 'mentions-legales';
+
+export interface LegalSection {
+  id: string;
+  heading: string;
+  body: string;
+}
+
+export interface LegalCompanyMeta {
+  companyName: string;
+  legalForm: string;
+  rccm: string;
+  idNat: string;
+  nif: string;
+  headquartersAddress: string;
+  publicationDirector: string;
+  contactEmail: string;
+  dpoEmail: string;
+  supportPhone: string;
+  hostingProvider: string;
+}
+
+export interface LegalDocument {
+  slug: LegalDocumentSlug;
+  title: string;
+  subtitle: string;
+  needsLegalReview: boolean;
+  legalReviewNotice: string;
+  effectiveDate: string;
+  updatedAt: string;
+  companyMeta?: LegalCompanyMeta;
+  sections: LegalSection[];
+}
+
+export interface FaqItem {
+  id: string;
+  category: 'acheteurs_locataires' | 'proprietaires_agences' | 'paiements_plans' | 'securite_confiance' | 'conciergerie';
+  question: string;
+  answer: string;
+}
+
+export interface NeighborhoodStats {
+  activeCount: number;
+  saleCount: number;
+  rentCount: number;
+  avgSalePriceUsd: number | null;
+  avgRentPriceUsd: number | null;
+  avgPricePerSqmUsd: number | null;
+  minPriceUsd: number | null;
+  maxPriceUsd: number | null;
+}
+
+export interface NeighborhoodProfile {
+  slug: string;
+  name: string;
+  commune: string;
+  district: string;
+  kind: 'commune' | 'quartier';
+  tagline: string;
+  description: string;
+  highlights: string[];
+  landmarks: string[];
+  advisorTip: string;
+  neighborSlugs: string[];
+  stats: NeighborhoodStats;
 }
 
 // Export des types Kinimmo Trust

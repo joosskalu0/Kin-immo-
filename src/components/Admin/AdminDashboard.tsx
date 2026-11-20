@@ -45,7 +45,8 @@ import {
   Calendar,
   ShieldAlert,
   AlertOctagon,
-  Film
+  Film,
+  BookOpen
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { mysqlApi, clearStoredToken, DEFAULT_CONTACT_SETTINGS } from '../../services/mysqlApi';
@@ -55,6 +56,7 @@ import { AdminHeroShowcaseManager } from './AdminHeroShowcaseManager';
 import { AdminConciergerieManager } from './AdminConciergerieManager';
 import { AdminFraudModerationManager } from './AdminFraudModerationManager';
 import { AdminVideosModerationManager } from './AdminVideosModerationManager';
+import { AdminContentCmsManager } from './AdminContentCmsManager';
 import { TrustAdminDashboard } from '../Trust/TrustAdminDashboard';
 import { auditPropertyList } from '../../utils/suspiciousListingDetector';
 import { fetchConciergerieRequests, fetchPropertyVisits } from '../../services/conciergerieApi';
@@ -84,7 +86,8 @@ type TabType =
   | 'monetization'
   | 'conciergerie'
   | 'fraud_detection'
-  | 'kinimmo_trust';
+  | 'kinimmo_trust'
+  | 'contents';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
@@ -853,6 +856,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
             Dossiers
           </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('contents')}
+          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
+            activeTab === 'contents'
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <BookOpen className="w-4 h-4 text-emerald-400" />
+          <span>Contenus, Blog & Légal</span>
         </button>
 
         <button
@@ -2913,6 +2928,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'kinimmo_trust' && (
           <div className="animate-in fade-in duration-300">
             <TrustAdminDashboard adminUser={adminUser} />
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB 13: CMS CONTENUS (BLOG, GUIDES & PAGES LÉGALES)   */}
+        {/* ==================================================== */}
+        {activeTab === 'contents' && (
+          <div className="animate-in fade-in duration-300">
+            <AdminContentCmsManager />
           </div>
         )}
       </main>
