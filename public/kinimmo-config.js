@@ -8,4 +8,4 @@
 // Exemple : window.__KINIMMO_API_BASE_URL__ = 'https://api.votredomaine.com/api';
 //
 // Laissez vide ('') en local ou si le serveur Node.js sert lui-même le frontend et l'API.
-window.__KINIMMO_API_BASE_URL__ = window.__KINIMMO_API_BASE_URL__ || '';
+window.__KINIMMO_API_BASE_URL__ = window.__KINIMMO_API_BASE_URL__ || 'https://api.admin.kinimmo.com/api';
