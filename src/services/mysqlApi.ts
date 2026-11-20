@@ -256,7 +256,7 @@ async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}):
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
       ...options,
       headers
     });

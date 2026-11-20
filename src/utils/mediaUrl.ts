@@ -6,9 +6,15 @@ export const FALLBACK_PROPERTY_IMAGE =
 /**
  * Retourne l'URL de base de l'API (ex: "https://api.votredomaine.com/api" en prod séparée,
  * ou "/api" en local / monoserver).
+ * Priorité : 1) public/kinimmo-config.js (runtime sans .env), 2) VITE_API_BASE_URL, 3) "/api".
  */
 export function getApiBaseUrl(): string {
-  const raw = ((import.meta as any).env?.VITE_API_BASE_URL as string) || '/api';
+  const runtimeUrl =
+    typeof window !== 'undefined' && (window as any).__KINIMMO_API_BASE_URL__
+      ? String((window as any).__KINIMMO_API_BASE_URL__).trim()
+      : '';
+  const envUrl = ((import.meta as any).env?.VITE_API_BASE_URL as string) || '';
+  const raw = runtimeUrl || envUrl || '/api';
   return String(raw).trim().replace(/\/+$/, '') || '/api';
 }
 
