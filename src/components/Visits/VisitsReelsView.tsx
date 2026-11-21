@@ -52,6 +52,12 @@ import {
   getCloudinaryOptimizedVideoUrl,
   getCloudinaryAutoThumbnail
 } from '../../utils/videoHelpers';
+import { MAX_VIDEO_DURATION_SECONDS } from '../../utils/mediaTools';
+import {
+  resolveMediaUrl,
+  getOptimizedImageUrl,
+  FALLBACK_PROPERTY_IMAGE,
+} from '../../utils/mediaUrl';
 
 interface VisitsReelsViewProps {
   onReturnHome?: () => void;
@@ -107,7 +113,7 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [doubleTapHeart, setDoubleTapHeart] = useState<{ x: number; y: number } | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(0);
-  const [duration, setDuration] = useState<number>(30);
+  const [duration, setDuration] = useState<number>(MAX_VIDEO_DURATION_SECONDS);
 
   // État des modals secondaires
   const [visitModalProperty, setVisitModalProperty] = useState<Property | null>(null);
@@ -122,18 +128,33 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
   const trackedSignificantWatchRef = useRef<Record<string, boolean>>({});
 
   // Filtrer les annonces pour le flux vidéo des Visites
-  // RÈGLE IMPÉRATIVE : Seules les annonces actives et disponibles (non 'sold', non supprimées) sont proposées
+  // RÈGLE IMPÉRATIVE : Seules les annonces publiées, disponibles et dont la vidéo (si présente) est approuvée par l'équipe sont diffusées
   const visitProperties = properties.filter((p) => {
-    // 1. Exclure immédiatement tout bien vendu, indisponible ou archivé
-    if (!p || p.status === 'sold') return false;
+    // 1. Exclure immédiatement tout bien vendu, brouillon, non publié ou archivé
+    if (!p || p.status === 'sold' || p.published === false || p.listingStatus === 'DRAFT' || p.listingStatus === 'ARCHIVED') {
+      return false;
+    }
 
-    // 2. Filtre par commune si sélectionné
+    // 2. Contrôle strict de modération P2 pour les vidéos soumises par les utilisateurs
+    const videoRecord = (propertyVideos || []).find((v) => v.propertyId === p.id);
+    const modStatus = p.videoModerationStatus || videoRecord?.status;
+    if (p.videoUrl && modStatus && modStatus !== 'approved') {
+      return false;
+    }
+    if (videoRecord && videoRecord.status !== 'approved' && !p.videoUrl) {
+      return false;
+    }
+    if (videoRecord?.duration && videoRecord.duration > MAX_VIDEO_DURATION_SECONDS) {
+      return false;
+    }
+
+    // 3. Filtre par commune si sélectionné
     if (selectedCommune !== 'all') {
       const pCommune = (p.commune || '').toLowerCase();
       if (!pCommune.includes(selectedCommune.toLowerCase())) return false;
     }
 
-    // 3. Filtre par transaction (Vente vs Location)
+    // 4. Filtre par transaction (Vente vs Location)
     if (selectedType === 'sale' && p.status !== 'for-sale') return false;
     if (selectedType === 'rent' && p.status !== 'for-rent') return false;
 
@@ -245,8 +266,8 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
     setCurrentTime(vid.currentTime);
-    const videoDuration = vid.duration && !isNaN(vid.duration) ? vid.duration : 30;
-    setDuration(Math.min(videoDuration, 30));
+    const videoDuration = vid.duration && !isNaN(vid.duration) ? vid.duration : MAX_VIDEO_DURATION_SECONDS;
+    setDuration(Math.min(videoDuration, MAX_VIDEO_DURATION_SECONDS));
 
     // Mesure analytique de visionnage significatif (>= 10s ou >= 50% de la durée de la vidéo)
     const activeProp = visitProperties[currentIndex];
@@ -386,7 +407,7 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
           {onReturnHome && (
             <button
               onClick={onReturnHome}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-all active:scale-95 cursor-pointer"
+              className="min-w-[44px] min-h-[44px] p-2 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-all active:scale-95 cursor-pointer flex items-center justify-center"
               title="Retour aux annonces"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -519,7 +540,7 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
           <div
             ref={containerRef}
             onScroll={handleScroll}
-            className="w-full h-[78vh] sm:h-[82vh] overflow-y-scroll snap-y snap-mandatory rounded-3xl relative shadow-2xl border border-slate-800/80 bg-black no-scrollbar"
+            className="w-full h-[calc(100dvh-132px)] sm:h-[82vh] overflow-y-scroll snap-y snap-mandatory overscroll-y-contain touch-pan-y rounded-3xl relative shadow-2xl border border-slate-800/80 bg-black no-scrollbar"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
             {visitProperties.map((property, idx) => {
@@ -532,22 +553,26 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
               const matchingApprovedVideo = (propertyVideos || []).find(
                 (v) => v.propertyId === property.id && v.status === 'approved'
               );
+              const isPropertyVideoApproved =
+                Boolean(property.videoUrl) &&
+                (!property.videoModerationStatus || property.videoModerationStatus === 'approved');
 
-              // URL de vidéo réelle ou boucle architecturale fluide
+              // URL de vidéo réelle approuvée ou boucle architecturale fluide
               const rawVideoSrc =
                 matchingApprovedVideo?.videoUrl ||
-                property.videoUrl ||
+                (isPropertyVideoApproved ? property.videoUrl : undefined) ||
                 FALLBACK_VIDEOS[idx % FALLBACK_VIDEOS.length];
 
               const videoSrc = isCloudinaryUrl(rawVideoSrc)
                 ? getCloudinaryOptimizedVideoUrl(rawVideoSrc, { quality: 'auto:good' })
                 : rawVideoSrc;
 
-              // Miniature de couverture personnalisée, poster Cloudinary automatique ou 1ère photo du bien
-              const posterImage =
+              // Miniature de couverture personnalisée, poster Cloudinary automatique ou 1ère photo du bien optimisée
+              const rawPoster =
                 matchingApprovedVideo?.thumbnailUrl ||
                 (isCloudinaryUrl(rawVideoSrc) ? getCloudinaryAutoThumbnail(rawVideoSrc) : null) ||
-                (property.images && property.images[0] ? property.images[0] : 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&auto=format&fit=crop&q=80');
+                (property.images && property.images[0] ? resolveMediaUrl(property.images[0]) : FALLBACK_PROPERTY_IMAGE);
+              const posterImage = getOptimizedImageUrl(rawPoster, { width: 800 }) || rawPoster;
 
               // Affichage du prix formaté via la devise active et contre-valeur CDF
               const formattedPrice = convertAndFormatPrice(property.price, currency);
@@ -570,7 +595,10 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                   {/* Miniature Haute Définition affichée pendant le chargement */}
                   <img
                     src={posterImage}
-                    alt={property.title}
+                    alt={property.imagesMeta?.[0]?.alt || property.title}
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
                     className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${
                       videoLoadedMap[property.id] ? 'opacity-0 pointer-events-none' : 'opacity-100'
                     }`}
@@ -629,9 +657,12 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                     {/* Avatar de l'Agent ou Agence */}
                     <div className="relative flex flex-col items-center group cursor-pointer" onClick={() => handleOpenDetailModal(property.id)}>
                       <img
-                        src={agent?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80'}
+                        src={resolveMediaUrl(agent?.avatar) || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80'}
                         alt={creatorName}
-                        className="w-10 h-10 rounded-full object-cover ring-2 ring-emerald-500 shadow-xl"
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        className="w-11 h-11 rounded-full object-cover ring-2 ring-emerald-500 shadow-xl"
                       />
                       <div className="absolute -bottom-1 bg-emerald-500 text-slate-950 rounded-full p-0.5 shadow">
                         <BadgeCheck className="w-3 h-3" />
@@ -645,11 +676,11 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                         trackVideoWishlistToggle(property, !isWishlisted);
                         toggleWishlist(property.id);
                       }}
-                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer"
+                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer min-w-[44px] min-h-[44px]"
                       title={isWishlisted ? 'Retirer des favoris' : 'Ajouter aux favoris'}
                     >
                       <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${
+                        className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${
                           isWishlisted
                             ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30'
                             : 'bg-slate-900/70 hover:bg-slate-900 text-white border border-white/10'
@@ -672,10 +703,10 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                         e.stopPropagation();
                         setVisitModalProperty(property);
                       }}
-                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer"
+                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer min-w-[44px] min-h-[44px]"
                       title="Planifier un créneau de visite"
                     >
-                      <div className="w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30 border border-emerald-400/40">
+                      <div className="w-11 h-11 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30 border border-emerald-400/40">
                         <Calendar className="w-5 h-5 text-white" />
                       </div>
                       <span className="text-[10px] font-bold text-emerald-400 drop-shadow">
@@ -689,10 +720,10 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                         e.stopPropagation();
                         handleWhatsAppClick(property, agent);
                       }}
-                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer"
+                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer min-w-[44px] min-h-[44px]"
                       title="Contacter sur WhatsApp"
                     >
-                      <div className="w-10 h-10 rounded-full bg-[#25D366] hover:bg-[#20ba5a] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/30 border border-white/20">
+                      <div className="w-11 h-11 rounded-full bg-[#25D366] hover:bg-[#20ba5a] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/30 border border-white/20">
                         <svg className="w-5.5 h-5.5 fill-white" viewBox="0 0 24 24">
                           <path d="M12.031 2C6.494 2 2 6.494 2 12.031c0 1.809.479 3.525 1.328 5.021L2 22l5.093-1.309c1.455.794 3.109 1.242 4.938 1.242 5.537 0 10.031-4.494 10.031-10.031S17.568 2 12.031 2zm0 18.25c-1.603 0-3.084-.44-4.37-1.209l-.313-.188-3.037.781.813-2.953-.203-.328c-.859-1.375-1.328-2.984-1.328-4.665 0-4.664 3.797-8.469 8.469-8.469 4.672 0 8.469 3.805 8.469 8.469 0 4.672-3.805 8.469-8.469 8.469zm4.641-6.328c-.255-.128-1.516-.748-1.751-.834-.234-.085-.404-.128-.574.128-.17.255-.658.834-.807 1.004-.149.17-.298.191-.553.064-.255-.128-1.076-.397-2.05-1.265-.758-.677-1.27-1.513-1.419-1.768-.149-.255-.016-.393.112-.52.115-.115.255-.298.383-.447.128-.149.17-.255.255-.425.085-.17.043-.319-.021-.447-.064-.128-.574-1.383-.787-1.894-.207-.497-.419-.429-.574-.437l-.489-.009c-.17 0-.447.064-.681.319-.234.255-.894.872-.894 2.128s.915 2.468 1.043 2.638c.128.17 1.8 2.748 4.362 3.851.61.263 1.086.42 1.458.538.613.195 1.171.167 1.612.102.492-.074 1.516-.62 1.729-1.219.213-.599.213-1.113.149-1.219-.064-.106-.234-.17-.489-.298z" />
                         </svg>
@@ -708,10 +739,10 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                         e.stopPropagation();
                         handleShare(property);
                       }}
-                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer"
+                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer min-w-[44px] min-h-[44px]"
                       title="Partager cette visite"
                     >
-                      <div className="w-10 h-10 rounded-full bg-slate-900/70 hover:bg-slate-900 text-white flex items-center justify-center border border-white/10 backdrop-blur-md shadow-lg">
+                      <div className="w-11 h-11 rounded-full bg-slate-900/70 hover:bg-slate-900 text-white flex items-center justify-center border border-white/10 backdrop-blur-md shadow-lg">
                         <Share2 className="w-4.5 h-4.5 text-white" />
                       </div>
                       <span className="text-[10px] font-bold text-white drop-shadow">
@@ -725,10 +756,10 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                         e.stopPropagation();
                         setReportModalProperty(property);
                       }}
-                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer"
+                      className="flex flex-col items-center gap-0.5 group active:scale-125 transition-transform cursor-pointer min-w-[44px] min-h-[44px]"
                       title="Signaler un contenu ou prix suspect"
                     >
-                      <div className="w-10 h-10 rounded-full bg-slate-900/70 hover:bg-rose-950 text-slate-300 hover:text-rose-400 flex items-center justify-center border border-white/10 backdrop-blur-md shadow-lg">
+                      <div className="w-11 h-11 rounded-full bg-slate-900/70 hover:bg-rose-950 text-slate-300 hover:text-rose-400 flex items-center justify-center border border-white/10 backdrop-blur-md shadow-lg">
                         <ShieldAlert className="w-4.5 h-4.5" />
                       </div>
                       <span className="text-[10px] font-bold text-slate-300 drop-shadow">
@@ -846,7 +877,7 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                     <div
                       className="h-full bg-emerald-500 transition-all duration-150"
                       style={{
-                        width: `${Math.min(100, (currentTime / (duration || 30)) * 100)}%`,
+                        width: `${Math.min(100, (currentTime / (duration || MAX_VIDEO_DURATION_SECONDS)) * 100)}%`,
                       }}
                     />
                   </div>

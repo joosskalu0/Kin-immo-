@@ -1,6 +1,7 @@
 import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings, VisibilityOption, PropertyVideo, PropertyVideoStatus, PropertyUserReport, PaymentMethodConfig } from '../types';
 import { getDefaultPlans, normalizePlan, DEFAULT_PAYMENT_METHODS_LIST } from '../utils/billingHelpers';
-import { getApiBaseUrl, resolvePropertyMedia } from '../utils/mediaUrl';
+import { getApiBaseUrl, getCandidateApiBaseUrls, setResolvedApiBaseUrl, resolvePropertyMedia } from '../utils/mediaUrl';
+import { DEFAULT_VIRTUAL_TOUR_DOMAINS, normalizeAllowedDomains } from '../utils/mediaTools';
 
 /**
  * Service Client API MySQL REST pour Kinimmo
@@ -106,8 +107,6 @@ const ADSENSE_CONFIG_KEY = 'kinimmo_adsense_config';
 const PLANS_STORAGE_KEY = 'kinimmo_pricing_plans_store';
 const OPTIONS_STORAGE_KEY = 'kinimmo_visibility_options_store';
 const PAYMENT_METHODS_STORAGE_KEY = 'kinimmo_payment_methods_v1';
-
-const API_BASE_URL = getApiBaseUrl();
 
 // Formules d'abonnement par défaut certifiées Kinshasa (Grand Public + Agence actifs, Promoteur/Entreprise en brouillon)
 const DEFAULT_PRICING_PLANS = getDefaultPlans(2850);
@@ -255,41 +254,64 @@ async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}):
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers
-    });
+  const candidates = getCandidateApiBaseUrls();
+  let lastErrorMessage = '';
 
-    let data: any = {};
+  for (const baseUrl of candidates) {
     try {
-      data = await response.json();
-    } catch {
-      data = {};
-    }
+      const response = await fetch(`${baseUrl}${endpoint}`, {
+        ...options,
+        headers
+      });
 
-    if (!response.ok) {
+      const contentType = (response.headers.get('content-type') || '').toLowerCase();
+      const isHtmlResponse = contentType.includes('text/html');
+
+      // Si Apache/Hostinger renvoie index.html ou une page HTML 404 au lieu du JSON API, tester la base suivante (ex: https://api.kinimmo.com/api)
+      if (isHtmlResponse) {
+        lastErrorMessage = `Réponse HTML inattendue sur ${baseUrl}${endpoint} (HTTP ${response.status})`;
+        continue;
+      }
+
+      let data: any = {};
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
+
+      // Si le serveur répond JSON (succès ou erreur applicative 400/401/403), verrouiller cette base API
+      setResolvedApiBaseUrl(baseUrl);
+
+      if (!response.ok) {
+        return {
+          ...data,
+          success: false,
+          status: response.status,
+          message: data.message || data.error || `Erreur serveur HTTP ${response.status}`,
+          error: data.error || data.message
+        };
+      }
+
       return {
-        ...data,
-        success: false,
+        success: true,
         status: response.status,
-        message: data.message || data.error || `Erreur serveur HTTP ${response.status}`,
-        error: data.error || data.message
+        data,
+        ...data
       };
+    } catch (error: any) {
+      lastErrorMessage = error?.message || 'Erreur réseau';
+      // Continuer vers l'URL candidate suivante (ex: api.kinimmo.com)
     }
-
-    return {
-      success: true,
-      status: response.status,
-      data,
-      ...data
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      message: error.message || 'Impossible de joindre le serveur API MySQL Kinimmo.'
-    };
   }
+
+  const isNetworkFailure = /load failed|failed to fetch|networkerror|network request failed/i.test(lastErrorMessage);
+  return {
+    success: false,
+    message: isNetworkFailure
+      ? `Impossible de joindre le serveur API Kinimmo (${lastErrorMessage}). Vérifiez que le backend Node.js est actif et configuré dans kinimmo-config.js.`
+      : (lastErrorMessage || 'Impossible de joindre le serveur API MySQL Kinimmo.')
+  };
 }
 
 export const mysqlApi = {
@@ -1362,6 +1384,7 @@ export const mysqlApi = {
           workingHours: s.working_hours || DEFAULT_CONTACT_SETTINGS.workingHours,
           exchangeRate: Number(s.exchange_rate_usd_cdf) || 2850,
           autoApproveProperties: s.auto_approve_properties === 'true',
+          virtualTourAllowedDomains: normalizeAllowedDomains(s.virtual_tour_allowed_domains),
           vipConcierge: {
             enabled: s.vip_enabled !== 'false',
             title: s.vip_title || DEFAULT_CONTACT_SETTINGS.vipConcierge.title,
@@ -1386,31 +1409,36 @@ export const mysqlApi = {
   },
 
   async adminUpdateContactSettings(settings: SiteContactSettings): Promise<{ success: boolean; message?: string; error?: string }> {
+    const normalizedSettings: SiteContactSettings = {
+      ...settings,
+      virtualTourAllowedDomains: normalizeAllowedDomains(settings.virtualTourAllowedDomains),
+    };
     // Sauvegarde locale instantanée pour réactivité UI
     try {
-      localStorage.setItem('kinimmo_site_contact_settings', JSON.stringify(settings));
+      localStorage.setItem('kinimmo_site_contact_settings', JSON.stringify(normalizedSettings));
     } catch {}
 
     const payload = {
-      site_name: settings.siteName,
-      contact_email: settings.contactEmail,
-      support_phone: settings.supportPhone,
-      support_whatsapp: settings.supportWhatsApp,
-      office_address: settings.officeAddress,
-      working_hours: settings.workingHours,
-      exchange_rate_usd_cdf: String(settings.exchangeRate),
-      auto_approve_properties: String(settings.autoApproveProperties ?? false),
-      vip_enabled: String(settings.vipConcierge?.enabled ?? true),
-      vip_title: settings.vipConcierge?.title || '',
-      vip_subtitle: settings.vipConcierge?.subtitle || '',
-      vip_phone: settings.vipConcierge?.phone || '',
-      vip_whatsapp: settings.vipConcierge?.whatsapp || '',
-      vip_email: settings.vipConcierge?.email || '',
-      vip_message: settings.vipConcierge?.defaultMessage || '',
-      vip_description: settings.vipConcierge?.description || '',
-      vip_working_hours: settings.vipConcierge?.workingHours || '',
-      vip_agent_message: settings.vipConcierge?.agentMessage || '',
-      vip_partner_message: settings.vipConcierge?.partnerMessage || ''
+      site_name: normalizedSettings.siteName,
+      contact_email: normalizedSettings.contactEmail,
+      support_phone: normalizedSettings.supportPhone,
+      support_whatsapp: normalizedSettings.supportWhatsApp,
+      office_address: normalizedSettings.officeAddress,
+      working_hours: normalizedSettings.workingHours,
+      exchange_rate_usd_cdf: String(normalizedSettings.exchangeRate),
+      auto_approve_properties: String(normalizedSettings.autoApproveProperties ?? false),
+      virtual_tour_allowed_domains: JSON.stringify(normalizedSettings.virtualTourAllowedDomains || DEFAULT_VIRTUAL_TOUR_DOMAINS),
+      vip_enabled: String(normalizedSettings.vipConcierge?.enabled ?? true),
+      vip_title: normalizedSettings.vipConcierge?.title || '',
+      vip_subtitle: normalizedSettings.vipConcierge?.subtitle || '',
+      vip_phone: normalizedSettings.vipConcierge?.phone || '',
+      vip_whatsapp: normalizedSettings.vipConcierge?.whatsapp || '',
+      vip_email: normalizedSettings.vipConcierge?.email || '',
+      vip_message: normalizedSettings.vipConcierge?.defaultMessage || '',
+      vip_description: normalizedSettings.vipConcierge?.description || '',
+      vip_working_hours: normalizedSettings.vipConcierge?.workingHours || '',
+      vip_agent_message: normalizedSettings.vipConcierge?.agentMessage || '',
+      vip_partner_message: normalizedSettings.vipConcierge?.partnerMessage || ''
     };
 
     try {
@@ -1459,6 +1487,7 @@ export const mysqlApi = {
     thumbnailUrl?: string;
     description?: string;
     status?: PropertyVideoStatus;
+    duration?: number;
   }): Promise<{ success: boolean; status?: number; message?: string; video?: PropertyVideo; data?: { video: PropertyVideo }; error?: string }> {
     return apiRequest('/videos', {
       method: 'POST',
@@ -1617,6 +1646,7 @@ export const DEFAULT_CONTACT_SETTINGS: SiteContactSettings = {
   workingHours: 'Lundi - Samedi : 08h00 - 18h30 | Urgences VIP 24h/7j',
   exchangeRate: 2850,
   autoApproveProperties: false,
+  virtualTourAllowedDomains: DEFAULT_VIRTUAL_TOUR_DOMAINS,
   vipConcierge: {
     enabled: true,
     title: 'Conciergerie Partenariats, Agences & Relations B2B',

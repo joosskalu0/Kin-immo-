@@ -315,6 +315,7 @@ interface AppContextType {
     thumbnailUrl?: string;
     description?: string;
     status?: PropertyVideoStatus;
+    duration?: number;
   }) => Promise<{ success: boolean; message?: string }>;
   updatePropertyVideoStatus: (id: string, status: PropertyVideoStatus, reason?: string) => Promise<void>;
   deletePropertyVideo: (id: string) => Promise<void>;
@@ -678,6 +679,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     thumbnailUrl?: string;
     description?: string;
     status?: PropertyVideoStatus;
+    duration?: number;
   }): Promise<{ success: boolean; message?: string }> => {
     const linkedProp = properties.find((p) => p.id === videoData.propertyId);
     if (!linkedProp) {
@@ -924,6 +926,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const merged: SiteContactSettings = {
       ...contactSettings,
       ...newSettings,
+      virtualTourAllowedDomains: newSettings.virtualTourAllowedDomains ?? contactSettings.virtualTourAllowedDomains,
       vipConcierge: {
         ...contactSettings.vipConcierge,
         ...(newSettings.vipConcierge || {})
@@ -1369,6 +1372,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error("Règle métier Kinimmo : Vous devez être connecté pour publier une annonce.");
     }
 
+    const isDraft = property.listingStatus === 'DRAFT' || property.published === false;
     // Exécution automatique de l'algorithme de détection des annonces suspectes
     const fraudAnalysis = analyzePropertyForFraud(property, properties, reports);
     const enrichedProperty: Property = {
@@ -1381,9 +1385,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fraudScore: fraudAnalysis.riskScore,
       fraudFlags: fraudAnalysis.flags,
       fraudLastCheckedAt: fraudAnalysis.analyzedAt,
-      // 🟢 Normal & vérification -> publication directe
-      // 🔴 Suspect -> blocage temporaire
-      published: fraudAnalysis.verdict !== 'suspect' && (property.published !== false)
+      // Les brouillons restent non publiés mais ne sont pas bloqués à l'enregistrement
+      published: !isDraft && fraudAnalysis.verdict !== 'suspect' && (property.published !== false)
     };
 
     // Enregistrement d'abord dans le backend via l'API REST
@@ -1421,6 +1424,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error("Règle métier Kinimmo : Vous devez être connecté pour modifier une annonce.");
     }
 
+    const isDraft = property.listingStatus === 'DRAFT' || property.published === false;
     // Ré-analyse lors de toute modification
     const fraudAnalysis = analyzePropertyForFraud(property, properties, reports);
     const enrichedProperty: Property = {
@@ -1429,7 +1433,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fraudScore: fraudAnalysis.riskScore,
       fraudFlags: fraudAnalysis.flags,
       fraudLastCheckedAt: fraudAnalysis.analyzedAt,
-      published: fraudAnalysis.verdict !== 'suspect' && (property.published !== false)
+      published: !isDraft && fraudAnalysis.verdict !== 'suspect' && (property.published !== false)
     };
 
     const res = await mysqlApi.updateProperty(enrichedProperty.id, enrichedProperty);

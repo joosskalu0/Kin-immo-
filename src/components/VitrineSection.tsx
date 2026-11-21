@@ -1,7 +1,12 @@
 import React, { useMemo } from 'react';
 import { Sparkles, MapPin, BedDouble, Bath, Maximize2, ArrowRight, ShieldCheck, Star } from 'lucide-react';
 import { Property } from '../types';
-import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE } from '../utils/mediaUrl';
+import {
+  resolveMediaUrl,
+  handlePropertyImageError,
+  FALLBACK_PROPERTY_IMAGE,
+  getResponsiveImgProps,
+} from '../utils/mediaUrl';
 
 interface VitrineSectionProps {
   properties: Property[];
@@ -114,6 +119,13 @@ export const VitrineSection: React.FC<VitrineSectionProps> = ({
 
           const periodText = property.period === 'month' ? '/ mois' : '';
 
+          const mainImgProps = getResponsiveImgProps(
+            mainImage,
+            property.imagesMeta?.[0]?.alt || property.title,
+            '(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 450px',
+            800
+          );
+
           return (
             <article
               key={property.id}
@@ -123,9 +135,7 @@ export const VitrineSection: React.FC<VitrineSectionProps> = ({
               {/* Badge "À LA UNE" officiel en superposition */}
               <div className="relative aspect-[16/10] w-full overflow-hidden bg-slate-900">
                 <img
-                  src={mainImage}
-                  alt={property.title}
-                  loading="lazy"
+                  {...mainImgProps}
                   onError={(e) => handlePropertyImageError(e)}
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                 />

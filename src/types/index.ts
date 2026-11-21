@@ -39,6 +39,17 @@ export type ListingLifecycleStatus =
   | 'SOLD' 
   | 'ARCHIVED';
 
+export interface PropertyImageMeta {
+  url: string;
+  publicId?: string;
+  alt?: string;
+  fingerprint?: string;
+  width?: number;
+  height?: number;
+  bytes?: number;
+  format?: string;
+}
+
 export interface PropertyStatusHistoryEntry {
   id: string;
   fromStatus: string;
@@ -89,9 +100,16 @@ export interface Property {
 
   // Media
   images: string[];
-  videoUrl?: string; // YouTube or Vimeo link
+  imagesMeta?: PropertyImageMeta[];
+  imageFingerprints?: string[];
+  videoUrl?: string; // Cloudinary MP4/WebM or YouTube/Vimeo link
+  videoPublicId?: string;
+  videoDuration?: number; // Seconds (<= 60s)
+  videoModerationStatus?: PropertyVideoStatus;
   virtualTourUrl?: string;
   floorPlanUrl?: string;
+  floorPlanPublicId?: string;
+  floorPlanAlt?: string;
 
   // Custom Fields (dynamic key-value pairs matching CustomFieldDefinition.key)
   customFields: Record<string, any>;
@@ -694,6 +712,7 @@ export interface SiteContactSettings {
   adminUrl?: string;
   requireCertifiedBadge?: boolean;
   autoApproveProperties?: boolean;
+  virtualTourAllowedDomains?: string[];
   vipConcierge: VipConciergeSettings;
 }
 
@@ -904,6 +923,8 @@ export interface PropertyVideo {
   propertyId: string;
   userId: string;
   videoUrl: string;
+  publicId?: string;
+  duration?: number;
   thumbnailUrl?: string;
   description?: string;
   status: PropertyVideoStatus;

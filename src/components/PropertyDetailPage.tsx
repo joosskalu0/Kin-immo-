@@ -41,9 +41,19 @@ import {
   Zap,
   Calculator,
   AlertTriangle,
+  FileImage,
+  Globe,
+  ExternalLink,
 } from 'lucide-react';
 import { Property, PropertyUserReport } from '../types';
-import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE } from '../utils/mediaUrl';
+import {
+  resolveMediaUrl,
+  handlePropertyImageError,
+  FALLBACK_PROPERTY_IMAGE,
+  getResponsiveImgProps,
+  getOptimizedImageUrl,
+} from '../utils/mediaUrl';
+import { validateVirtualTourUrl } from '../utils/mediaTools';
 import { useApp } from '../context/AppContext';
 import {
   convertAndFormatPrice,
@@ -172,15 +182,18 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
     setActivePropertyModalId,
     requestConfirm,
     addPropertyReport,
+    contactSettings,
+    propertyVideos,
   } = useApp();
 
   const property = useMemo(() => {
     return resolvePropertyBySlugOrId(propertyIdOrSlug, properties);
   }, [properties, propertyIdOrSlug]);
 
-  const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'video' | 'virtual360' | 'calculator'>('photos');
+  const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'plan' | 'video' | 'virtual360' | 'calculator'>('photos');
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [isFullscreenGallery, setIsFullscreenGallery] = useState(false);
+  const [isFullscreenPlan, setIsFullscreenPlan] = useState(false);
   const [activeVirtualRoom, setActiveVirtualRoom] = useState(0);
 
   const [isScheduleVisitOpen, setIsScheduleVisitOpen] = useState(false);
@@ -210,6 +223,7 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
     setSelectedImageIndex(0);
     setActiveMediaTab('photos');
     setIsFullscreenGallery(false);
+    setIsFullscreenPlan(false);
     setIsOverflowMenuOpen(false);
     setIsQuickReportOpen(false);
     setReportSubmittedReason(null);
@@ -373,6 +387,48 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
 
   // Règle stricte Modifier / Supprimer : Propriétaire, son Agence, ou Admin uniquement
   const canManageProperty = canUserManageProperty(user, property, agents);
+
+  const floorPlanSrc = property.floorPlanUrl ? resolveMediaUrl(property.floorPlanUrl) : '';
+  const videoRecord = (propertyVideos || []).find((v) => v.propertyId === property.id);
+  const effectiveVideoStatus = property.videoModerationStatus || videoRecord?.status;
+  const isVideoApproved =
+    Boolean(property.videoUrl) && (!effectiveVideoStatus || effectiveVideoStatus === 'approved');
+  const showVideoTab = Boolean(property.videoUrl) && (isVideoApproved || canManageProperty);
+  const vtValidation = property.virtualTourUrl
+    ? validateVirtualTourUrl(property.virtualTourUrl, contactSettings?.virtualTourAllowedDomains)
+    : null;
+
+  const getVirtualTourEmbedUrl = (rawUrl: string): string | null => {
+    try {
+      const parsed = new URL(rawUrl);
+      const host = parsed.hostname.toLowerCase();
+      if (host.includes('matterport.com')) {
+        return rawUrl;
+      }
+      if (host.includes('kuula.co')) {
+        if (parsed.pathname.startsWith('/share/')) return rawUrl;
+        return null;
+      }
+      if (host === 'youtu.be') {
+        const id = parsed.pathname.replace(/^\//, '');
+        return id ? `https://www.youtube.com/embed/${id}` : null;
+      }
+      if (host.includes('youtube.com')) {
+        const v = parsed.searchParams.get('v');
+        if (v) return `https://www.youtube.com/embed/${v}`;
+        if (parsed.pathname.startsWith('/embed/')) return rawUrl;
+        return null;
+      }
+      if (host.includes('vimeo.com')) {
+        if (host.startsWith('player.vimeo.com')) return rawUrl;
+        const match = parsed.pathname.match(/\/(\d+)/);
+        return match ? `https://player.vimeo.com/video/${match[1]}` : null;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
 
   // WhatsApp URL
   const waMessage = `Bonjour ${advertiserName}, je vous contacte depuis Kinimmo au sujet de "${property.title}" (${dualPrice.primaryFormatted}) à ${property.commune || property.city || 'Kinshasa'} — ${buildPropertyShareUrl(property)}`;
@@ -587,7 +643,22 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 Photos ({images.length})
               </button>
 
-              {property.videoUrl && (
+              {floorPlanSrc && (
+                <button
+                  type="button"
+                  onClick={() => setActiveMediaTab('plan')}
+                  className={`py-2.5 px-3.5 font-bold border-b-2 flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    activeMediaTab === 'plan'
+                      ? 'border-emerald-600 text-emerald-700'
+                      : 'border-transparent text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <FileImage className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Plan du bien</span>
+                </button>
+              )}
+
+              {showVideoTab && (
                 <button
                   type="button"
                   onClick={() => setActiveMediaTab('video')}
@@ -599,6 +670,11 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 >
                   <Play className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Vidéo</span>
+                  {!isVideoApproved && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-bold">
+                      En attente
+                    </span>
+                  )}
                 </button>
               )}
 
@@ -612,7 +688,7 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 }`}
               >
                 <Layers className="w-3.5 h-3.5 text-teal-600" />
-                <span>Visite 360°</span>
+                <span>{property.virtualTourUrl ? 'Visite virtuelle' : 'Visite 360°'}</span>
               </button>
 
               <button
@@ -645,8 +721,12 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
             <div className="space-y-2.5">
               <div className="relative aspect-[16/10] sm:aspect-[21/10] rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 group">
                 <img
-                  src={images[selectedImageIndex] || images[0]}
-                  alt={`${property.title} — photo ${selectedImageIndex + 1}`}
+                  {...getResponsiveImgProps(
+                    images[selectedImageIndex] || images[0],
+                    property.imagesMeta?.[selectedImageIndex]?.alt || `${property.title} — photo ${selectedImageIndex + 1}`,
+                    '(max-width: 768px) 100vw, 1200px',
+                    1200
+                  )}
                   onClick={() => setIsFullscreenGallery(true)}
                   onError={(e) => handlePropertyImageError(e)}
                   className="w-full h-full object-cover cursor-zoom-in transition-transform duration-500 group-hover:scale-[1.01]"
@@ -707,7 +787,15 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                           : 'border-slate-200 opacity-75 hover:opacity-100'
                       }`}
                     >
-                      <img src={img} alt={`Miniature ${idx + 1}`} className="w-full h-full object-cover" />
+                      <img
+                        src={getOptimizedImageUrl(img, { width: 240 }) || img}
+                        alt={property.imagesMeta?.[idx]?.alt || `Miniature ${idx + 1}`}
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => handlePropertyImageError(e)}
+                        className="w-full h-full object-cover"
+                      />
                     </button>
                   ))}
                 </div>
@@ -715,51 +803,164 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
             </div>
           )}
 
-          {activeMediaTab === 'video' && property.videoUrl && (
-            <PropertyVideoPlayer
-              videoUrl={property.videoUrl}
-              title={`Visite vidéo : ${property.title}`}
-              posterImage={images[0]}
-              autoPlay={true}
-            />
+          {activeMediaTab === 'plan' && floorPlanSrc && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                    <FileImage className="w-4 h-4 text-emerald-600" />
+                    <span>Plan architectural / Plan du bien</span>
+                  </h3>
+                  {property.floorPlanAlt && (
+                    <p className="text-xs text-slate-500 mt-0.5">{property.floorPlanAlt}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsFullscreenPlan(true)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Expand className="w-3.5 h-3.5" />
+                  <span>Agrandir le plan</span>
+                </button>
+              </div>
+              <div className="relative rounded-xl overflow-hidden bg-slate-50 border border-slate-200 flex items-center justify-center max-h-[520px]">
+                <img
+                  {...getResponsiveImgProps(
+                    floorPlanSrc,
+                    property.floorPlanAlt || `Plan du bien — ${property.title}`,
+                    '(max-width: 768px) 100vw, 1000px',
+                    1200
+                  )}
+                  onClick={() => setIsFullscreenPlan(true)}
+                  onError={(e) => handlePropertyImageError(e)}
+                  className="max-h-[500px] w-auto object-contain cursor-zoom-in"
+                />
+              </div>
+            </div>
+          )}
+
+          {activeMediaTab === 'video' && showVideoTab && property.videoUrl && (
+            <div className="space-y-3">
+              {!isVideoApproved && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>Modération en cours :</strong> cette vidéo ({effectiveVideoStatus === 'rejected' ? 'refusée' : 'en attente de validation'}) est masquée au public tant qu’elle n’a pas été approuvée par l’équipe Kinimmo.
+                  </span>
+                </div>
+              )}
+              <PropertyVideoPlayer
+                videoUrl={property.videoUrl}
+                title={`Visite vidéo : ${property.title}`}
+                posterImage={getOptimizedImageUrl(images[0], { width: 1200 }) || images[0]}
+                autoPlay={true}
+              />
+            </div>
           )}
 
           {activeMediaTab === 'virtual360' && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-              <div className="flex gap-2 overflow-x-auto pb-1 text-xs">
-                {['Séjour principal', 'Suite parentale', 'Cuisine', 'Extérieur'].map((room, idx) => (
-                  <button
-                    key={room}
-                    type="button"
-                    onClick={() => setActiveVirtualRoom(idx)}
-                    className={`px-3 py-1.5 rounded-lg font-bold border whitespace-nowrap cursor-pointer ${
-                      activeVirtualRoom === idx
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-slate-50 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {room}
-                  </button>
-                ))}
-              </div>
-              <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-200">
-                <img
-                  src={images[activeVirtualRoom % images.length]}
-                  alt="Aperçu 360"
-                  onError={(e) => handlePropertyImageError(e)}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute bottom-3 right-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsScheduleVisitOpen(true)}
-                    className="px-3.5 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Visiter ce bien sur place</span>
-                  </button>
-                </div>
-              </div>
+              {property.virtualTourUrl ? (
+                vtValidation?.valid ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold flex items-center gap-1.5">
+                          <Globe className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Domaine autorisé : {vtValidation.hostname}</span>
+                        </span>
+                      </div>
+                      <a
+                        href={vtValidation.normalizedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Ouvrir la visite virtuelle</span>
+                      </a>
+                    </div>
+                    {(() => {
+                      const embedUrl = getVirtualTourEmbedUrl(vtValidation.normalizedUrl || property.virtualTourUrl);
+                      if (!embedUrl) {
+                        return (
+                          <div className="p-6 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
+                            <Globe className="w-8 h-8 text-emerald-600 mx-auto" />
+                            <p className="text-sm font-bold text-slate-900">Visite virtuelle prête sur {vtValidation.hostname}</p>
+                            <p className="text-xs text-slate-600">
+                              Cliquez sur « Ouvrir la visite virtuelle » pour explorer le bien en immersion 3D.
+                            </p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="aspect-video rounded-xl overflow-hidden border border-slate-200 bg-slate-950">
+                          <iframe
+                            src={embedUrl}
+                            title={`Visite virtuelle — ${property.title}`}
+                            className="w-full h-full border-0"
+                            allow="xr-spatial-tracking; fullscreen; gyroscope; accelerometer; autoplay"
+                            allowFullScreen
+                            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                          />
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div className="p-5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-start gap-2.5">
+                    <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Lien de visite virtuelle bloqué par sécurité</p>
+                      <p className="text-rose-700 mt-0.5">
+                        Ce domaine externe n’appartient pas à la liste des plateformes de visite virtuelle autorisées par Kinimmo.
+                      </p>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <>
+                  <div className="flex gap-2 overflow-x-auto pb-1 text-xs">
+                    {['Séjour principal', 'Suite parentale', 'Cuisine', 'Extérieur'].map((room, idx) => (
+                      <button
+                        key={room}
+                        type="button"
+                        onClick={() => setActiveVirtualRoom(idx)}
+                        className={`px-3 py-1.5 rounded-lg font-bold border whitespace-nowrap cursor-pointer ${
+                          activeVirtualRoom === idx
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-slate-50 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {room}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-200">
+                    <img
+                      {...getResponsiveImgProps(
+                        images[activeVirtualRoom % images.length],
+                        property.imagesMeta?.[activeVirtualRoom % images.length]?.alt || `Aperçu 360 — ${property.title}`,
+                        '(max-width: 768px) 100vw, 1000px',
+                        1200
+                      )}
+                      onError={(e) => handlePropertyImageError(e)}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute bottom-3 right-3">
+                      <button
+                        type="button"
+                        onClick={() => setIsScheduleVisitOpen(true)}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>Visiter ce bien sur place</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1255,10 +1456,14 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                   >
                     <div className="aspect-[16/10] bg-slate-100 overflow-hidden">
                       <img
-                        src={simImg}
-                        alt={sim.title}
+                        {...getResponsiveImgProps(
+                          simImg,
+                          sim.imagesMeta?.[0]?.alt || sim.title,
+                          '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 320px',
+                          640
+                        )}
+                        onError={(e) => handlePropertyImageError(e)}
                         className="w-full h-full object-cover"
-                        loading="lazy"
                       />
                     </div>
                     <div className="p-3.5 space-y-1.5 flex-1 flex flex-col justify-between">
@@ -1509,9 +1714,10 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <img
-              src={images[selectedImageIndex] || images[0]}
-              alt={`${property.title} plein écran`}
+              src={getOptimizedImageUrl(images[selectedImageIndex] || images[0], { width: 1600 }) || images[selectedImageIndex] || images[0]}
+              alt={property.imagesMeta?.[selectedImageIndex]?.alt || `${property.title} plein écran`}
               onError={(e) => handlePropertyImageError(e)}
+              referrerPolicy="no-referrer"
               className="max-h-full max-w-full object-contain rounded-xl"
             />
 
@@ -1551,10 +1757,51 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                     selectedImageIndex === idx ? 'border-emerald-400' : 'border-white/20 opacity-60'
                   }`}
                 >
-                  <img src={img} alt="" className="w-full h-full object-cover" />
+                  <img
+                    src={getOptimizedImageUrl(img, { width: 200 }) || img}
+                    alt={property.imagesMeta?.[idx]?.alt || ''}
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
                 </button>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* PLAN DU BIEN PLEIN ÉCRAN (LIGHTBOX) */}
+      {isFullscreenPlan && floorPlanSrc && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/95 flex flex-col justify-between p-4 sm:p-6"
+          onClick={() => setIsFullscreenPlan(false)}
+        >
+          <div className="flex items-center justify-between text-white" onClick={(e) => e.stopPropagation()}>
+            <span className="text-xs sm:text-sm font-bold truncate max-w-[80%]">
+              Plan du bien — {property.title}
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsFullscreenPlan(false)}
+              className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+              aria-label="Fermer le plan"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 flex items-center justify-center min-h-0 my-3" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={getOptimizedImageUrl(floorPlanSrc, { width: 1600 }) || floorPlanSrc}
+              alt={property.floorPlanAlt || `Plan du bien — ${property.title}`}
+              onError={(e) => handlePropertyImageError(e)}
+              referrerPolicy="no-referrer"
+              className="max-h-full max-w-full object-contain rounded-xl bg-white p-2"
+            />
+          </div>
+          {property.floorPlanAlt && (
+            <p className="text-center text-xs text-slate-300">{property.floorPlanAlt}</p>
           )}
         </div>
       )}

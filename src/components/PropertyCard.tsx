@@ -4,7 +4,12 @@ import { useApp } from '../context/AppContext';
 import { convertAndFormatPrice } from '../utils/currency';
 import { buildPropertyShareUrl } from '../utils/shareUtils';
 import { canUserManageProperty } from '../utils/propertyPermissions';
-import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE } from '../utils/mediaUrl';
+import {
+  resolveMediaUrl,
+  handlePropertyImageError,
+  FALLBACK_PROPERTY_IMAGE,
+  getResponsiveImgProps,
+} from '../utils/mediaUrl';
 import {
   Bed,
   Bath,
@@ -72,6 +77,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
     setEditingProperty,
     setIsSubmitPropertyOpen,
     requestConfirm,
+    propertyVideos,
   } = useApp();
 
   const [activeImgIndex, setActiveImgIndex] = useState(0);
@@ -107,6 +113,17 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
     ? property.images.map((img) => resolveMediaUrl(img)).filter(Boolean)
     : [];
   const images = rawImages.length > 0 ? rawImages : [FALLBACK_PROPERTY_IMAGE];
+
+  const matchingVideoRecord = (propertyVideos || []).find((v) => v.propertyId === property.id);
+  const effectiveVideoStatus = property.videoModerationStatus || matchingVideoRecord?.status;
+  const isVideoApproved = Boolean(property.videoUrl) && (!effectiveVideoStatus || effectiveVideoStatus === 'approved');
+  const activeAltText = property.imagesMeta?.[activeImgIndex]?.alt || property.title;
+  const activeImgProps = getResponsiveImgProps(
+    images[activeImgIndex] || images[0],
+    activeAltText,
+    '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 400px',
+    800
+  );
 
   const handleNextImage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -147,12 +164,10 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
       {/* Image Banner Container */}
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
         <img
-          src={images[activeImgIndex] || images[0]}
-          alt={property.title}
+          {...activeImgProps}
           className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer ${isSold ? 'grayscale-[35%] contrast-95' : ''}`}
           onClick={() => setActivePropertyModalId(property.id)}
           onError={(e) => handlePropertyImageError(e)}
-          loading="lazy"
         />
 
         {/* Gradient Overlay */}
@@ -277,7 +292,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
             </span>
           )}
 
-          {property.videoUrl && (
+          {isVideoApproved && (
             <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-slate-950/90 text-emerald-300 border border-emerald-500/40 backdrop-blur-md flex items-center gap-1.5 shadow-sm">
               <Video className="w-3.5 h-3.5 text-emerald-400" />
               Vidéo HD
@@ -465,8 +480,11 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
             <div className="flex items-center gap-1.5 truncate">
               <div className="relative shrink-0">
                 <img
-                  src={agent.avatar}
+                  src={resolveMediaUrl(agent.avatar) || agent.avatar}
                   alt={agent.name}
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
                   className="w-6 h-6 rounded-full object-cover ring-1 ring-emerald-500/40"
                 />
                 {(agent.isVerified || agent.verificationStatus === 'verified') && (
@@ -487,8 +505,11 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
               <div className="relative shrink-0">
                 {agency.logo ? (
                   <img
-                    src={agency.logo}
+                    src={resolveMediaUrl(agency.logo) || agency.logo}
                     alt={agency.name}
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
                     className="w-7 h-7 rounded-full object-cover ring-1 ring-emerald-600/40"
                   />
                 ) : (

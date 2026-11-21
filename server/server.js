@@ -31,8 +31,11 @@ const videosRoutes = require('./routes/videos');
 const trustRoutes = require('./routes/trust');
 const propertyVisitsRoutes = require('./routes/propertyVisits');
 const agencyRoutes = require('./routes/agency');
+const cloudinaryRoutes = require('./routes/cloudinary');
+const mediaRoutes = require('./routes/media');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // Configuration des options CORS (autoriser le frontend Kinimmo)
@@ -46,16 +49,16 @@ const allowedOrigins = [
   'http://localhost:5173'
 ].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
     // Autoriser les requêtes sans origine (comme Postman, curl ou requêtes internes)
     if (!origin) {
       return callback(null, true);
     }
-    
+
     const cleanOrigin = origin.replace(/\/+$/, '').toLowerCase();
-    
-    const isAllowed = 
+
+    const isAllowed =
       allowedOrigins.some(o => o && cleanOrigin === o.replace(/\/+$/, '').toLowerCase()) ||
       cleanOrigin.includes('kinimmo.com') ||
       cleanOrigin.includes('kinimmo.cd') ||
@@ -68,14 +71,16 @@ app.use(cors({
     if (isAllowed) {
       callback(null, true);
     } else {
-      // Rejeter poliment sans lancer d'exception qui pollue les journaux
       callback(null, false);
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Middlewares pour parser le JSON et les formulaires URL-encoded
 app.use(express.json({ limit: '50mb' }));
@@ -130,6 +135,8 @@ app.use('/api/agency', agencyRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/videos', videosRoutes);
 app.use('/api/trust', trustRoutes);
+app.use('/api/cloudinary', cloudinaryRoutes);
+app.use('/api/media', mediaRoutes);
 
 // Dossier pour les fichiers téléversés (vidéos, documents, photos)
 const uploadsPaths = [

@@ -380,6 +380,8 @@ async function updatePropertyStatus(req, res, next) {
   }
 }
 
+const { destroyFromCloudinary } = require('../services/cloudinaryRestService');
+
 /**
  * Supprimer une annonce immobilière
  * DELETE /api/admin/properties/:id
@@ -387,7 +389,39 @@ async function updatePropertyStatus(req, res, next) {
 async function deleteProperty(req, res, next) {
   try {
     const { id } = req.params;
+
+    const [propRows] = await pool.execute('SELECT video_url, custom_fields FROM properties WHERE id = ? LIMIT 1', [id]);
+    const [imgRows] = await pool.execute('SELECT image_url FROM property_images WHERE property_id = ?', [id]);
+
+    const urlsToDestroy = [];
+    for (const r of imgRows) {
+      if (r.image_url && r.image_url.includes('cloudinary.com')) {
+        urlsToDestroy.push({ url: r.image_url, resourceType: 'image' });
+      }
+    }
+
+    if (propRows[0]) {
+      if (propRows[0].video_url && propRows[0].video_url.includes('cloudinary.com')) {
+        urlsToDestroy.push({ url: propRows[0].video_url, resourceType: 'video' });
+      }
+      try {
+        const cf = typeof propRows[0].custom_fields === 'string'
+          ? JSON.parse(propRows[0].custom_fields)
+          : propRows[0].custom_fields;
+        if (cf?._mediaMeta?.floorPlanUrl && String(cf._mediaMeta.floorPlanUrl).includes('cloudinary.com')) {
+          urlsToDestroy.push({
+            url: cf._mediaMeta.floorPlanUrl,
+            publicId: cf._mediaMeta.floorPlanPublicId,
+            resourceType: 'image',
+          });
+        }
+      } catch {}
+    }
+
     await pool.execute('DELETE FROM properties WHERE id = ?', [id]);
+
+    await Promise.allSettled(urlsToDestroy.map((item) => destroyFromCloudinary(item)));
+
     res.json({ success: true, message: 'Annonce supprimée avec succès.' });
   } catch (error) {
     next(error);

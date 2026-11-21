@@ -66,10 +66,18 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
         return;
       }
 
-      setErrorMessage(res.message || 'Identifiants administrateur incorrects.');
-    } catch (err: any) {
+      const rawMsg = res.message || 'Identifiants administrateur incorrects.';
       setErrorMessage(
-        err?.message || 'Identifiants administrateur incorrects ou erreur de communication avec le serveur MySQL.'
+        /load failed|failed to fetch/i.test(rawMsg)
+          ? "Impossible de joindre le serveur API d'administration. Vérifiez que le backend Node.js est démarré et configuré dans kinimmo-config.js."
+          : rawMsg
+      );
+    } catch (err: any) {
+      const msg = err?.message || '';
+      setErrorMessage(
+        /load failed|failed to fetch/i.test(msg)
+          ? "Impossible de joindre le serveur API d'administration. Vérifiez votre connexion ou kinimmo-config.js."
+          : (msg || 'Identifiants administrateur incorrects ou erreur de communication avec le serveur MySQL.')
       );
     } finally {
       setIsLoading(false);

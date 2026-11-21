@@ -1,6 +1,18 @@
 const pool = require('../config/database');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const {
+  MIN_PROPERTY_PHOTOS,
+  MAX_PROPERTY_PHOTOS,
+  MAX_VIDEO_DURATION_SECONDS,
+  DEFAULT_VIRTUAL_TOUR_DOMAINS,
+  loadCloudinaryConfig,
+  uploadToCloudinary,
+  destroyFromCloudinary,
+  validateVirtualTourDomain,
+  hammingDistanceHex64,
+} = require('../services/cloudinaryRestService');
 
 /**
  * Sauvegarder une image base64 sur le disque local et retourner son URL publique
@@ -15,15 +27,173 @@ function parseJsonSafe(val, fallback) {
   }
 }
 
-function saveBase64Image(imgData, propertyId, index) {
+function hydrateMediaFromRow(row, images = [], videoModStatusMap = null, currentUser = null) {
+  const rawCustomFields = parseJsonSafe(row.custom_fields, {});
+  const mediaMeta = rawCustomFields && typeof rawCustomFields === 'object' ? rawCustomFields._mediaMeta : null;
+  const cleanCustomFields = rawCustomFields && typeof rawCustomFields === 'object'
+    ? Object.fromEntries(Object.entries(rawCustomFields).filter(([k]) => k !== '_mediaMeta'))
+    : {};
+
+  const videoModStatus = videoModStatusMap ? videoModStatusMap.get(row.id) : undefined;
+  const isOwnerOrAdmin = Boolean(
+    currentUser &&
+      (currentUser.role === 'admin' ||
+        currentUser.id === row.agent_id ||
+        (currentUser.agency_id && currentUser.agency_id === row.agency_id))
+  );
+
+  // Une vidéo téléversée en attente/refusée/masquée ne doit jamais fuiter publiquement
+  const shouldHidePendingVideo =
+    videoModStatus &&
+    videoModStatus !== 'approved' &&
+    !isOwnerOrAdmin;
+
+  const listingStatus = mediaMeta?.listingStatus || (row.published ? 'PUBLISHED' : 'DRAFT');
+
+  return {
+    customFields: cleanCustomFields,
+    imagesMeta: Array.isArray(mediaMeta?.imagesMeta)
+      ? mediaMeta.imagesMeta
+      : images.map((url) => ({ url })),
+    imageFingerprints: Array.isArray(mediaMeta?.fingerprints) ? mediaMeta.fingerprints : [],
+    floorPlanUrl: mediaMeta?.floorPlanUrl || undefined,
+    floorPlanPublicId: mediaMeta?.floorPlanPublicId || undefined,
+    floorPlanAlt: mediaMeta?.floorPlanAlt || undefined,
+    videoPublicId: mediaMeta?.videoPublicId || undefined,
+    videoDuration: mediaMeta?.videoDuration || undefined,
+    videoModerationStatus: videoModStatus || mediaMeta?.videoModerationStatus || undefined,
+    videoUrl: shouldHidePendingVideo ? undefined : row.video_url,
+    listingStatus,
+    fraudStatus: mediaMeta?.fraudStatus || undefined,
+    fraudFlags: Array.isArray(mediaMeta?.fraudFlags) ? mediaMeta.fraudFlags : undefined,
+  };
+}
+
+async function getAllowedVirtualTourDomains(dbConn = pool) {
+  try {
+    const [rows] = await dbConn.execute(
+      "SELECT setting_value FROM site_settings WHERE setting_key = 'virtual_tour_allowed_domains' LIMIT 1"
+    );
+    if (rows.length > 0 && rows[0].setting_value) {
+      return rows[0].setting_value;
+    }
+  } catch {}
+  return DEFAULT_VIRTUAL_TOUR_DOMAINS;
+}
+
+async function checkDuplicateFingerprintsInDb(dbConn, fingerprints, imageUrls, excludePropertyId = null) {
+  const cleanFps = Array.isArray(fingerprints)
+    ? fingerprints.map((f) => String(f || '').trim().toLowerCase()).filter((f) => f.length === 16)
+    : [];
+  const cleanUrls = Array.isArray(imageUrls)
+    ? imageUrls.map((u) => String(u || '').trim()).filter(Boolean)
+    : [];
+
+  if (cleanFps.length === 0 && cleanUrls.length === 0) return [];
+
+  const matches = new Map();
+  try {
+    if (cleanUrls.length > 0) {
+      const placeholders = cleanUrls.map(() => '?').join(',');
+      const [imgRows] = await dbConn.query(
+        `SELECT pi.property_id, p.title FROM property_images pi INNER JOIN properties p ON p.id = pi.property_id
+         WHERE pi.image_url IN (${placeholders}) AND (? IS NULL OR pi.property_id != ?)`,
+        [...cleanUrls, excludePropertyId, excludePropertyId]
+      );
+      for (const r of imgRows) {
+        matches.set(r.property_id, { propertyId: r.property_id, propertyTitle: r.title, distance: 0 });
+      }
+    }
+
+    if (cleanFps.length > 0) {
+      const [propRows] = await dbConn.query(
+        'SELECT id, title, custom_fields FROM properties WHERE (? IS NULL OR id != ?)',
+        [excludePropertyId, excludePropertyId]
+      );
+      for (const row of propRows) {
+        if (matches.has(row.id)) continue;
+        const cf = parseJsonSafe(row.custom_fields, {});
+        const storedFps = Array.isArray(cf?._mediaMeta?.fingerprints) ? cf._mediaMeta.fingerprints : [];
+        for (const fp of cleanFps) {
+          for (const existingFp of storedFps) {
+            const dist = hammingDistanceHex64(fp, String(existingFp || '').toLowerCase());
+            if (dist <= 6) {
+              matches.set(row.id, { propertyId: row.id, propertyTitle: row.title, distance: dist });
+              break;
+            }
+          }
+          if (matches.has(row.id)) break;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Property Controller] Duplicate fingerprint check warning:', err.message);
+  }
+  return Array.from(matches.values());
+}
+
+async function ensurePendingVideoModeration(dbConn, { propertyId, userId, videoUrl, thumbnailUrl, isAdmin }) {
+  if (!videoUrl || typeof videoUrl !== 'string') return null;
+  const trimmed = videoUrl.trim();
+  if (!trimmed) return null;
+
+  try {
+    const [existing] = await dbConn.execute(
+      'SELECT id, status FROM property_videos WHERE property_id = ? AND video_url = ? LIMIT 1',
+      [propertyId, trimmed]
+    );
+    if (existing.length > 0) {
+      return existing[0].status;
+    }
+
+    const vidStatus = isAdmin ? 'approved' : 'pending';
+    const videoId = `vid_${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`;
+    await dbConn.execute(
+      `INSERT INTO property_videos (id, property_id, user_id, video_url, thumbnail_url, description, status, views_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        videoId,
+        propertyId,
+        userId || 'agent_system',
+        trimmed,
+        thumbnailUrl || null,
+        'Visite vidéo soumise depuis le formulaire d\'annonce',
+        vidStatus,
+      ]
+    );
+    return vidStatus;
+  } catch (err) {
+    console.warn('[Property Controller] ensurePendingVideoModeration warning:', err.message);
+    return isAdmin ? 'approved' : 'pending';
+  }
+}
+
+async function saveBase64Image(imgData, propertyId, index, folder = 'kinimmo/property_images') {
   if (!imgData || typeof imgData !== 'string') return imgData;
   const trimmed = imgData.trim();
   if (!trimmed.startsWith('data:image')) {
-    // Si l'image vient déjà de notre propre dossier /uploads/images/, conserver le chemin relatif propre
     const uploadsMatch = trimmed.match(/^https?:\/\/[^/]+(\/uploads\/images\/[^?#]+)$/i);
     return uploadsMatch ? uploadsMatch[1] : trimmed;
   }
 
+  // Priorité 1 : Upload vers Cloudinary si configuré
+  try {
+    const cloudCfg = loadCloudinaryConfig();
+    if (cloudCfg.isConfigured) {
+      const uploaded = await uploadToCloudinary({
+        fileData: trimmed,
+        resourceType: 'image',
+        folder,
+      });
+      if (uploaded?.secure_url) {
+        return uploaded.secure_url;
+      }
+    }
+  } catch (cloudErr) {
+    console.warn('[Property Controller] Cloudinary image upload fallback to disk:', cloudErr.message);
+  }
+
+  // Fallback disque local si Cloudinary indisponible
   try {
     const matches = trimmed.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/s);
     if (!matches || matches.length !== 3) return trimmed;
@@ -55,11 +225,27 @@ function saveBase64Image(imgData, propertyId, index) {
 }
 
 /**
- * Sauvegarder une vidéo base64 sur le disque local et retourner son URL publique
+ * Sauvegarder une vidéo base64 sur Cloudinary (prioritaire) ou sur le disque local
  */
-function saveBase64Video(videoUrl) {
+async function saveBase64Video(videoUrl) {
   if (!videoUrl || typeof videoUrl !== 'string') return null;
   if (videoUrl.startsWith('data:video')) {
+    try {
+      const cloudCfg = loadCloudinaryConfig();
+      if (cloudCfg.isConfigured) {
+        const uploaded = await uploadToCloudinary({
+          fileData: videoUrl,
+          resourceType: 'video',
+          folder: 'kinimmo/property_videos',
+        });
+        if (uploaded?.secure_url) {
+          return uploaded.secure_url;
+        }
+      }
+    } catch (cloudErr) {
+      console.warn('[Property Controller] Cloudinary video upload fallback to disk:', cloudErr.message);
+    }
+
     try {
       const matches = videoUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
       if (matches && matches.length === 3) {
@@ -181,9 +367,10 @@ async function getProperties(req, res, next) {
 
     const [rows] = await pool.query(sql, params);
 
-    // Récupérer toutes les images associées dans l'ordre exact (évite les bugs JSON_ARRAYAGG sur MariaDB/MySQL)
     const propIds = rows.map((r) => r.id).filter(Boolean);
     const imagesByPropId = new Map();
+    const videoModMap = new Map();
+
     if (propIds.length > 0) {
       const placeholders = propIds.map(() => '?').join(',');
       const [imgRows] = await pool.query(
@@ -197,58 +384,72 @@ async function getProperties(req, res, next) {
         }
         imagesByPropId.get(imgRow.property_id).push(imgRow.image_url);
       }
+
+      try {
+        const [vidRows] = await pool.query(
+          `SELECT property_id, status FROM property_videos WHERE property_id IN (${placeholders}) ORDER BY created_at DESC`,
+          propIds
+        );
+        for (const vr of vidRows) {
+          if (!videoModMap.has(vr.property_id)) {
+            videoModMap.set(vr.property_id, vr.status);
+          }
+        }
+      } catch {}
     }
 
-    // Formattage des champs JSON (amenities, custom_fields, images) pour le frontend React
-    const formatted = rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      description: row.description,
-      price: Number(row.price),
-      currency: row.currency || 'USD',
-      period: row.period,
-      type: row.type,
-      status: row.status,
-      category: row.category,
-      address: row.address,
-      city: row.city,
-      commune: row.commune,
-      quartier: row.quartier,
-      avenue: row.avenue,
-      referencePoint: row.reference_point,
-      zipCode: row.zip_code,
-      country: row.country,
-      lat: Number(row.lat),
-      lng: Number(row.lng),
-      bedrooms: row.bedrooms,
-      bathrooms: row.bathrooms,
-      area: Number(row.area),
-      yearBuilt: row.year_built,
-      garages: row.garages,
-      amenities: parseJsonSafe(row.amenities, []),
-      customFields: parseJsonSafe(row.custom_fields, {}),
-      images: imagesByPropId.get(row.id) || [],
-      videoUrl: row.video_url,
-      virtualTourUrl: row.virtual_tour_url,
-      agentId: row.agent_id,
-      agencyId: row.agency_id,
-      agencyName: row.agency_title,
-      agencyLogo: row.agency_logo,
-      agentName: row.agent_name,
-      agentPhone: row.agent_phone,
-      agentWhatsapp: row.agent_whatsapp,
-      viewsCount: row.views_count,
-      featured: Boolean(row.featured),
-      isPremium: Boolean(row.is_premium),
-      isUrgent: Boolean(row.is_urgent),
-      listingTier: row.listing_tier || (Boolean(row.featured) ? 'featured' : 'free'),
-      boostExpiresAt: row.boost_expires_at || null,
-      refreshBumpAt: row.refresh_bump_at || null,
-      published: Boolean(row.published),
-      labels: [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+    const formatted = rows.map((row) => {
+      const imgs = imagesByPropId.get(row.id) || [];
+      const hydrated = hydrateMediaFromRow(row, imgs, videoModMap, req.user);
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        price: Number(row.price),
+        currency: row.currency || 'USD',
+        period: row.period,
+        type: row.type,
+        status: row.status,
+        category: row.category,
+        address: row.address,
+        city: row.city,
+        commune: row.commune,
+        quartier: row.quartier,
+        avenue: row.avenue,
+        referencePoint: row.reference_point,
+        zipCode: row.zip_code,
+        country: row.country,
+        lat: Number(row.lat),
+        lng: Number(row.lng),
+        bedrooms: row.bedrooms,
+        bathrooms: row.bathrooms,
+        area: Number(row.area),
+        yearBuilt: row.year_built,
+        garages: row.garages,
+        amenities: parseJsonSafe(row.amenities, []),
+        images: imgs,
+        virtualTourUrl: row.virtual_tour_url,
+        ...hydrated,
+        agentId: row.agent_id,
+        agencyId: row.agency_id,
+        agencyName: row.agency_title,
+        agencyLogo: row.agency_logo,
+        agentName: row.agent_name,
+        agentPhone: row.agent_phone,
+        agentWhatsapp: row.agent_whatsapp,
+        viewsCount: row.views_count,
+        featured: Boolean(row.featured),
+        isPremium: Boolean(row.is_premium),
+        isUrgent: Boolean(row.is_urgent),
+        listingTier: row.listing_tier || (Boolean(row.featured) ? 'featured' : 'free'),
+        boostExpiresAt: row.boost_expires_at || null,
+        refreshBumpAt: row.refresh_bump_at || null,
+        published: Boolean(row.published),
+        labels: [],
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+    });
 
     res.json({
       success: true,
@@ -285,16 +486,24 @@ async function getPropertyById(req, res, next) {
     }
 
     const row = rows[0];
-
-    // Récupérer les images associées
     const [imagesRows] = await pool.execute(
       'SELECT image_url FROM property_images WHERE property_id = ? ORDER BY display_order ASC',
       [id]
     );
     const images = imagesRows.map(img => img.image_url);
 
-    // Incrémenter le compteur de vues
+    const videoModMap = new Map();
+    try {
+      const [vidRows] = await pool.execute(
+        'SELECT status FROM property_videos WHERE property_id = ? ORDER BY created_at DESC LIMIT 1',
+        [id]
+      );
+      if (vidRows.length > 0) videoModMap.set(id, vidRows[0].status);
+    } catch {}
+
     await pool.execute('UPDATE properties SET views_count = views_count + 1 WHERE id = ?', [id]);
+
+    const hydrated = hydrateMediaFromRow(row, images, videoModMap, req.user);
 
     const property = {
       id: row.id,
@@ -322,10 +531,9 @@ async function getPropertyById(req, res, next) {
       yearBuilt: row.year_built,
       garages: row.garages,
       amenities: typeof row.amenities === 'string' ? JSON.parse(row.amenities) : (row.amenities || []),
-      customFields: typeof row.custom_fields === 'string' ? JSON.parse(row.custom_fields) : (row.custom_fields || {}),
       images: images.length > 0 ? images : [],
-      videoUrl: row.video_url,
       virtualTourUrl: row.virtual_tour_url,
+      ...hydrated,
       agentId: row.agent_id,
       agencyId: row.agency_id,
       agencyName: row.agency_title,
@@ -363,15 +571,37 @@ async function createProperty(req, res, next) {
 
     const p = req.body;
     const propertyId = p.id || `prop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const isAdmin = req.user?.role === 'admin';
+    const listingStatus = String(p.listingStatus || (p.published === false ? 'DRAFT' : 'PUBLISHED')).toUpperCase();
+    const isDraft = listingStatus === 'DRAFT' || listingStatus === 'ARCHIVED';
 
-    // Vérification du quota selon la formule d'abonnement de l'utilisateur
-    if (req.user && req.user.role !== 'admin') {
+    const rawImages = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
+
+    // 1. Validation du nombre de photos (3 min pour publication publique, brouillons autorisés)
+    if (!isDraft && listingStatus === 'PUBLISHED' && rawImages.length < MIN_PROPERTY_PHOTOS) {
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: `Au moins ${MIN_PROPERTY_PHOTOS} photos sont requises pour publier une annonce publiquement (actuellement ${rawImages.length}). Enregistrez en brouillon pour continuer plus tard.`,
+      });
+    }
+
+    // 2. Vérification des quotas du plan (annonces + photos max 20)
+    let maxPhotosCap = MAX_PROPERTY_PHOTOS;
+    if (req.user && !isAdmin) {
       try {
         const [userRows] = await connection.execute('SELECT plan_id, role FROM users WHERE id = ? LIMIT 1', [req.user.id]);
         const currentPlanId = userRows[0]?.plan_id || 'starter';
-        const [planRows] = await connection.execute('SELECT max_listings, name FROM pricing_plans WHERE id = ? LIMIT 1', [currentPlanId]);
+        const [planRows] = await connection.execute(
+          'SELECT max_listings, max_photos_per_listing, name FROM pricing_plans WHERE id = ? LIMIT 1',
+          [currentPlanId]
+        );
         const maxListings = planRows[0]?.max_listings || 3;
         const planName = planRows[0]?.name || 'Starter Particulier';
+        if (planRows[0]?.max_photos_per_listing) {
+          maxPhotosCap = Math.min(MAX_PROPERTY_PHOTOS, Math.max(MIN_PROPERTY_PHOTOS, Number(planRows[0].max_photos_per_listing)));
+        }
 
         const [countRows] = await connection.execute('SELECT COUNT(*) as cnt FROM properties WHERE agent_id = ?', [req.user.id]);
         const currentCount = countRows[0]?.cnt || 0;
@@ -387,32 +617,53 @@ async function createProperty(req, res, next) {
             maxListings
           });
         }
-      } catch (quotaErr) {
-        // En cas d'erreur de requête sur les quotas, ne pas bloquer
-      }
+      } catch {}
     }
 
-    // Vérification de sécurité des contraintes de clés étrangères (users & agencies)
+    if (rawImages.length > maxPhotosCap) {
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: `Nombre maximum de photos dépassé (${rawImages.length}/${maxPhotosCap} max).`,
+      });
+    }
+
+    // 3. Validation domaine visite virtuelle
+    const allowedDomains = await getAllowedVirtualTourDomains(connection);
+    const tourCheck = validateVirtualTourDomain(p.virtualTourUrl, allowedDomains);
+    if (!tourCheck.valid) {
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({ success: false, message: tourCheck.message });
+    }
+
+    // 4. Validation durée vidéo (<= 60s)
+    if (p.videoDuration !== undefined && Number(p.videoDuration) > MAX_VIDEO_DURATION_SECONDS) {
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: `La vidéo ne peut pas dépasser ${MAX_VIDEO_DURATION_SECONDS} secondes.`,
+      });
+    }
+
+    // Contraintes de clés étrangères
     let validAgentId = null;
     let validAgencyId = null;
-
     if (req.user && req.user.id) {
       try {
         const [u] = await connection.execute('SELECT id FROM users WHERE id = ? LIMIT 1', [req.user.id]);
         if (u.length > 0) {
           validAgentId = req.user.id;
         } else {
-          // Si l'utilisateur est authentifié par token valide mais manquant en base (ex: table vidée), on restaure son profil
-          const autoName = req.user.name || 'Agent Kinimmo';
-          const autoEmail = req.user.email || `${req.user.id}@kinimmo.com`;
-          const autoRole = req.user.role || 'agent';
           await connection.execute(
             'INSERT INTO users (id, name, email, password_hash, role, is_verified) VALUES (?, ?, ?, ?, ?, TRUE)',
-            [req.user.id, autoName, autoEmail, '$2a$10$DUMMY_RESTORED_USER_HASH', autoRole]
+            [req.user.id, req.user.name || 'Agent Kinimmo', req.user.email || `${req.user.id}@kinimmo.com`, '$2a$10$DUMMY_RESTORED_USER_HASH', req.user.role || 'agent']
           );
           validAgentId = req.user.id;
         }
-      } catch (userCheckErr) {
+      } catch {
         validAgentId = null;
       }
     }
@@ -421,18 +672,67 @@ async function createProperty(req, res, next) {
       try {
         const [ag] = await connection.execute('SELECT id FROM agencies WHERE id = ? LIMIT 1', [req.user.agency_id]);
         if (ag.length > 0) validAgencyId = req.user.agency_id;
-      } catch (agErr) {
+      } catch {
         validAgencyId = null;
       }
     }
 
-    // Traitement sécurisé de l'URL vidéo (conversion base64 automatique si fournie)
-    const videoUrlToSave = saveBase64Video(p.videoUrl);
+    const videoUrlToSave = await saveBase64Video(p.videoUrl);
+    const savedFloorPlanUrl = p.floorPlanUrl
+      ? await saveBase64Image(p.floorPlanUrl, propertyId, 999, 'kinimmo/floor_plans')
+      : null;
 
-    const isPublished = (p.published !== false && p.fraudStatus !== 'suspect') ? 1 : 0;
-    const isFeatured = req.user?.role === 'admin' ? Boolean(p.featured) : false;
+    // Insertion des images
+    const savedImages = [];
+    for (let i = 0; i < rawImages.length; i++) {
+      const savedUrl = await saveBase64Image(rawImages[i], propertyId, i, 'kinimmo/property_images');
+      if (savedUrl) savedImages.push(savedUrl);
+    }
 
-    // Insertion principale
+    // 5. Détection d'empreintes dupliquées (signalement modération admin sans bloquer les brouillons)
+    const fingerprints = Array.isArray(p.imageFingerprints)
+      ? p.imageFingerprints
+      : Array.isArray(p.imagesMeta)
+      ? p.imagesMeta.map((m) => m?.fingerprint).filter(Boolean)
+      : [];
+    const dupMatches = await checkDuplicateFingerprintsInDb(connection, fingerprints, savedImages, null);
+    let fraudStatus = p.fraudStatus || 'normal';
+    const fraudFlags = Array.isArray(p.fraudFlags) ? [...p.fraudFlags] : [];
+    if (dupMatches.length > 0) {
+      if (fraudStatus === 'normal') fraudStatus = 'review_required';
+      if (!fraudFlags.some((f) => f.code === 'DUPLICATE_PHOTOS')) {
+        fraudFlags.push({
+          code: 'DUPLICATE_PHOTOS',
+          label: 'Empreinte photo déjà utilisée sur une autre annonce',
+          severity: 'high',
+          details: dupMatches.map((m) => `${m.propertyTitle} (${m.propertyId})`).join(', '),
+        });
+      }
+    }
+
+    const normalizedMeta = Array.isArray(p.imagesMeta)
+      ? p.imagesMeta.map((m, idx) => ({ ...m, url: savedImages[idx] || m.url }))
+      : savedImages.map((url, idx) => ({ url, fingerprint: fingerprints[idx] }));
+
+    const mergedCustomFields = {
+      ...(p.customFields && typeof p.customFields === 'object' ? p.customFields : {}),
+      _mediaMeta: {
+        imagesMeta: normalizedMeta,
+        fingerprints,
+        floorPlanUrl: savedFloorPlanUrl || undefined,
+        floorPlanPublicId: p.floorPlanPublicId || undefined,
+        floorPlanAlt: p.floorPlanAlt || undefined,
+        videoPublicId: p.videoPublicId || undefined,
+        videoDuration: p.videoDuration || undefined,
+        listingStatus,
+        fraudStatus,
+        fraudFlags,
+      },
+    };
+
+    const isPublished = !isDraft && p.published !== false && fraudStatus !== 'suspect' ? 1 : 0;
+    const isFeatured = isAdmin ? Boolean(p.featured) : false;
+
     await connection.execute(
       `INSERT INTO properties (
         id, title, description, price, currency, period, type, status, category,
@@ -466,9 +766,9 @@ async function createProperty(req, res, next) {
         p.yearBuilt || null,
         p.garages || 0,
         JSON.stringify(p.amenities || []),
-        JSON.stringify(p.customFields || {}),
+        JSON.stringify(mergedCustomFields),
         videoUrlToSave,
-        p.virtualTourUrl || null,
+        tourCheck.normalizedUrl || null,
         validAgentId,
         validAgencyId,
         isFeatured,
@@ -476,31 +776,45 @@ async function createProperty(req, res, next) {
       ]
     );
 
-    // Insertion des images dans la table property_images
-    const savedImages = [];
-    if (Array.isArray(p.images) && p.images.length > 0) {
-      for (let i = 0; i < p.images.length; i++) {
-        const savedUrl = saveBase64Image(p.images[i], propertyId, i);
-        if (savedUrl) savedImages.push(savedUrl);
-        await connection.execute(
-          'INSERT INTO property_images (property_id, image_url, display_order, is_featured) VALUES (?, ?, ?, ?)',
-          [propertyId, savedUrl, i, i === 0]
-        );
-      }
+    for (let i = 0; i < savedImages.length; i++) {
+      await connection.execute(
+        'INSERT INTO property_images (property_id, image_url, display_order, is_featured) VALUES (?, ?, ?, ?)',
+        [propertyId, savedImages[i], i, i === 0]
+      );
+    }
+
+    let videoModerationStatus = null;
+    if (videoUrlToSave) {
+      videoModerationStatus = await ensurePendingVideoModeration(connection, {
+        propertyId,
+        userId: req.user?.id,
+        videoUrl: videoUrlToSave,
+        thumbnailUrl: savedImages[0] || null,
+        isAdmin,
+      });
     }
 
     await connection.commit();
 
     res.status(201).json({
       success: true,
-      message: 'Propriété enregistrée avec succès dans la base MySQL.',
+      message: isDraft ? 'Brouillon enregistré avec succès.' : 'Propriété enregistrée avec succès dans la base MySQL.',
       propertyId,
       images: savedImages,
+      duplicateMatches: dupMatches,
       property: {
         ...p,
         id: propertyId,
         images: savedImages,
+        imagesMeta: normalizedMeta,
+        imageFingerprints: fingerprints,
+        floorPlanUrl: savedFloorPlanUrl || undefined,
         videoUrl: videoUrlToSave || p.videoUrl,
+        videoModerationStatus: videoModerationStatus || undefined,
+        virtualTourUrl: tourCheck.normalizedUrl || undefined,
+        listingStatus,
+        fraudStatus,
+        fraudFlags,
         published: Boolean(isPublished),
         featured: Boolean(isFeatured)
       }
@@ -523,9 +837,12 @@ async function updateProperty(req, res, next) {
     const { id } = req.params;
     const p = req.body;
 
-    // Vérifier les droits (Propriétaire, Agence ou Administrateur)
-    const [existing] = await connection.execute('SELECT agent_id, agency_id FROM properties WHERE id = ?', [id]);
+    const [existing] = await connection.execute(
+      'SELECT agent_id, agency_id, video_url, custom_fields, published FROM properties WHERE id = ?',
+      [id]
+    );
     if (existing.length === 0) {
+      connection.release();
       return res.status(404).json({ success: false, message: 'Propriété introuvable.' });
     }
 
@@ -539,16 +856,129 @@ async function updateProperty(req, res, next) {
     const isAdmin = req.user.role === 'admin';
 
     if (!isOwner && !isSameAgencyManager && !isAdmin) {
+      connection.release();
       return res.status(403).json({ success: false, message: 'Vous n\'êtes pas autorisé à modifier cette annonce.' });
+    }
+
+    const prevCustomFields = parseJsonSafe(propRow.custom_fields, {});
+    const prevMeta = prevCustomFields?._mediaMeta || {};
+    const [prevImgRows] = await connection.execute(
+      'SELECT image_url FROM property_images WHERE property_id = ? ORDER BY display_order ASC, id ASC',
+      [id]
+    );
+    const prevImages = prevImgRows.map((r) => r.image_url).filter(Boolean);
+
+    const nextListingStatus = String(
+      p.listingStatus || prevMeta.listingStatus || (p.published === false ? 'DRAFT' : 'PUBLISHED')
+    ).toUpperCase();
+    const isDraft = nextListingStatus === 'DRAFT' || nextListingStatus === 'ARCHIVED';
+    const nextImagesCount = Array.isArray(p.images) ? p.images.filter(Boolean).length : prevImages.length;
+
+    if (!isDraft && nextListingStatus === 'PUBLISHED' && nextImagesCount < MIN_PROPERTY_PHOTOS) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: `Au moins ${MIN_PROPERTY_PHOTOS} photos sont requises pour publier l'annonce publiquement (actuellement ${nextImagesCount}).`,
+      });
+    }
+
+    if (Array.isArray(p.images) && p.images.length > MAX_PROPERTY_PHOTOS) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: `Maximum ${MAX_PROPERTY_PHOTOS} photos autorisées par annonce.`,
+      });
+    }
+
+    if (p.virtualTourUrl !== undefined) {
+      const allowedDomains = await getAllowedVirtualTourDomains(connection);
+      const tourCheck = validateVirtualTourDomain(p.virtualTourUrl, allowedDomains);
+      if (!tourCheck.valid) {
+        connection.release();
+        return res.status(400).json({ success: false, message: tourCheck.message });
+      }
+      p.virtualTourUrl = tourCheck.normalizedUrl;
+    }
+
+    if (p.videoDuration !== undefined && Number(p.videoDuration) > MAX_VIDEO_DURATION_SECONDS) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: `La vidéo ne peut pas dépasser ${MAX_VIDEO_DURATION_SECONDS} secondes.`,
+      });
     }
 
     await connection.beginTransaction();
 
-    const videoUrlToSave = p.videoUrl !== undefined ? saveBase64Video(p.videoUrl) : null;
+    const videoUrlToSave = p.videoUrl !== undefined ? await saveBase64Video(p.videoUrl) : undefined;
+    const nextFloorPlanUrl =
+      p.floorPlanUrl !== undefined
+        ? (p.floorPlanUrl ? await saveBase64Image(p.floorPlanUrl, id, 999, 'kinimmo/floor_plans') : null)
+        : prevMeta.floorPlanUrl || null;
+
+    let savedImages = prevImages;
+    if (Array.isArray(p.images)) {
+      savedImages = [];
+      await connection.execute('DELETE FROM property_images WHERE property_id = ?', [id]);
+      for (let i = 0; i < p.images.length; i++) {
+        const savedUrl = await saveBase64Image(p.images[i], id, i, 'kinimmo/property_images');
+        if (savedUrl) {
+          savedImages.push(savedUrl);
+          await connection.execute(
+            'INSERT INTO property_images (property_id, image_url, display_order, is_featured) VALUES (?, ?, ?, ?)',
+            [id, savedUrl, i, i === 0]
+          );
+        }
+      }
+    }
+
+    const fingerprints = Array.isArray(p.imageFingerprints)
+      ? p.imageFingerprints
+      : Array.isArray(p.imagesMeta)
+      ? p.imagesMeta.map((m) => m?.fingerprint).filter(Boolean)
+      : (prevMeta.fingerprints || []);
+
+    const dupMatches = await checkDuplicateFingerprintsInDb(connection, fingerprints, savedImages, id);
+    let fraudStatus = p.fraudStatus || prevMeta.fraudStatus || 'normal';
+    const fraudFlags = Array.isArray(p.fraudFlags) ? [...p.fraudFlags] : (prevMeta.fraudFlags || []);
+    if (dupMatches.length > 0) {
+      if (fraudStatus === 'normal') fraudStatus = 'review_required';
+      if (!fraudFlags.some((f) => f.code === 'DUPLICATE_PHOTOS')) {
+        fraudFlags.push({
+          code: 'DUPLICATE_PHOTOS',
+          label: 'Empreinte photo déjà utilisée sur une autre annonce',
+          severity: 'high',
+          details: dupMatches.map((m) => `${m.propertyTitle} (${m.propertyId})`).join(', '),
+        });
+      }
+    }
+
+    const normalizedMeta = Array.isArray(p.imagesMeta)
+      ? p.imagesMeta.map((m, idx) => ({ ...m, url: savedImages[idx] || m.url }))
+      : prevMeta.imagesMeta || savedImages.map((url, idx) => ({ url, fingerprint: fingerprints[idx] }));
+
+    const mergedCustomFields = {
+      ...(prevCustomFields && typeof prevCustomFields === 'object' ? prevCustomFields : {}),
+      ...(p.customFields && typeof p.customFields === 'object' ? p.customFields : {}),
+      _mediaMeta: {
+        ...prevMeta,
+        imagesMeta: normalizedMeta,
+        fingerprints,
+        floorPlanUrl: nextFloorPlanUrl || undefined,
+        floorPlanPublicId: p.floorPlanPublicId !== undefined ? p.floorPlanPublicId : prevMeta.floorPlanPublicId,
+        floorPlanAlt: p.floorPlanAlt !== undefined ? p.floorPlanAlt : prevMeta.floorPlanAlt,
+        videoPublicId: p.videoPublicId !== undefined ? p.videoPublicId : prevMeta.videoPublicId,
+        videoDuration: p.videoDuration !== undefined ? p.videoDuration : prevMeta.videoDuration,
+        listingStatus: nextListingStatus,
+        fraudStatus,
+        fraudFlags,
+      },
+    };
+
     const nextFeatured = isAdmin && p.featured !== undefined ? (p.featured ? 1 : 0) : null;
-    const nextPublished = p.fraudStatus === 'suspect'
+    const nextPublished = fraudStatus === 'suspect' || isDraft
       ? 0
-      : (p.published !== undefined ? (p.published ? 1 : 0) : null);
+      : (p.published !== undefined ? (p.published ? 1 : 0) : 1);
 
     await connection.execute(
       `UPDATE properties
@@ -575,11 +1005,11 @@ async function updateProperty(req, res, next) {
            year_built = COALESCE(?, year_built),
            garages = COALESCE(?, garages),
            amenities = COALESCE(?, amenities),
-           custom_fields = COALESCE(?, custom_fields),
-           video_url = COALESCE(?, video_url),
-           virtual_tour_url = COALESCE(?, virtual_tour_url),
+           custom_fields = ?,
+           video_url = ?,
+           virtual_tour_url = ?,
            featured = COALESCE(?, featured),
-           published = COALESCE(?, published)
+           published = ?
        WHERE id = ?`,
       [
         p.title !== undefined ? p.title : null,
@@ -605,47 +1035,67 @@ async function updateProperty(req, res, next) {
         p.yearBuilt !== undefined ? p.yearBuilt : null,
         p.garages !== undefined ? p.garages : null,
         p.amenities !== undefined ? JSON.stringify(p.amenities) : null,
-        p.customFields !== undefined ? JSON.stringify(p.customFields) : null,
-        p.videoUrl !== undefined ? videoUrlToSave : null,
-        p.virtualTourUrl !== undefined ? p.virtualTourUrl : null,
+        JSON.stringify(mergedCustomFields),
+        p.videoUrl !== undefined ? (videoUrlToSave || null) : propRow.video_url,
+        p.virtualTourUrl !== undefined ? (p.virtualTourUrl || null) : undefined,
         nextFeatured,
         nextPublished,
         id
-      ]
+      ].map((v, idx) => {
+        // Si virtualTourUrl n'était pas fourni, récupérer via SQL en gardant la valeur actuelle si undefined
+        if (idx === 26 && v === undefined) return propRow.virtual_tour_url || null;
+        return v;
+      })
     );
 
-    // Mise à jour des images si fournies
-    let savedImages = null;
-    if (Array.isArray(p.images)) {
-      savedImages = [];
-      await connection.execute('DELETE FROM property_images WHERE property_id = ?', [id]);
-      for (let i = 0; i < p.images.length; i++) {
-        const savedUrl = saveBase64Image(p.images[i], id, i);
-        if (savedUrl) savedImages.push(savedUrl);
-        await connection.execute(
-          'INSERT INTO property_images (property_id, image_url, display_order, is_featured) VALUES (?, ?, ?, ?)',
-          [id, savedUrl, i, i === 0]
-        );
-      }
-    } else {
-      const [existingImgs] = await connection.execute(
-        'SELECT image_url FROM property_images WHERE property_id = ? ORDER BY display_order ASC, id ASC',
-        [id]
-      );
-      savedImages = existingImgs.map((r) => r.image_url).filter(Boolean);
+    let videoModerationStatus = null;
+    if (videoUrlToSave && videoUrlToSave !== propRow.video_url) {
+      videoModerationStatus = await ensurePendingVideoModeration(connection, {
+        propertyId: id,
+        userId: req.user?.id,
+        videoUrl: videoUrlToSave,
+        thumbnailUrl: savedImages[0] || null,
+        isAdmin,
+      });
     }
 
     await connection.commit();
+
+    // Nettoyage asynchrone Cloudinary des médias supprimés/remplacés
+    const assetsToDestroy = [];
+    for (const oldImg of prevImages) {
+      if (oldImg && oldImg.includes('cloudinary.com') && !savedImages.includes(oldImg)) {
+        assetsToDestroy.push({ url: oldImg, resourceType: 'image' });
+      }
+    }
+    if (prevMeta.floorPlanUrl && String(prevMeta.floorPlanUrl).includes('cloudinary.com') && prevMeta.floorPlanUrl !== nextFloorPlanUrl) {
+      assetsToDestroy.push({ url: prevMeta.floorPlanUrl, publicId: prevMeta.floorPlanPublicId, resourceType: 'image' });
+    }
+    if (propRow.video_url && String(propRow.video_url).includes('cloudinary.com') && p.videoUrl !== undefined && videoUrlToSave !== propRow.video_url) {
+      assetsToDestroy.push({ url: propRow.video_url, resourceType: 'video' });
+    }
+    if (assetsToDestroy.length > 0) {
+      Promise.allSettled(assetsToDestroy.map((a) => destroyFromCloudinary(a))).catch(() => {});
+    }
 
     res.json({
       success: true,
       message: 'Propriété mise à jour avec succès.',
       images: savedImages,
+      duplicateMatches: dupMatches,
       property: {
         ...p,
         id,
         images: savedImages,
-        ...(videoUrlToSave ? { videoUrl: videoUrlToSave } : {})
+        imagesMeta: normalizedMeta,
+        imageFingerprints: fingerprints,
+        floorPlanUrl: nextFloorPlanUrl || undefined,
+        listingStatus: nextListingStatus,
+        fraudStatus,
+        fraudFlags,
+        published: Boolean(nextPublished),
+        ...(videoModerationStatus ? { videoModerationStatus } : {}),
+        ...(videoUrlToSave !== undefined ? { videoUrl: videoUrlToSave || undefined } : {})
       }
     });
   } catch (error) {
@@ -664,7 +1114,7 @@ async function deleteProperty(req, res, next) {
   try {
     const { id } = req.params;
 
-    const [existing] = await pool.execute('SELECT agent_id, agency_id FROM properties WHERE id = ?', [id]);
+    const [existing] = await pool.execute('SELECT agent_id, agency_id, video_url, custom_fields FROM properties WHERE id = ?', [id]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, message: 'Propriété introuvable.' });
     }
@@ -682,12 +1132,33 @@ async function deleteProperty(req, res, next) {
       return res.status(403).json({ success: false, message: 'Non autorisé à supprimer cette annonce.' });
     }
 
-    // Grâce aux clés étrangères ON DELETE CASCADE, les images et favoris liés sont automatiquement supprimés
+    const [imgRows] = await pool.execute('SELECT image_url FROM property_images WHERE property_id = ?', [id]);
+    const assetsToDestroy = [];
+    for (const r of imgRows) {
+      if (r.image_url && r.image_url.includes('cloudinary.com')) {
+        assetsToDestroy.push({ url: r.image_url, resourceType: 'image' });
+      }
+    }
+    if (propRow.video_url && String(propRow.video_url).includes('cloudinary.com')) {
+      assetsToDestroy.push({ url: propRow.video_url, resourceType: 'video' });
+    }
+    const cf = parseJsonSafe(propRow.custom_fields, {});
+    if (cf?._mediaMeta?.floorPlanUrl && String(cf._mediaMeta.floorPlanUrl).includes('cloudinary.com')) {
+      assetsToDestroy.push({
+        url: cf._mediaMeta.floorPlanUrl,
+        publicId: cf._mediaMeta.floorPlanPublicId,
+        resourceType: 'image',
+      });
+    }
+
     await pool.execute('DELETE FROM properties WHERE id = ?', [id]);
+    if (assetsToDestroy.length > 0) {
+      Promise.allSettled(assetsToDestroy.map((a) => destroyFromCloudinary(a))).catch(() => {});
+    }
 
     res.json({
       success: true,
-      message: 'Propriété et ses images supprimées avec succès.'
+      message: 'Propriété et ses médias supprimés avec succès.'
     });
   } catch (error) {
     next(error);
@@ -702,7 +1173,7 @@ async function deleteProperty(req, res, next) {
 async function updatePropertyListingStatus(req, res, next) {
   try {
     const { id } = req.params;
-    const { status, note } = req.body;
+    const { status } = req.body;
     const validStatuses = ['DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'RENTED', 'SOLD', 'ARCHIVED'];
     const targetStatus = String(status || '').toUpperCase();
 
@@ -730,12 +1201,26 @@ async function updatePropertyListingStatus(req, res, next) {
       });
     }
 
+    if (targetStatus === 'PUBLISHED') {
+      const [imgCountRows] = await pool.execute('SELECT COUNT(*) AS cnt FROM property_images WHERE property_id = ?', [id]);
+      const imgCount = Number(imgCountRows[0]?.cnt || 0);
+      if (imgCount < MIN_PROPERTY_PHOTOS) {
+        return res.status(400).json({
+          success: false,
+          message: `Impossible de publier : au moins ${MIN_PROPERTY_PHOTOS} photos sont requises (actuellement ${imgCount}).`,
+        });
+      }
+    }
+
+    const cf = parseJsonSafe(prop.custom_fields, {});
+    cf._mediaMeta = { ...(cf._mediaMeta || {}), listingStatus: targetStatus };
+
     const legacyStatus = targetStatus === 'SOLD' ? 'sold' : (targetStatus === 'RENTED' ? 'for-rent' : prop.status);
     const published = targetStatus === 'PUBLISHED' ? 1 : 0;
 
     await pool.execute(
-      'UPDATE properties SET status = ?, published = ? WHERE id = ?',
-      [legacyStatus, published, id]
+      'UPDATE properties SET status = ?, published = ?, custom_fields = ? WHERE id = ?',
+      [legacyStatus, published, JSON.stringify(cf), id]
     );
 
     res.json({

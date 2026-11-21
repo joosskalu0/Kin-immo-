@@ -60,6 +60,7 @@ import { AdminContentCmsManager } from './AdminContentCmsManager';
 import { TrustAdminDashboard } from '../Trust/TrustAdminDashboard';
 import { auditPropertyList } from '../../utils/suspiciousListingDetector';
 import { fetchConciergerieRequests, fetchPropertyVisits } from '../../services/conciergerieApi';
+import { DEFAULT_VIRTUAL_TOUR_DOMAINS, normalizeAllowedDomains } from '../../utils/mediaTools';
 
 interface AdminDashboardProps {
   adminUser: {
@@ -189,6 +190,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return contactSettings || DEFAULT_CONTACT_SETTINGS;
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [newVirtualTourDomain, setNewVirtualTourDomain] = useState('');
 
   useEffect(() => {
     if (contactSettings) {
@@ -2292,6 +2294,105 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <label htmlFor="auto_approve_toggle" className="text-slate-300 cursor-pointer">
                           Exiger l'approbation manuelle de l'administrateur avant publication en ligne
                         </label>
+                      </div>
+                    </div>
+
+                    {/* BLOC P2 : Domaines autorisés pour la Visite Virtuelle */}
+                    <div className="md:col-span-2 pt-4 border-t border-slate-800 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <label className="block font-bold text-slate-200">
+                            Domaines autorisés — Visite Virtuelle (P2)
+                          </label>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Liste blanche des domaines externes acceptés pour les liens de visite virtuelle sur les annonces.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSiteSettings({
+                              ...siteSettings,
+                              virtualTourAllowedDomains: [...DEFAULT_VIRTUAL_TOUR_DOMAINS]
+                            })
+                          }
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 cursor-pointer"
+                        >
+                          Rétablir Matterport / Kuula / YouTube / Vimeo
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {(siteSettings.virtualTourAllowedDomains || DEFAULT_VIRTUAL_TOUR_DOMAINS).map((domain) => (
+                          <span
+                            key={domain}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-700 text-emerald-300 font-mono text-[11px]"
+                          >
+                            <span>{domain}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const current = siteSettings.virtualTourAllowedDomains || DEFAULT_VIRTUAL_TOUR_DOMAINS;
+                                const next = current.filter((d) => d !== domain);
+                                setSiteSettings({
+                                  ...siteSettings,
+                                  virtualTourAllowedDomains: next
+                                });
+                              }}
+                              className="text-slate-400 hover:text-rose-400 cursor-pointer"
+                              title={`Retirer ${domain}`}
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newVirtualTourDomain}
+                          onChange={(e) => setNewVirtualTourDomain(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const cleaned = normalizeAllowedDomains([newVirtualTourDomain]);
+                              if (newVirtualTourDomain.trim() && cleaned.length > 0) {
+                                const existing = siteSettings.virtualTourAllowedDomains || DEFAULT_VIRTUAL_TOUR_DOMAINS;
+                                setSiteSettings({
+                                  ...siteSettings,
+                                  virtualTourAllowedDomains: Array.from(new Set([...existing, ...cleaned]))
+                                });
+                                setNewVirtualTourDomain('');
+                              }
+                            }
+                          }}
+                          placeholder="Ajouter un domaine (ex: roundme.com ou 3dvista.com)"
+                          className="flex-1 px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const trimmed = newVirtualTourDomain.trim();
+                            if (!trimmed) return;
+                            const parsed = trimmed
+                              .toLowerCase()
+                              .replace(/^https?:\/\//, '')
+                              .replace(/\/.*$/, '')
+                              .replace(/:\d+$/, '');
+                            if (!parsed) return;
+                            const existing = siteSettings.virtualTourAllowedDomains || DEFAULT_VIRTUAL_TOUR_DOMAINS;
+                            setSiteSettings({
+                              ...siteSettings,
+                              virtualTourAllowedDomains: Array.from(new Set([...existing, parsed]))
+                            });
+                            setNewVirtualTourDomain('');
+                          }}
+                          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Ajouter domaine</span>
+                        </button>
                       </div>
                     </div>
                   </div>

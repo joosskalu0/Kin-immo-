@@ -1,7 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Property, PropertyType, PropertyStatus, PropertyLabel } from '../types';
-import { getApiBaseUrl, resolveMediaUrl } from '../utils/mediaUrl';
+import { Property, PropertyType, PropertyStatus, PropertyLabel, PropertyImageMeta } from '../types';
+import { resolveMediaUrl, extractCloudinaryPublicIdFromUrl, getOptimizedImageUrl } from '../utils/mediaUrl';
+import {
+  MIN_PROPERTY_PHOTOS,
+  RECOMMENDED_PROPERTY_PHOTOS,
+  MAX_PROPERTY_PHOTOS,
+  MAX_VIDEO_DURATION_SECONDS,
+  DEFAULT_VIRTUAL_TOUR_DOMAINS,
+  validateImageFile,
+  validateVideoFileAndDuration,
+  compressImageFileToBlob,
+  computeImageDHash,
+  validateVirtualTourUrl,
+  formatBytesCompact,
+} from '../utils/mediaTools';
 import {
   KINSHASA_COMMUNES_DATA,
   KINSHASA_COMMUNES_LIST,
@@ -38,11 +51,24 @@ import {
   ShieldAlert,
   ShieldCheck,
   User as UserIcon,
+  ArrowLeft,
+  ArrowRight,
+  Star,
+  FileImage,
+  Globe,
+  Save,
+  GripVertical,
 } from 'lucide-react';
 import { SAMPLE_REAL_ESTATE_VIDEOS, detectVideoType } from '../utils/videoHelpers';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
 import { analyzePropertyForFraud } from '../utils/suspiciousListingDetector';
-import { getStoredToken } from '../services/mysqlApi';
+import {
+  uploadImageToCloudinary,
+  uploadVideoWithProgress,
+  destroyCloudinaryMedia,
+  checkImageFingerprints,
+  FingerprintMatch,
+} from '../services/cloudinaryService';
 import { resolveAccountBillingSummary } from '../utils/billingHelpers';
 
 export const PropertyFormModal: React.FC = () => {
@@ -63,12 +89,14 @@ export const PropertyFormModal: React.FC = () => {
     agents,
     agencies,
     agencyCollaborators,
+    contactSettings,
   } = useApp();
 
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isCompressingImages, setIsCompressingImages] = useState(false);
+  const [imageUploadStatus, setImageUploadStatus] = useState<string | null>(null);
   const [moderationFeedback, setModerationFeedback] = useState<{
     verdict: 'normal' | 'review_required' | 'suspect';
     title: string;
@@ -114,14 +142,23 @@ export const PropertyFormModal: React.FC = () => {
   ];
   const [amenities, setAmenities] = useState<string[]>(['Ascenseur', 'Climatisation', 'Fibre Optique']);
 
-  // Media
-  const [imageUrls, setImageUrls] = useState<string[]>([
-    'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=1200&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1200&auto=format&fit=crop&q=80'
-  ]);
+  // Media (P1 Photos, P2 Vidéos, Plan du bien, Visite virtuelle, Empreintes)
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [imagesMeta, setImagesMeta] = useState<PropertyImageMeta[]>([]);
   const [newImageUrl, setNewImageUrl] = useState('');
+  const [draggedImageIndex, setDraggedImageIndex] = useState<number | null>(null);
+  const [duplicateAlert, setDuplicateAlert] = useState<{ matches: FingerprintMatch[] } | null>(null);
+
+  const [floorPlanUrl, setFloorPlanUrl] = useState('');
+  const [floorPlanPublicId, setFloorPlanPublicId] = useState<string | undefined>(undefined);
+  const [floorPlanAlt, setFloorPlanAlt] = useState('');
+  const [isUploadingFloorPlan, setIsUploadingFloorPlan] = useState(false);
+
   const [videoUrl, setVideoUrl] = useState('');
+  const [videoPublicId, setVideoPublicId] = useState<string | undefined>(undefined);
+  const [videoDuration, setVideoDuration] = useState<number | undefined>(undefined);
   const [virtualTourUrl, setVirtualTourUrl] = useState('');
+  const [virtualTourError, setVirtualTourError] = useState<string | null>(null);
   const [videoUploading, setVideoUploading] = useState(false);
   const [videoUploadProgress, setVideoUploadProgress] = useState(0);
   const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
@@ -165,9 +202,45 @@ export const PropertyFormModal: React.FC = () => {
       setYearBuilt(editingProperty.yearBuilt || 2020);
       setGarages(editingProperty.garages || 0);
       setAmenities(editingProperty.amenities || []);
-      setImageUrls(Array.isArray(editingProperty.images) ? editingProperty.images.map((u) => resolveMediaUrl(u)).filter(Boolean) : []);
-      setVideoUrl(editingProperty.videoUrl ? resolveMediaUrl(editingProperty.videoUrl) : '');
+
+      const resolvedImgs = Array.isArray(editingProperty.images)
+        ? editingProperty.images.map((u) => resolveMediaUrl(u)).filter(Boolean)
+        : [];
+      const existingMetaMap = new Map<string, PropertyImageMeta>();
+      if (Array.isArray(editingProperty.imagesMeta)) {
+        editingProperty.imagesMeta.forEach((m) => {
+          if (m?.url) existingMetaMap.set(resolveMediaUrl(m.url), m);
+        });
+      }
+      const hydratedMetas: PropertyImageMeta[] = resolvedImgs.map((u, idx) => {
+        const matched = existingMetaMap.get(u) || editingProperty.imagesMeta?.[idx];
+        return {
+          url: u,
+          publicId: matched?.publicId || extractCloudinaryPublicIdFromUrl(u),
+          alt: matched?.alt || '',
+          fingerprint: matched?.fingerprint || editingProperty.imageFingerprints?.[idx],
+          width: matched?.width,
+          height: matched?.height,
+          bytes: matched?.bytes,
+          format: matched?.format,
+        };
+      });
+      setImageUrls(resolvedImgs);
+      setImagesMeta(hydratedMetas);
+
+      setFloorPlanUrl(editingProperty.floorPlanUrl ? resolveMediaUrl(editingProperty.floorPlanUrl) : '');
+      setFloorPlanPublicId(
+        editingProperty.floorPlanPublicId || extractCloudinaryPublicIdFromUrl(editingProperty.floorPlanUrl)
+      );
+      setFloorPlanAlt(editingProperty.floorPlanAlt || '');
+
+      const resolvedVid = editingProperty.videoUrl ? resolveMediaUrl(editingProperty.videoUrl) : '';
+      setVideoUrl(resolvedVid);
+      setVideoPublicId(editingProperty.videoPublicId || extractCloudinaryPublicIdFromUrl(resolvedVid));
+      setVideoDuration(editingProperty.videoDuration);
       setVirtualTourUrl(editingProperty.virtualTourUrl || '');
+      setVirtualTourError(null);
+      setDuplicateAlert(null);
       setCustomFieldsState(editingProperty.customFields || {});
 
       if (editingProperty.privateFields) {
@@ -179,6 +252,20 @@ export const PropertyFormModal: React.FC = () => {
         setKeyBoxCode(editingProperty.privateFields.keyBoxCode || '');
       }
     } else {
+      setTitle('');
+      setDescription('');
+      setImageUrls([]);
+      setImagesMeta([]);
+      setFloorPlanUrl('');
+      setFloorPlanPublicId(undefined);
+      setFloorPlanAlt('');
+      setVideoUrl('');
+      setVideoPublicId(undefined);
+      setVideoDuration(undefined);
+      setVirtualTourUrl('');
+      setVirtualTourError(null);
+      setDuplicateAlert(null);
+
       // Initialize default values for dynamic fields
       const defaults: Record<string, any> = {};
       customFields.forEach((f) => {
@@ -196,6 +283,8 @@ export const PropertyFormModal: React.FC = () => {
     setIsSubmitPropertyOpen(false);
     setEditingProperty(null);
     setSubmitError(null);
+    setDuplicateAlert(null);
+    setVirtualTourError(null);
     setStep(1);
   };
 
@@ -262,116 +351,267 @@ export const PropertyFormModal: React.FC = () => {
   const isAdminUser = user.role === 'admin';
   const maxListingsCap = billingSummary.limits.maxListings;
   const maxPhotosCap = billingSummary.limits.maxPhotos;
+  const effectiveMaxPhotos = isAdminUser ? MAX_PROPERTY_PHOTOS : Math.min(MAX_PROPERTY_PHOTOS, maxPhotosCap);
   const maxVideosCap = billingSummary.limits.maxVideos;
   const activeListingsUsed = billingSummary.usage.activeListings;
   const videosUsed = billingSummary.usage.videosCount;
   const isNewListingQuotaExceeded = !isAdminUser && !editingProperty && activeListingsUsed >= maxListingsCap;
+  const allowedTourDomains = contactSettings?.virtualTourAllowedDomains || DEFAULT_VIRTUAL_TOUR_DOMAINS;
 
-  const handleAddImage = () => {
-    if (!newImageUrl.trim()) return;
-    if (!isAdminUser && imageUrls.length >= maxPhotosCap) {
+  const runDuplicateFingerprintCheck = async (fingerprints: string[], urls: string[]) => {
+    const cleanHashes = fingerprints.filter(Boolean);
+    const cleanUrls = urls.filter(Boolean);
+    if (cleanHashes.length === 0 && cleanUrls.length === 0) return;
+
+    const res = await checkImageFingerprints({
+      fingerprints: cleanHashes,
+      imageUrls: cleanUrls,
+      excludePropertyId: editingProperty?.id,
+    });
+    if (res.duplicateDetected && res.matches.length > 0) {
+      setDuplicateAlert({ matches: res.matches });
+    }
+  };
+
+  const handleAddImage = async () => {
+    const trimmed = newImageUrl.trim();
+    if (!trimmed) return;
+    if (imageUrls.length >= effectiveMaxPhotos) {
       setSubmitError(
-        `Limite de photos atteinte (${maxPhotosCap} photos max par annonce avec votre formule ${billingSummary.plan.name}). Passez à une formule supérieure pour en ajouter davantage.`
+        `Limite de photos atteinte (${effectiveMaxPhotos} photos max par annonce${isAdminUser ? '' : ` pour votre formule ${billingSummary.plan.name}`}).`
       );
       return;
     }
     setSubmitError(null);
-    setImageUrls((prev) => [...prev, newImageUrl.trim()]);
+    const meta: PropertyImageMeta = {
+      url: trimmed,
+      publicId: extractCloudinaryPublicIdFromUrl(trimmed),
+      alt: '',
+    };
+    setImageUrls((prev) => [...prev, trimmed]);
+    setImagesMeta((prev) => [...prev, meta]);
     setNewImageUrl('');
-  };
-
-  const compressImageFile = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
-      if (file.type === 'image/svg+xml' || file.type === 'image/gif') {
-        const r = new FileReader();
-        r.onload = (e) => resolve((e.target?.result as string) || '');
-        r.onerror = () => resolve('');
-        r.readAsDataURL(file);
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        if (!dataUrl) return resolve('');
-
-        const img = new Image();
-        img.onload = () => {
-          try {
-            const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
-            const maxDimension = 1280;
-
-            if (width > maxDimension || height > maxDimension) {
-              if (width > height) {
-                height = Math.round((height * maxDimension) / width);
-                width = maxDimension;
-              } else {
-                width = Math.round((width * maxDimension) / height);
-                height = maxDimension;
-              }
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(img, 0, 0, width, height);
-              const compressed = canvas.toDataURL('image/jpeg', 0.75);
-              resolve(compressed);
-            } else {
-              resolve(dataUrl);
-            }
-          } catch {
-            resolve(dataUrl);
-          }
-        };
-        img.onerror = () => resolve(dataUrl);
-        img.src = dataUrl;
-      };
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(file);
-    });
+    runDuplicateFingerprintCheck([], [trimmed]).catch(() => {});
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    if (!isAdminUser && imageUrls.length >= maxPhotosCap) {
+    if (imageUrls.length >= effectiveMaxPhotos) {
       setSubmitError(
-        `Limite atteinte : votre formule ${billingSummary.plan.name} autorise ${maxPhotosCap} photo(s) par annonce.`
+        `Limite atteinte : maximum ${effectiveMaxPhotos} photo(s) par annonce${isAdminUser ? '' : ` avec votre formule ${billingSummary.plan.name}`}.`
       );
       e.target.value = '';
       return;
     }
 
+    setSubmitError(null);
     setIsCompressingImages(true);
     try {
-      const remainingSlots = isAdminUser ? files.length : Math.max(0, maxPhotosCap - imageUrls.length);
+      const remainingSlots = Math.max(0, effectiveMaxPhotos - imageUrls.length);
       const fileList = Array.from(files).slice(0, remainingSlots);
-      if (!isAdminUser && files.length > remainingSlots) {
+      if (files.length > remainingSlots) {
         setSubmitError(
-          `Seules ${remainingSlots} photo(s) ont été ajoutées pour respecter la limite de ${maxPhotosCap} photos de votre formule ${billingSummary.plan.name}.`
+          `Seules ${remainingSlots} photo(s) ont été retenues pour respecter le plafond de ${effectiveMaxPhotos} photos.`
         );
       }
-      const results = await Promise.all(fileList.map((f) => compressImageFile(f)));
-      const valid = results.filter((url) => typeof url === 'string' && url.length > 0);
-      setImageUrls((prev) => [...prev, ...valid]);
-    } catch (err) {
-      console.error('Error compressing images:', err);
+
+      const uploadedMetas: PropertyImageMeta[] = [];
+      let lastUploadError: string | null = null;
+
+      for (let idx = 0; idx < fileList.length; idx++) {
+        const file = fileList[idx];
+        const validation = validateImageFile(file);
+        if (!validation.valid) {
+          lastUploadError = validation.error || 'Fichier image invalide.';
+          continue;
+        }
+
+        setImageUploadStatus(
+          `Compression & empreinte (${idx + 1}/${fileList.length}) : ${file.name}...`
+        );
+        try {
+          const compressed = await compressImageFileToBlob(file, 1600, 0.82);
+          const dhash = await computeImageDHash(compressed.file);
+
+          setImageUploadStatus(
+            `Envoi signé Cloudinary (${idx + 1}/${fileList.length}) — ${formatBytesCompact(compressed.compressedBytes)}...`
+          );
+
+          const result = await uploadImageToCloudinary(
+            compressed.file,
+            undefined,
+            'kinimmo/property_images',
+            {
+              purpose: 'property_photo',
+              mimeType: compressed.mimeType,
+              fileSize: compressed.compressedBytes,
+              currentPhotoCount: imageUrls.length + uploadedMetas.length,
+            }
+          );
+
+          if (result.secure_url) {
+            uploadedMetas.push({
+              url: result.secure_url,
+              publicId: result.public_id || extractCloudinaryPublicIdFromUrl(result.secure_url),
+              alt: '',
+              fingerprint: dhash || undefined,
+              width: result.width || compressed.width,
+              height: result.height || compressed.height,
+              bytes: result.bytes || compressed.compressedBytes,
+              format: result.format,
+            });
+          }
+        } catch (err: any) {
+          console.error('Erreur téléversement photo Cloudinary:', err);
+          lastUploadError =
+            err?.message || 'Impossible de téléverser la photo vers Cloudinary.';
+        }
+      }
+
+      if (uploadedMetas.length > 0) {
+        const newUrls = uploadedMetas.map((m) => m.url);
+        const newHashes = uploadedMetas.map((m) => m.fingerprint).filter((h): h is string => Boolean(h));
+        setImageUrls((prev) => [...prev, ...newUrls]);
+        setImagesMeta((prev) => [...prev, ...uploadedMetas]);
+
+        // Détection d'empreinte déjà utilisée sur d'autres annonces (P2)
+        runDuplicateFingerprintCheck(newHashes, newUrls).catch(() => {});
+      }
+
+      if (lastUploadError) {
+        setSubmitError(
+          uploadedMetas.length > 0
+            ? `${uploadedMetas.length} photo(s) importée(s), mais une erreur est survenue : ${lastUploadError}`
+            : lastUploadError
+        );
+      }
+    } catch (err: any) {
+      console.error('Erreur upload photos Cloudinary:', err);
+      setSubmitError(err?.message || 'Erreur lors du téléversement des photos vers Cloudinary.');
     } finally {
       setIsCompressingImages(false);
+      setImageUploadStatus(null);
       e.target.value = '';
     }
   };
 
   const handleRemoveImage = (index: number) => {
+    const targetUrl = imageUrls[index];
+    const targetMeta = imagesMeta[index];
     setImageUrls((prev) => prev.filter((_, i) => i !== index));
+    setImagesMeta((prev) => prev.filter((_, i) => i !== index));
+
+    if (targetMeta?.publicId || (targetUrl && targetUrl.includes('cloudinary.com'))) {
+      destroyCloudinaryMedia({
+        publicId: targetMeta?.publicId,
+        url: targetUrl,
+        resourceType: 'image',
+        propertyId: editingProperty?.id,
+      }).catch(() => {});
+    }
   };
 
-  const handleVideoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const moveImageOrder = (fromIndex: number, toIndex: number) => {
+    if (
+      fromIndex === toIndex ||
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= imageUrls.length ||
+      toIndex >= imageUrls.length
+    ) {
+      return;
+    }
+    setImageUrls((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+    setImagesMeta((prev) => {
+      const next = [...prev];
+      const moved = next[fromIndex] || { url: imageUrls[fromIndex], alt: '' };
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const handleUpdateImageAlt = (index: number, altValue: string) => {
+    setImagesMeta((prev) => {
+      const next = [...prev];
+      const existing = next[index] || { url: imageUrls[index] || '' };
+      next[index] = { ...existing, alt: altValue };
+      return next;
+    });
+  };
+
+  const handleFloorPlanUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      setSubmitError(validation.error || 'Plan invalide (JPEG, PNG ou WebP, 10 Mo max).');
+      e.target.value = '';
+      return;
+    }
+
+    setSubmitError(null);
+    setIsUploadingFloorPlan(true);
+    try {
+      const compressed = await compressImageFileToBlob(file, 1800, 0.86);
+      const result = await uploadImageToCloudinary(
+        compressed.file,
+        undefined,
+        'kinimmo/floor_plans',
+        {
+          purpose: 'floor_plan',
+          mimeType: compressed.mimeType,
+          fileSize: compressed.compressedBytes,
+        }
+      );
+
+      if (floorPlanUrl && (floorPlanPublicId || floorPlanUrl.includes('cloudinary.com'))) {
+        destroyCloudinaryMedia({
+          publicId: floorPlanPublicId,
+          url: floorPlanUrl,
+          resourceType: 'image',
+          propertyId: editingProperty?.id,
+        }).catch(() => {});
+      }
+
+      setFloorPlanUrl(result.secure_url);
+      setFloorPlanPublicId(result.public_id || extractCloudinaryPublicIdFromUrl(result.secure_url));
+      if (!floorPlanAlt) {
+        setFloorPlanAlt(`Plan du bien — ${title || 'Propriété Kinshasa'}`);
+      }
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Impossible de téléverser le plan du bien sur Cloudinary.');
+    } finally {
+      setIsUploadingFloorPlan(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveFloorPlan = () => {
+    const prevUrl = floorPlanUrl;
+    const prevPubId = floorPlanPublicId;
+    setFloorPlanUrl('');
+    setFloorPlanPublicId(undefined);
+    setFloorPlanAlt('');
+    if (prevUrl && (prevPubId || prevUrl.includes('cloudinary.com'))) {
+      destroyCloudinaryMedia({
+        publicId: prevPubId,
+        url: prevUrl,
+        resourceType: 'image',
+        propertyId: editingProperty?.id,
+      }).catch(() => {});
+    }
+  };
+
+  const handleVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -386,80 +626,88 @@ export const PropertyFormModal: React.FC = () => {
       return;
     }
 
-    // Check size limit: 100MB
-    const maxSizeBytes = 100 * 1024 * 1024;
-    if (file.size > maxSizeBytes) {
-      setVideoUploadError("Le fichier vidéo dépasse 100 Mo. Pour des visites plus longues, privilégiez un lien YouTube / Vimeo ou un fichier compressé.");
-      setVideoUploadSuccess(null);
+    setVideoUploadError(null);
+    setVideoUploadSuccess(null);
+
+    const vCheck = await validateVideoFileAndDuration(file);
+    if (!vCheck.valid) {
+      setVideoUploadError(vCheck.error || 'Vidéo non conforme (60s max, 100 Mo max).');
+      e.target.value = '';
       return;
     }
 
-    setVideoUploadError(null);
     setVideoUploading(true);
     setVideoUploadProgress(5);
-    setVideoUploadSuccess(null);
 
-    const formData = new FormData();
-    formData.append('video', file);
-
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${getApiBaseUrl()}/properties/upload-video`, true);
-
-    const token = getStoredToken();
-    if (token) {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    }
-
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percent = Math.round((event.loaded / event.total) * 100);
-        setVideoUploadProgress(percent);
-      }
-    };
-
-    xhr.onload = () => {
-      try {
-        const response = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300 && response.success && response.url) {
-          setVideoUrl(resolveMediaUrl(response.url));
-          setVideoUploading(false);
-          setVideoUploadProgress(100);
-          setVideoUploadSuccess(`Vidéo "${file.name}" importée avec succès !`);
-          setTimeout(() => setVideoUploadSuccess(null), 4000);
-        } else {
-          throw new Error(response.message || response.error || `Erreur serveur HTTP ${xhr.status}`);
+    try {
+      const result = await uploadVideoWithProgress(
+        file,
+        (percent) => {
+          setVideoUploadProgress(Math.max(5, percent));
+        },
+        'kinimmo/property_videos',
+        {
+          purpose: 'property_video',
+          mimeType: file.type,
+          fileSize: file.size,
+          duration: vCheck.duration,
         }
-      } catch (err: any) {
-        console.warn('Upload API notice, falling back to local object URL:', err);
-        // Fallback local blob URL pour ne jamais bloquer l'agent
-        const blobUrl = URL.createObjectURL(file);
-        setVideoUrl(blobUrl);
-        setVideoUploading(false);
-        setVideoUploadSuccess(`Vidéo "${file.name}" chargée avec succès !`);
-        setTimeout(() => setVideoUploadSuccess(null), 4000);
+      );
+
+      if (result.success && result.secure_url) {
+        if (videoUrl && (videoPublicId || videoUrl.includes('cloudinary.com'))) {
+          destroyCloudinaryMedia({
+            publicId: videoPublicId,
+            url: videoUrl,
+            resourceType: 'video',
+            propertyId: editingProperty?.id,
+          }).catch(() => {});
+        }
+        setVideoUrl(result.secure_url);
+        setVideoPublicId(result.public_id || extractCloudinaryPublicIdFromUrl(result.secure_url));
+        setVideoDuration(result.duration || vCheck.duration);
+        setVideoUploadProgress(100);
+        setVideoUploadSuccess(
+          `Vidéo « ${file.name} » (${Math.round(result.duration || vCheck.duration || 0)}s) téléversée. Elle sera publiée après modération de l'équipe.`
+        );
+        setTimeout(() => setVideoUploadSuccess(null), 6000);
+      } else {
+        throw new Error(result.message || 'Cloudinary n’a retourné aucune URL vidéo.');
       }
-    };
-
-    xhr.onerror = () => {
-      const blobUrl = URL.createObjectURL(file);
-      setVideoUrl(blobUrl);
+    } catch (err: any) {
+      console.error('Erreur téléversement vidéo Cloudinary:', err);
+      setVideoUploadError(
+        err?.message ||
+          "Impossible d'envoyer la vidéo sur Cloudinary. Vérifiez votre connexion et la configuration Cloudinary."
+      );
+    } finally {
       setVideoUploading(false);
-      setVideoUploadSuccess(`Vidéo "${file.name}" chargée.`);
-      setTimeout(() => setVideoUploadSuccess(null), 4000);
-    };
-
-    xhr.send(formData);
-    e.target.value = '';
+      e.target.value = '';
+    }
   };
 
   const handleRemoveVideo = () => {
+    const prevUrl = videoUrl;
+    const prevPubId = videoPublicId;
     setVideoUrl('');
+    setVideoPublicId(undefined);
+    setVideoDuration(undefined);
     setVideoUploadError(null);
     setVideoUploadSuccess(null);
+    if (prevUrl && (prevPubId || prevUrl.includes('cloudinary.com'))) {
+      destroyCloudinaryMedia({
+        publicId: prevPubId,
+        url: prevUrl,
+        resourceType: 'video',
+        propertyId: editingProperty?.id,
+      }).catch(() => {});
+    }
   };
 
   const handleSelectSampleVideo = (sampleUrl: string) => {
     setVideoUrl(sampleUrl);
+    setVideoPublicId(undefined);
+    setVideoDuration(30);
     setVideoUploadError(null);
     setVideoUploadSuccess("Visite vidéo d'exemple sélectionnée !");
     setTimeout(() => setVideoUploadSuccess(null), 3000);
@@ -501,13 +749,11 @@ export const PropertyFormModal: React.FC = () => {
     setStep((s) => Math.min(5, s + 1));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const saveProperty = async (targetMode: 'PUBLISHED' | 'DRAFT') => {
     setSubmitError(null);
 
-    // Règle métier : la publication d'un bien est strictement réservée aux utilisateurs connectés
     if (!user) {
-      setSubmitError('Règle métier Kinimmo : Vous devez être connecté pour publier une annonce.');
+      setSubmitError('Règle métier Kinimmo : Vous devez être connecté pour enregistrer une annonce.');
       setIsAuthModalOpen(true);
       return;
     }
@@ -518,45 +764,76 @@ export const PropertyFormModal: React.FC = () => {
       return;
     }
 
-    if (!price || Number(price) <= 0) {
-      setSubmitError("Le prix de l'annonce doit être supérieur à zéro.");
-      setStep(1);
-      return;
-    }
-
-    if (!description || !description.trim()) {
-      setSubmitError("La description de l'annonce est obligatoire.");
-      setStep(1);
-      return;
-    }
-
-    if (!commune || !commune.trim()) {
-      setSubmitError("Veuillez sélectionner la commune de localisation.");
-      setStep(2);
-      return;
-    }
-
-    // Enforce P2 Subscription Quotas for non-admin accounts
-    if (!isAdminUser) {
-      const willPublishSlot = !editingProperty || editingProperty.softHiddenByPlan || editingProperty.published === false;
-      if (willPublishSlot && activeListingsUsed >= maxListingsCap) {
-        setSubmitError(
-          `Quota d'annonces actives atteint (${activeListingsUsed}/${maxListingsCap}) pour votre formule ${billingSummary.plan.name}. Passez à une formule supérieure dans « Abonnement & Factures » ou archivez une annonce existante.`
-        );
+    if (targetMode === 'PUBLISHED') {
+      if (!price || Number(price) <= 0) {
+        setSubmitError("Le prix de l'annonce doit être supérieur à zéro pour publier.");
+        setStep(1);
         return;
       }
-      if (imageUrls.length > maxPhotosCap) {
+
+      if (!description || !description.trim()) {
+        setSubmitError("La description de l'annonce est obligatoire pour publier.");
+        setStep(1);
+        return;
+      }
+
+      if (!commune || !commune.trim()) {
+        setSubmitError("Veuillez sélectionner la commune de localisation.");
+        setStep(2);
+        return;
+      }
+
+      // Règle P1 Photos : minimum 3 photos pour publication publique (brouillons autorisés avec < 3)
+      if (imageUrls.length < MIN_PROPERTY_PHOTOS) {
         setSubmitError(
-          `Votre formule ${billingSummary.plan.name} limite chaque annonce à ${maxPhotosCap} photo(s) (actuellement ${imageUrls.length}). Retirez l'excédent à l'étape 4.`
+          `Publication impossible : minimum ${MIN_PROPERTY_PHOTOS} photos requises pour publier une annonce (actuellement ${imageUrls.length}/${MIN_PROPERTY_PHOTOS}). Ajoutez des photos à l'étape 4 ou enregistrez en brouillon.`
         );
         setStep(4);
+        return;
+      }
+    }
+
+    // Règle P1 : plafond max 20 photos (ou quota du plan)
+    if (imageUrls.length > effectiveMaxPhotos) {
+      setSubmitError(
+        `Limite de ${effectiveMaxPhotos} photos par annonce dépassée (actuellement ${imageUrls.length}). Retirez l'excédent à l'étape 4.`
+      );
+      setStep(4);
+      return;
+    }
+
+    // Règle P2 : Visite virtuelle limitée aux domaines autorisés
+    const vtCheck = validateVirtualTourUrl(virtualTourUrl, allowedTourDomains);
+    if (!vtCheck.valid) {
+      setVirtualTourError(vtCheck.error || 'Domaine de visite virtuelle non autorisé.');
+      setSubmitError(vtCheck.error || 'Domaine de visite virtuelle non autorisé.');
+      setStep(4);
+      return;
+    }
+
+    // Règle P2 : Vidéo <= 60 secondes
+    if (videoDuration && videoDuration > MAX_VIDEO_DURATION_SECONDS) {
+      setSubmitError(`La vidéo dépasse la durée maximale autorisée de ${MAX_VIDEO_DURATION_SECONDS} secondes.`);
+      setStep(4);
+      return;
+    }
+
+    // Quotas d'abonnement pour les comptes non-admin lors d'une publication
+    if (!isAdminUser) {
+      const willPublishSlot =
+        targetMode === 'PUBLISHED' &&
+        (!editingProperty || editingProperty.softHiddenByPlan || editingProperty.published === false);
+      if (willPublishSlot && activeListingsUsed >= maxListingsCap) {
+        setSubmitError(
+          `Quota d'annonces actives atteint (${activeListingsUsed}/${maxListingsCap}) pour votre formule ${billingSummary.plan.name}. Enregistrez en brouillon ou passez à une formule supérieure.`
+        );
         return;
       }
       const isAttachingNewVideo = Boolean(videoUrl.trim()) && !editingProperty?.videoUrl;
       if (isAttachingNewVideo && videosUsed >= maxVideosCap) {
         setSubmitError(
           maxVideosCap === 0
-            ? `Votre formule ${billingSummary.plan.name} n'autorise pas l'ajout de vidéo. Retirez le lien vidéo à l'étape 4 ou passez à une formule supérieure.`
+            ? `Votre formule ${billingSummary.plan.name} n'autorise pas l'ajout de vidéo. Retirez la vidéo à l'étape 4 ou passez à une formule supérieure.`
             : `Quota vidéo atteint (${videosUsed}/${maxVideosCap}) pour votre formule ${billingSummary.plan.name}.`
         );
         setStep(4);
@@ -566,15 +843,25 @@ export const PropertyFormModal: React.FC = () => {
 
     setIsSubmitting(true);
 
+    const syncedMetas: PropertyImageMeta[] = imageUrls.map((url, idx) => ({
+      ...(imagesMeta[idx] || { url }),
+      url,
+      publicId: imagesMeta[idx]?.publicId || extractCloudinaryPublicIdFromUrl(url),
+    }));
+    const fingerprints = syncedMetas
+      .map((m) => m.fingerprint)
+      .filter((fp): fp is string => Boolean(fp));
+
     const propertyData: Property = {
       id: editingProperty ? editingProperty.id : `prop_${Date.now()}`,
-      title,
-      description,
-      price,
+      title: title.trim(),
+      description: description || '',
+      price: Number(price) || 0,
       currency,
       period: status === 'for-rent' ? 'month' : 'total',
       type,
       status,
+      listingStatus: targetMode === 'DRAFT' ? 'DRAFT' : 'PUBLISHED',
       labels,
       category,
       commune,
@@ -582,9 +869,9 @@ export const PropertyFormModal: React.FC = () => {
       avenue,
       referencePoint: referencePoint || undefined,
       address: address || `${avenue ? avenue + ', ' : ''}${quartier ? quartier + ', ' : ''}${commune}, Kinshasa`,
-      city: 'Kinshasa',
+      city: city || 'Kinshasa',
       zipCode: zipCode || 'KN-01',
-      country: 'RDC',
+      country: country || 'RDC',
       lat,
       lng,
       bedrooms,
@@ -593,9 +880,16 @@ export const PropertyFormModal: React.FC = () => {
       yearBuilt,
       garages,
       amenities,
-      images: imageUrls.length > 0 ? imageUrls : ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=1200&auto=format&fit=crop&q=80'],
-      videoUrl: videoUrl || undefined,
-      virtualTourUrl: virtualTourUrl || undefined,
+      images: imageUrls,
+      imagesMeta: syncedMetas,
+      imageFingerprints: fingerprints,
+      videoUrl: videoUrl.trim() || undefined,
+      videoPublicId: videoUrl.trim() ? (videoPublicId || extractCloudinaryPublicIdFromUrl(videoUrl)) : undefined,
+      videoDuration: videoUrl.trim() ? videoDuration : undefined,
+      virtualTourUrl: vtCheck.normalizedUrl || undefined,
+      floorPlanUrl: floorPlanUrl.trim() || undefined,
+      floorPlanPublicId: floorPlanUrl.trim() ? (floorPlanPublicId || extractCloudinaryPublicIdFromUrl(floorPlanUrl)) : undefined,
+      floorPlanAlt: floorPlanUrl.trim() ? (floorPlanAlt.trim() || undefined) : undefined,
       customFields: customFieldsState,
       privateFields: {
         ownerName: ownerName || user.name || '',
@@ -614,20 +908,36 @@ export const PropertyFormModal: React.FC = () => {
       updatedAt: new Date().toISOString(),
       viewsCount: editingProperty ? editingProperty.viewsCount : 1,
       featured: labels.includes('featured'),
-      published: true,
+      published: targetMode === 'PUBLISHED',
     };
 
-    // Exécution de l'algorithme de détection des annonces suspectes
     const fraudAnalysis = analyzePropertyForFraud(propertyData, properties, reports);
+    const mergedFlags = [...fraudAnalysis.flags];
+    let mergedScore = fraudAnalysis.riskScore;
+    let mergedVerdict = fraudAnalysis.verdict;
+
+    if (duplicateAlert && duplicateAlert.matches.length > 0 && !mergedFlags.some((f) => f.code === 'DUPLICATE_PHOTOS')) {
+      mergedScore = Math.min(100, mergedScore + 35);
+      mergedFlags.push({
+        code: 'DUPLICATE_PHOTOS',
+        label: 'Empreinte photo déjà utilisée sur une autre annonce',
+        severity: 'high',
+        score: 35,
+        details: `${duplicateAlert.matches.length} correspondance(s) visuelle(s) détectée(s) avec d'autres biens.`,
+      });
+      if (mergedVerdict === 'normal') {
+        mergedVerdict = 'review_required';
+      }
+    }
+
     const enrichedData: Property = {
       ...propertyData,
-      fraudStatus: fraudAnalysis.verdict,
-      fraudScore: fraudAnalysis.riskScore,
-      fraudFlags: fraudAnalysis.flags,
+      fraudStatus: mergedVerdict,
+      fraudScore: mergedScore,
+      fraudFlags: mergedFlags,
       fraudLastCheckedAt: fraudAnalysis.analyzedAt,
-      // 🟢 Normal & vérification -> publication directe
-      // 🔴 Suspect -> blocage temporaire
-      published: fraudAnalysis.verdict !== 'suspect'
+      // Les brouillons restent non publiés mais ne sont jamais bloqués à l'enregistrement
+      published: targetMode === 'PUBLISHED' && mergedVerdict !== 'suspect',
     };
 
     try {
@@ -638,19 +948,36 @@ export const PropertyFormModal: React.FC = () => {
       }
       setIsSubmitting(false);
 
-      if (fraudAnalysis.verdict === 'suspect') {
+      if (targetMode === 'DRAFT') {
+        if (duplicateAlert && duplicateAlert.matches.length > 0) {
+          setModerationFeedback({
+            verdict: 'review_required',
+            title: 'Brouillon enregistré + signalement modération',
+            message:
+              'Votre brouillon a bien été sauvegardé (les photos similaires ont été signalées pour contrôle admin lors de la publication future).',
+            flags: mergedFlags.map((f) => f.label),
+          });
+        } else {
+          handleClose();
+        }
+        return;
+      }
+
+      if (mergedVerdict === 'suspect') {
         setModerationFeedback({
           verdict: 'suspect',
           title: '🔴 Annonce temporairement bloquée (Sécurité Anti-Fraude)',
-          message: 'Notre algorithme anti-fraude a relevé des anomalies critiques sur cette annonce (prix anormal, photos ou mots-clés suspects). Par mesure de précaution, elle a été placée en quarantaine administrative et bloquée jusqu\'à examen par l\'administrateur.',
-          flags: fraudAnalysis.flags.map(f => f.label)
+          message:
+            'Notre algorithme anti-fraude a relevé des anomalies critiques sur cette annonce. Par mesure de précaution, elle a été placée en quarantaine administrative jusqu\'à examen par l\'administrateur.',
+          flags: mergedFlags.map((f) => f.label),
         });
-      } else if (fraudAnalysis.verdict === 'review_required') {
+      } else if (mergedVerdict === 'review_required') {
         setModerationFeedback({
           verdict: 'review_required',
-          title: '🟠 Annonce en attente de contrôle manuel',
-          message: 'Votre annonce a été enregistrée avec succès. Notre algorithme a relevé des paramètres nécessitant une rapide validation manuelle par l\'équipe avant sa diffusion publique.',
-          flags: fraudAnalysis.flags.map(f => f.label)
+          title: '🟠 Annonce enregistrée — Contrôle modération requis',
+          message:
+            'Votre annonce a été enregistrée. Un signalement (ex: empreinte photo similaire) nécessite une rapide validation manuelle de l\'équipe avant sa mise en avant.',
+          flags: mergedFlags.map((f) => f.label),
         });
       } else {
         handleClose();
@@ -659,9 +986,15 @@ export const PropertyFormModal: React.FC = () => {
       console.error('Error saving property:', err);
       setIsSubmitting(false);
       setSubmitError(
-        err?.message || "Une erreur est survenue lors de l'enregistrement de l'annonce dans la base de données. Veuillez vérifier la connexion ou la taille des photos."
+        err?.message ||
+          "Une erreur est survenue lors de l'enregistrement de l'annonce dans la base de données."
       );
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveProperty('PUBLISHED');
   };
 
   return (
@@ -1287,38 +1620,76 @@ export const PropertyFormModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Photos Section */}
+              {/* Photos Section (P1 : 3 min publication, 5 recommandées, 20 max ; compression, réordonnancement, couverture, alt) */}
               <div className="pt-4 border-t border-slate-800 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4 text-emerald-400" />
-                    Galerie Photos ({imageUrls.length})
-                  </h4>
-                  <span className="text-[11px] text-slate-400">Minimum 1 photo recommandée</span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-emerald-400" />
+                      <span>Galerie Photos ({imageUrls.length} / {effectiveMaxPhotos})</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5 tabular-nums">
+                      {MIN_PROPERTY_PHOTOS} min (publication) · {RECOMMENDED_PROPERTY_PHOTOS} recommandées · {effectiveMaxPhotos} max · JPEG, PNG ou WebP ≤ 10 Mo (compression auto navigateur)
+                    </p>
+                  </div>
+
+                  <span
+                    className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border tabular-nums ${
+                      imageUrls.length < MIN_PROPERTY_PHOTOS
+                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                        : imageUrls.length >= RECOMMENDED_PROPERTY_PHOTOS
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                        : 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+                    }`}
+                  >
+                    {imageUrls.length < MIN_PROPERTY_PHOTOS
+                      ? `Encore ${MIN_PROPERTY_PHOTOS - imageUrls.length} photo(s) pour publier (brouillon autorisé)`
+                      : imageUrls.length < RECOMMENDED_PROPERTY_PHOTOS
+                      ? `Publiable (${RECOMMENDED_PROPERTY_PHOTOS} photos recommandées)`
+                      : 'Galerie optimale'}
+                  </span>
                 </div>
+
+                {/* Alerte immédiate empreinte d'image déjà utilisée (P2) */}
+                {duplicateAlert && duplicateAlert.matches.length > 0 && (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-3">
+                    <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1 flex-1">
+                      <p className="font-bold text-amber-100">
+                        Alerte empreinte image : photo similaire détectée sur une autre annonce
+                      </p>
+                      <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                        Correspondance trouvée avec :{' '}
+                        {duplicateAlert.matches
+                          .slice(0, 3)
+                          .map((m) => `« ${m.propertyTitle || m.propertyId} »`)
+                          .join(', ')}
+                        . Cette annonce sera automatiquement signalée à la modération admin lors de l’envoi (les brouillons restent enregistrables).
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Mobile Direct Photo Upload Controls */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Camera capture input for smartphones */}
-                  <label className="p-3.5 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm">
+                  <label className="p-3.5 min-h-[44px] rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm">
                     <Camera className="w-5 h-5 text-emerald-400" />
                     <span>Prendre une Photo (Appareil Photo)</span>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
                       capture="environment"
                       onChange={handleFileUpload}
                       className="hidden"
                     />
                   </label>
 
-                  {/* Gallery file picker input for mobile & desktop */}
-                  <label className="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm">
+                  <label className="p-3.5 min-h-[44px] rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm">
                     <Upload className="w-5 h-5 text-emerald-400" />
-                    <span>Importer depuis Galerie / PC</span>
+                    <span>Importer JPEG / PNG / WebP (≤ 10 Mo)</span>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
                       multiple
                       onChange={handleFileUpload}
                       className="hidden"
@@ -1327,9 +1698,9 @@ export const PropertyFormModal: React.FC = () => {
                 </div>
 
                 {isCompressingImages && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-2 text-emerald-400 text-xs font-semibold animate-pulse">
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-2 text-emerald-400 text-xs font-semibold">
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    <span>Optimisation et compression HD des photos en cours...</span>
+                    <span>{imageUploadStatus || 'Compression et envoi signé vers Cloudinary...'}</span>
                   </div>
                 )}
 
@@ -1345,52 +1716,203 @@ export const PropertyFormModal: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleAddImage}
-                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl flex items-center gap-1 shrink-0 border border-slate-700"
+                    className="px-4 py-2 min-h-[40px] bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl flex items-center gap-1 shrink-0 border border-slate-700 cursor-pointer"
                   >
                     <Plus className="w-4 h-4 text-emerald-400" /> Ajouter URL
                   </button>
                 </div>
 
-                {/* Images Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {imageUrls.map((url, i) => (
-                    <div key={i} className="relative aspect-video rounded-xl overflow-hidden group border border-slate-800 bg-slate-950 shadow-md">
-                      <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveImage(i)}
-                        className="absolute top-1.5 right-1.5 p-1.5 bg-rose-500 text-white rounded-lg opacity-90 sm:opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-                        title="Supprimer la photo"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                      {i === 0 && (
-                        <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded bg-slate-950/80 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
-                          Photo Principale
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                {/* Images Grid with Drag & Drop Reorder, Cover Promotion & Alt Text */}
+                {imageUrls.length === 0 ? (
+                  <div className="p-6 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 text-center text-xs text-slate-400">
+                    Aucune photo ajoutée. Importez au moins <strong className="text-slate-200">3 photos</strong> pour publier (ou sauvegardez en brouillon).
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {imageUrls.map((url, i) => {
+                      const meta = imagesMeta[i];
+                      return (
+                        <div
+                          key={`${url}-${i}`}
+                          draggable
+                          onDragStart={() => setDraggedImageIndex(i)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            if (draggedImageIndex !== null && draggedImageIndex !== i) {
+                              moveImageOrder(draggedImageIndex, i);
+                            }
+                            setDraggedImageIndex(null);
+                          }}
+                          className={`rounded-2xl overflow-hidden border bg-slate-950 flex flex-col transition-all ${
+                            i === 0
+                              ? 'border-emerald-500/60 ring-1 ring-emerald-500/30'
+                              : draggedImageIndex === i
+                              ? 'border-sky-400 opacity-70'
+                              : 'border-slate-800'
+                          }`}
+                        >
+                          <div className="relative aspect-video bg-slate-900 group">
+                            <img
+                              src={getOptimizedImageUrl(url, { width: 600 }) || url}
+                              alt={meta?.alt || `Photo ${i + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute top-2 left-2 flex items-center gap-1">
+                              <span
+                                className="p-1.5 rounded-lg bg-slate-950/80 text-slate-200 border border-white/10 cursor-grab"
+                                title="Glisser pour réordonner"
+                              >
+                                <GripVertical className="w-3.5 h-3.5" />
+                              </span>
+                              {i === 0 ? (
+                                <span className="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 text-[10px] font-black flex items-center gap-1 shadow">
+                                  <Star className="w-3 h-3 fill-slate-950" />
+                                  Couverture
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => moveImageOrder(i, 0)}
+                                  className="px-2 py-1 rounded-lg bg-slate-950/85 hover:bg-emerald-500 text-slate-200 hover:text-slate-950 text-[10px] font-bold border border-white/10 cursor-pointer transition-colors"
+                                  title="Définir comme photo de couverture"
+                                >
+                                  Couverture
+                                </button>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveImage(i)}
+                              className="absolute top-2 right-2 p-2 min-w-[34px] min-h-[34px] bg-rose-600/90 hover:bg-rose-500 text-white rounded-lg shadow-lg flex items-center justify-center cursor-pointer"
+                              title="Supprimer la photo (y compris sur Cloudinary)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+
+                            <div className="absolute bottom-2 right-2 flex items-center gap-1">
+                              <button
+                                type="button"
+                                disabled={i === 0}
+                                onClick={() => moveImageOrder(i, i - 1)}
+                                className="p-1.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 text-white border border-white/10 disabled:opacity-30 cursor-pointer"
+                                title="Déplacer avant"
+                              >
+                                <ArrowLeft className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={i === imageUrls.length - 1}
+                                onClick={() => moveImageOrder(i, i + 1)}
+                                className="p-1.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 text-white border border-white/10 disabled:opacity-30 cursor-pointer"
+                                title="Déplacer après"
+                              >
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="p-2.5 space-y-1.5">
+                            <input
+                              type="text"
+                              value={meta?.alt || ''}
+                              onChange={(e) => handleUpdateImageAlt(i, e.target.value)}
+                              placeholder={`Texte alternatif (ex: Salon lumineux ${i + 1})`}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                            />
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono tabular-nums">
+                              <span>Photo #{i + 1}</span>
+                              {meta?.bytes ? <span>{formatBytesCompact(meta.bytes)}</span> : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* DEDICATED HOUSE VIDEO PUBLISHING SECTION */}
+              {/* Plan du bien (image) */}
+              <div className="pt-5 border-t border-slate-800 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                      <FileImage className="w-4 h-4 text-sky-400" />
+                      <span>Plan du bien (image)</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Importez le plan architectural ou la distribution des pièces (JPEG, PNG ou WebP ≤ 10 Mo).
+                    </p>
+                  </div>
+                  {floorPlanUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveFloorPlan}
+                      className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Supprimer le plan
+                    </button>
+                  )}
+                </div>
+
+                {!floorPlanUrl ? (
+                  <label className="p-4 min-h-[52px] rounded-2xl border border-dashed border-slate-700 hover:border-sky-500/50 bg-slate-950/70 text-slate-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors">
+                    {isUploadingFloorPlan ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
+                        <span>Compression et envoi du plan sur Cloudinary...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 text-sky-400" />
+                        <span>Importer le plan du bien (JPEG, PNG, WebP ≤ 10 Mo)</span>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleFloorPlanUpload}
+                      className="hidden"
+                    />
+                  </label>
+                ) : (
+                  <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row gap-3 items-start">
+                    <img
+                      src={getOptimizedImageUrl(floorPlanUrl, { width: 600 }) || floorPlanUrl}
+                      alt={floorPlanAlt || 'Plan du bien'}
+                      className="w-full sm:w-44 aspect-video object-contain rounded-xl bg-slate-900 border border-slate-800 shrink-0"
+                    />
+                    <div className="flex-1 w-full space-y-2">
+                      <label className="block text-[11px] font-semibold text-slate-300">
+                        Légende / Texte alternatif du plan
+                      </label>
+                      <input
+                        type="text"
+                        value={floorPlanAlt}
+                        onChange={(e) => setFloorPlanAlt(e.target.value)}
+                        placeholder="Ex: Plan rez-de-chaussée 3 chambres + terrasse"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* DEDICATED HOUSE VIDEO PUBLISHING SECTION (P2 : 60s max & 100 Mo max, modération équipe) */}
               <div className="pt-5 border-t border-slate-800 space-y-4">
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30">
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-emerald-500/30">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
                         <Video className="w-5 h-5" />
                       </div>
                       <div>
-                        <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                          Visite Vidéo de la Maison / Propriété
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold border border-emerald-500/30">
-                            Recommandé PRO
-                          </span>
+                        <h4 className="font-bold text-white text-sm">
+                          Visite Vidéo Verticale / Reels (P2)
                         </h4>
                         <p className="text-slate-400 text-xs mt-0.5">
-                          Publiez une vidéo réelle (walkthrough) de l'intérieur, du salon ou de la cour pour rassurer les clients et multiplier les prises de contact.
+                          60 secondes max · 100 Mo max (MP4, MOV, WebM) · Modérée par l’équipe avant publication publique.
                         </p>
                       </div>
                     </div>
@@ -1398,13 +1920,13 @@ export const PropertyFormModal: React.FC = () => {
 
                   {/* Upload Progress Bar */}
                   {videoUploading && (
-                    <div className="mt-3 p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 space-y-2">
+                    <div className="mt-3 p-3.5 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-2">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-emerald-400 font-bold flex items-center gap-2">
                           <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-                          Téléversement de la vidéo en cours...
+                          Envoi signé de la vidéo vers Cloudinary...
                         </span>
-                        <span className="text-emerald-300 font-extrabold">{videoUploadProgress}%</span>
+                        <span className="text-emerald-300 font-extrabold tabular-nums">{videoUploadProgress}%</span>
                       </div>
                       <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
                         <div
@@ -1419,39 +1941,37 @@ export const PropertyFormModal: React.FC = () => {
                   {videoUploadSuccess && (
                     <div className="mt-3 p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                      {videoUploadSuccess}
+                      <span>{videoUploadSuccess}</span>
                     </div>
                   )}
 
                   {videoUploadError && (
                     <div className="mt-3 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold flex items-center gap-2">
                       <VideoOff className="w-4 h-4 text-rose-400 shrink-0" />
-                      {videoUploadError}
+                      <span>{videoUploadError}</span>
                     </div>
                   )}
 
-                  {/* Video Actions: 1) Camera Direct Recording, 2) File Upload, 3) URL */}
+                  {/* Video Actions: 1) Camera Direct Recording, 2) File Upload */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-                    {/* Record with phone camera */}
-                    <label className="p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm group">
-                      <Film className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                      <span>Filmer avec la Caméra Smartphone</span>
+                    <label className="p-3.5 min-h-[44px] rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm group">
+                      <Film className="w-5 h-5 text-emerald-400" />
+                      <span>Filmer (≤ 60s · Mobile)</span>
                       <input
                         type="file"
-                        accept="video/*"
+                        accept="video/mp4,video/quicktime,video/webm,video/x-m4v,video/*"
                         capture="environment"
                         onChange={handleVideoFileUpload}
                         className="hidden"
                       />
                     </label>
 
-                    {/* Import Video File */}
-                    <label className="p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm group">
-                      <FileVideo className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                      <span>Importer Vidéo (MP4, MOV, WebM)</span>
+                    <label className="p-3.5 min-h-[44px] rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm group">
+                      <FileVideo className="w-5 h-5 text-emerald-400" />
+                      <span>Importer Vidéo (≤ 60s · ≤ 100 Mo)</span>
                       <input
                         type="file"
-                        accept="video/mp4,video/quicktime,video/webm,video/m4v,video/*"
+                        accept="video/mp4,video/quicktime,video/webm,video/x-m4v"
                         onChange={handleVideoFileUpload}
                         className="hidden"
                       />
@@ -1472,13 +1992,13 @@ export const PropertyFormModal: React.FC = () => {
                           setVideoUploadError(null);
                         }}
                         placeholder="ex: https://www.youtube.com/watch?v=... ou lien MP4"
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                        className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                       />
                       {videoUrl && (
                         <button
                           type="button"
                           onClick={handleRemoveVideo}
-                          className="px-3 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-xs rounded-xl flex items-center gap-1 border border-rose-500/30 transition-colors"
+                          className="px-3 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-xs rounded-xl flex items-center gap-1 border border-rose-500/30 transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" /> Retirer
                         </button>
@@ -1491,7 +2011,7 @@ export const PropertyFormModal: React.FC = () => {
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
                         <Sparkles className="w-3 h-3 text-amber-400" />
-                        Visites vidéo d'exemple (cliquez pour tester) :
+                        Visites vidéo d'exemple :
                       </span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -1500,10 +2020,10 @@ export const PropertyFormModal: React.FC = () => {
                           key={sample.id}
                           type="button"
                           onClick={() => handleSelectSampleVideo(sample.url)}
-                          className={`p-2 rounded-xl border text-left flex items-center gap-2 transition-all text-xs ${
+                          className={`p-2 rounded-xl border text-left flex items-center gap-2 transition-all text-xs cursor-pointer ${
                             videoUrl === sample.url
                               ? 'bg-emerald-500/20 border-emerald-500 text-white font-bold'
-                              : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 text-slate-300'
+                              : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 text-slate-300'
                           }`}
                         >
                           <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 relative bg-slate-800">
@@ -1521,30 +2041,26 @@ export const PropertyFormModal: React.FC = () => {
 
                   {/* Live Video Preview in Modal */}
                   {videoUploading ? (
-                    <div className="mt-4 p-8 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col items-center justify-center text-center">
+                    <div className="mt-4 p-8 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center justify-center text-center">
                       <Loader2 className="w-8 h-8 text-emerald-400 animate-spin mb-2" />
-                      <span className="text-xs font-bold text-slate-200">Traitement et chargement de votre vidéo...</span>
-                      <span className="text-[11px] text-slate-400 mt-0.5">Veuillez patienter quelques secondes.</span>
+                      <span className="text-xs font-bold text-slate-200">Téléversement et validation de votre vidéo...</span>
                     </div>
                   ) : videoUrl ? (
-                    <div className="mt-4 p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                          <span className="text-xs font-bold text-emerald-400">
-                            Aperçu de la vidéo avant publication ({detectVideoType(videoUrl).toUpperCase()})
-                          </span>
-                        </div>
+                    <div className="mt-4 p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-emerald-400 tabular-nums">
+                          Aperçu ({detectVideoType(videoUrl).toUpperCase()}
+                          {videoDuration ? ` · ${Math.round(videoDuration)}s / ${MAX_VIDEO_DURATION_SECONDS}s max` : ''})
+                        </span>
                         <button
                           type="button"
                           onClick={handleRemoveVideo}
-                          className="text-[11px] text-rose-400 hover:text-rose-300 font-semibold flex items-center gap-1"
+                          className="text-[11px] text-rose-400 hover:text-rose-300 font-semibold flex items-center gap-1 cursor-pointer"
                         >
                           <Trash2 className="w-3 h-3" /> Supprimer la vidéo
                         </button>
                       </div>
 
-                      {/* Video Player */}
                       <PropertyVideoPlayer
                         videoUrl={videoUrl}
                         title={`Visite vidéo : ${title || 'Propriété'}`}
@@ -1552,26 +2068,42 @@ export const PropertyFormModal: React.FC = () => {
                         className="w-full max-h-[300px]"
                       />
 
-                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 font-medium flex items-center justify-between">
-                        <span>✓ Cette vidéo sera affichée dans la fiche du bien et aura un badge sur l'annonce.</span>
-                        <span className="font-bold">Prête à publier</span>
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 font-medium">
+                        {isAdminUser
+                          ? 'Compte administrateur : vidéo immédiatement diffusable.'
+                          : 'File de modération : la vidéo restera masquée au public jusqu’à validation par l’équipe Kinimmo.'}
                       </div>
                     </div>
                   ) : null}
                 </div>
 
-                {/* Matterport 3D Tour Link */}
-                <div className="pt-2">
-                  <label className="block font-semibold text-slate-300 mb-1">
-                    Lien Visite Virtuelle 3D (Matterport / 360°)
+                {/* Visite Virtuelle 3D (P2 : Domaines autorisés uniquement) */}
+                <div className="pt-2 space-y-1.5">
+                  <label className="font-semibold text-slate-300 flex items-center gap-1.5">
+                    <Globe className="w-4 h-4 text-emerald-400" />
+                    <span>Lien Visite Virtuelle 3D (Domaines autorisés uniquement)</span>
                   </label>
                   <input
                     type="url"
                     value={virtualTourUrl}
-                    onChange={(e) => setVirtualTourUrl(e.target.value)}
-                    placeholder="https://my.matterport.com/show/..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setVirtualTourUrl(val);
+                      const check = validateVirtualTourUrl(val, allowedTourDomains);
+                      setVirtualTourError(check.valid ? null : (check.error || 'Domaine non autorisé.'));
+                    }}
+                    placeholder="https://my.matterport.com/show/?m=... ou https://kuula.co/..."
+                    className={`w-full bg-slate-950 border rounded-xl px-3 py-2 text-white focus:outline-none ${
+                      virtualTourError ? 'border-rose-500' : 'border-slate-800 focus:border-emerald-500'
+                    }`}
                   />
+                  {virtualTourError ? (
+                    <p className="text-[11px] text-rose-400 font-semibold">{virtualTourError}</p>
+                  ) : (
+                    <p className="text-[11px] text-slate-400">
+                      Domaines autorisés : {allowedTourDomains.slice(0, 6).join(', ')}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1687,29 +2219,40 @@ export const PropertyFormModal: React.FC = () => {
                 <div />
               )}
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {step < 5 && (
                   <button
                     type="button"
                     onClick={handleNextStep}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold cursor-pointer active:scale-95 transition-all text-xs"
+                    className="px-5 py-2.5 min-h-[42px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold cursor-pointer active:scale-95 transition-all text-xs"
                   >
                     Suivant (Étape {step + 1}/5) →
                   </button>
                 )}
 
                 <button
+                  type="button"
+                  disabled={isSubmitting || isCompressingImages || isUploadingFloorPlan}
+                  onClick={() => saveProperty('DRAFT')}
+                  className="px-4 py-2.5 min-h-[42px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer text-xs"
+                  title="Enregistrer en brouillon (autorisé avec moins de 3 photos)"
+                >
+                  <Save className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Enregistrer en brouillon</span>
+                </button>
+
+                <button
                   type="submit"
-                  disabled={isSubmitting || isCompressingImages}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold hover:scale-[1.02] active:scale-95 transition-transform shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer text-xs"
+                  disabled={isSubmitting || isCompressingImages || isUploadingFloorPlan}
+                  className="px-6 py-2.5 min-h-[42px] rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold hover:scale-[1.02] active:scale-95 transition-transform shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer text-xs"
                 >
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>{editingProperty ? 'Mise à jour en cours...' : 'Publication en cours...'}</span>
+                      <span>{editingProperty ? 'Enregistrement...' : 'Publication...'}</span>
                     </>
                   ) : (
-                    <span>{editingProperty ? "Mettre à Jour l'Annonce" : (step < 5 ? 'Publier dès maintenant' : 'Publier la Propriété')}</span>
+                    <span>{editingProperty ? "Mettre à jour & Publier" : "Publier l'annonce"}</span>
                   )}
                 </button>
               </div>

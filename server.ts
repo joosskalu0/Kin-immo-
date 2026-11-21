@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import { validateConciergerieRequest } from './src/utils/conciergerieValidation';
@@ -673,13 +674,39 @@ let inMemoryOptions: any[] = loadLocalOptions();
 let inMemoryPaymentMethods: any[] = loadLocalPaymentMethods();
 let inMemoryInvoices: any[] = loadLocalInvoices();
 
-function saveBase64PropertyImage(imgData: unknown, propertyId: string, index: number): string {
+async function saveBase64PropertyImage(imgData: unknown, propertyId: string, index: number): Promise<string> {
   if (!imgData || typeof imgData !== 'string') return '';
   const trimmed = imgData.trim();
   if (!trimmed.startsWith('data:image')) {
     const uploadsMatch = trimmed.match(/^https?:\/\/[^/]+(\/uploads\/images\/[^?#]+)$/i);
     return uploadsMatch ? uploadsMatch[1] : trimmed;
   }
+
+  try {
+    serverCloudinaryConfig = loadCloudinaryConfig();
+    applyCloudinarySettings(serverCloudinaryConfig);
+    if (serverCloudinaryConfig.cloudName && serverCloudinaryConfig.apiSecret && serverCloudinaryConfig.apiKey) {
+      const uploaded = await cloudinary.uploader.upload(trimmed, {
+        folder: 'kinimmo/property_images',
+        transformation: [{ quality: 'auto:good', fetch_format: 'auto' }]
+      });
+      if (uploaded?.secure_url) return uploaded.secure_url;
+    } else if (serverCloudinaryConfig.cloudName && serverCloudinaryConfig.uploadPreset) {
+      const formData = new FormData();
+      formData.append('file', trimmed);
+      formData.append('upload_preset', serverCloudinaryConfig.uploadPreset);
+      formData.append('folder', 'kinimmo/property_images');
+      const r = await fetch(`https://api.cloudinary.com/v1_1/${serverCloudinaryConfig.cloudName}/image/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      const j: any = await r.json().catch(() => ({}));
+      if (r.ok && j?.secure_url) return j.secure_url;
+    }
+  } catch (cloudErr: any) {
+    console.warn('[server.ts] Cloudinary image upload fallback to disk:', cloudErr?.message || cloudErr);
+  }
+
   try {
     const matches = trimmed.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/s);
     if (!matches || matches.length !== 3) return trimmed;
@@ -706,6 +733,289 @@ function saveBase64PropertyImage(imgData: unknown, propertyId: string, index: nu
   }
 }
 
+const MIN_PROPERTY_PHOTOS = 3;
+const MAX_PROPERTY_PHOTOS = 20;
+const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_VIDEO_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_VIDEO_DURATION_SECONDS = 60;
+const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'];
+const DEFAULT_VIRTUAL_TOUR_DOMAINS = [
+  'my.matterport.com',
+  'matterport.com',
+  'kuula.co',
+  'www.kuula.co',
+  'youtube.com',
+  'www.youtube.com',
+  'youtu.be',
+  'vimeo.com',
+  'player.vimeo.com',
+];
+
+function extractCloudinaryPublicIdServer(url?: string | null): string | null {
+  if (!url || typeof url !== 'string' || !url.includes('cloudinary.com')) return null;
+  try {
+    const clean = url.split('?')[0];
+    const marker = '/upload/';
+    const idx = clean.indexOf(marker);
+    if (idx === -1) return null;
+    let rest = clean.slice(idx + marker.length);
+    const versionMatch = rest.match(/(?:^|\/)v\d+\/(.+)$/);
+    if (versionMatch) {
+      rest = versionMatch[1];
+    } else {
+      const parts = rest.split('/');
+      if (parts.length > 1 && (parts[0].includes(',') || parts[0].includes('_'))) {
+        rest = parts.slice(1).join('/');
+      }
+    }
+    return rest.replace(/\.[a-z0-9]+$/i, '') || null;
+  } catch {
+    return null;
+  }
+}
+
+async function destroyFromCloudinaryServer({ publicId, url, resourceType }: { publicId?: string | null; url?: string | null; resourceType?: 'image' | 'video' }) {
+  const targetPublicId = publicId || extractCloudinaryPublicIdServer(url);
+  if (!targetPublicId) return { success: true, skipped: true };
+  serverCloudinaryConfig = loadCloudinaryConfig();
+  if (!serverCloudinaryConfig.cloudName || !serverCloudinaryConfig.apiKey || !serverCloudinaryConfig.apiSecret) {
+    return { success: false, skipped: true };
+  }
+  applyCloudinarySettings(serverCloudinaryConfig);
+  const resType = resourceType || (typeof url === 'string' && url.includes('/video/upload/') ? 'video' : 'image');
+  try {
+    const res = await cloudinary.uploader.destroy(targetPublicId, { resource_type: resType, invalidate: true });
+    return { success: res?.result === 'ok' || res?.result === 'not found', result: res?.result, publicId: targetPublicId };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+function getUserMediaQuotasServer(userId: string) {
+  const u = inMemoryUsers.find((usr) => usr.id === userId);
+  const planId = u?.planId || 'starter';
+  const plan = inMemoryPlans.find((pl) => pl.id === planId) || inMemoryPlans[0] || {};
+  const maxPlanPhotos = Number(plan.max_photos_per_listing ?? plan.maxPhotos ?? MAX_PROPERTY_PHOTOS);
+  const maxPlanVideos = Number(plan.max_videos ?? plan.maxVideos ?? 25);
+  const usedVideos = inMemoryVideos.filter((v) => v.userId === userId && v.status !== 'rejected').length;
+  return { maxPlanPhotos, maxPlanVideos, usedVideos };
+}
+
+function validateMediaUploadServer(params: {
+  purpose?: string;
+  resourceType?: 'image' | 'video';
+  mimeType?: string;
+  fileSize?: number;
+  fileCount?: number;
+  currentPhotoCount?: number;
+  duration?: number;
+  maxPlanPhotos?: number;
+  maxPlanVideos?: number;
+  usedVideos?: number;
+  isAdmin?: boolean;
+}) {
+  const {
+    purpose = 'property_photo',
+    resourceType = 'image',
+    mimeType,
+    fileSize,
+    fileCount = 1,
+    currentPhotoCount = 0,
+    duration,
+    maxPlanPhotos = MAX_PROPERTY_PHOTOS,
+    maxPlanVideos = 50,
+    usedVideos = 0,
+    isAdmin = false,
+  } = params;
+
+  const normalizedMime = mimeType ? String(mimeType).toLowerCase().trim() : '';
+  const sizeNum = fileSize !== undefined && fileSize !== null ? Number(fileSize) : null;
+  const durationNum = duration !== undefined && duration !== null ? Number(duration) : null;
+
+  if (resourceType === 'image') {
+    if (normalizedMime && !ALLOWED_IMAGE_MIME_TYPES.includes(normalizedMime)) {
+      return { valid: false, status: 400, message: `Format photo non autorisé (${normalizedMime}). Formats acceptés : JPEG, PNG ou WebP.` };
+    }
+    if (sizeNum !== null && Number.isFinite(sizeNum) && sizeNum > MAX_IMAGE_FILE_BYTES) {
+      return { valid: false, status: 413, message: 'Photo trop volumineuse : taille maximale de 10 Mo par image.' };
+    }
+    if (purpose === 'property_photo') {
+      const effectiveMax = isAdmin ? MAX_PROPERTY_PHOTOS : Math.min(MAX_PROPERTY_PHOTOS, Math.max(MIN_PROPERTY_PHOTOS, Number(maxPlanPhotos || MAX_PROPERTY_PHOTOS)));
+      if (Number(currentPhotoCount || 0) + Number(fileCount || 1) > effectiveMax) {
+        return { valid: false, status: 403, message: `Quota de photos atteint : maximum ${effectiveMax} photos par annonce (plafond 20).` };
+      }
+    }
+  } else {
+    if (normalizedMime && !normalizedMime.startsWith('video/') && !ALLOWED_VIDEO_MIME_TYPES.includes(normalizedMime)) {
+      return { valid: false, status: 400, message: `Format vidéo non autorisé (${normalizedMime}). Formats acceptés : MP4, MOV ou WebM.` };
+    }
+    if (sizeNum !== null && Number.isFinite(sizeNum) && sizeNum > MAX_VIDEO_FILE_BYTES) {
+      return { valid: false, status: 413, message: 'Vidéo trop volumineuse : taille maximale autorisée de 100 Mo.' };
+    }
+    if (durationNum !== null && Number.isFinite(durationNum) && durationNum > MAX_VIDEO_DURATION_SECONDS) {
+      return { valid: false, status: 400, message: `Durée vidéo dépassée (${Math.round(durationNum)}s). Maximum autorisé : 60 secondes.` };
+    }
+    if (!isAdmin && Number.isFinite(Number(maxPlanVideos)) && Number(maxPlanVideos) >= 0 && usedVideos >= maxPlanVideos) {
+      return { valid: false, status: 403, message: `Quota vidéo de votre formule atteint (${usedVideos}/${maxPlanVideos} vidéos).` };
+    }
+  }
+  return { valid: true };
+}
+
+function normalizeAllowedDomainsServer(raw: any): string[] {
+  let list: string[] = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (t.startsWith('[')) {
+      try { const p = JSON.parse(t); if (Array.isArray(p)) list = p; } catch {}
+    } else if (t) {
+      list = t.split(/[\n,;]+/);
+    }
+  }
+  const cleaned = list
+    .map((d) => String(d || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, ''))
+    .filter(Boolean);
+  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : [...DEFAULT_VIRTUAL_TOUR_DOMAINS];
+}
+
+function validateVirtualTourDomainServer(rawUrl: any, allowedRaw: any) {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return { valid: true, normalizedUrl: undefined };
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { valid: false, message: 'URL de visite virtuelle invalide.' };
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return { valid: false, message: 'Seuls les liens HTTPS/HTTP sont autorisés pour les visites virtuelles.' };
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  const whitelist = normalizeAllowedDomainsServer(allowedRaw);
+  const ok = whitelist.some((d) => {
+    const clean = d.replace(/^www\./, '');
+    return hostname === d || hostname === clean || hostname.endsWith(`.${clean}`);
+  });
+  if (!ok) {
+    return { valid: false, message: `Le domaine "${hostname}" n'est pas autorisé pour les visites virtuelles.` };
+  }
+  return { valid: true, normalizedUrl: parsed.toString() };
+}
+
+function hammingDistanceHex64Server(a: string, b: string): number {
+  if (!a || !b || a.length !== 16 || b.length !== 16) return 64;
+  let dist = 0;
+  for (let i = 0; i < 16; i++) {
+    const va = parseInt(a[i], 16);
+    const vb = parseInt(b[i], 16);
+    if (Number.isNaN(va) || Number.isNaN(vb)) return 64;
+    let xor = va ^ vb;
+    while (xor > 0) {
+      dist += xor & 1;
+      xor >>= 1;
+    }
+  }
+  return dist;
+}
+
+function findDuplicateFingerprintsInMemory(fingerprints: string[], imageUrls: string[], excludePropertyId?: string | null) {
+  const cleanFps = Array.isArray(fingerprints) ? fingerprints.map((f) => String(f || '').trim().toLowerCase()).filter((f) => f.length === 16) : [];
+  const cleanUrls = Array.isArray(imageUrls) ? imageUrls.map((u) => String(u || '').trim()).filter(Boolean) : [];
+  if (cleanFps.length === 0 && cleanUrls.length === 0) return [];
+
+  const matches: Array<{ propertyId: string; propertyTitle: string; agentId?: string; imageUrl?: string; distance: number }> = [];
+  for (const prop of inMemoryProperties) {
+    if (excludePropertyId && prop.id === excludePropertyId) continue;
+    let matched = false;
+    for (const u of cleanUrls) {
+      if (Array.isArray(prop.images) && prop.images.includes(u)) {
+        matches.push({ propertyId: prop.id, propertyTitle: prop.title, agentId: prop.agentId, imageUrl: u, distance: 0 });
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    const existingFps: string[] = Array.isArray(prop.imageFingerprints)
+      ? prop.imageFingerprints
+      : Array.isArray(prop.imagesMeta)
+      ? prop.imagesMeta.map((m: any) => m?.fingerprint).filter(Boolean)
+      : [];
+    for (const fp of cleanFps) {
+      for (const efp of existingFps) {
+        const dist = hammingDistanceHex64Server(fp, String(efp || '').toLowerCase());
+        if (dist <= 6) {
+          matches.push({ propertyId: prop.id, propertyTitle: prop.title, agentId: prop.agentId, distance: dist });
+          matched = true;
+          break;
+        }
+      }
+      if (matched) break;
+    }
+  }
+  return matches;
+}
+
+function ensurePendingVideoModerationInMemory({ prop, user, videoUrl }: { prop: any; user: AuthUser; videoUrl?: string | null }) {
+  if (!videoUrl || typeof videoUrl !== 'string' || !videoUrl.trim()) return undefined;
+  const trimmed = videoUrl.trim();
+  const existing = inMemoryVideos.find((v) => v.propertyId === prop.id && v.videoUrl === trimmed);
+  if (existing) return existing.status;
+
+  const vidStatus = user.role === 'admin' ? 'approved' : 'pending';
+  const newVideo = {
+    id: `vid_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    propertyId: prop.id,
+    userId: user.id,
+    videoUrl: trimmed,
+    thumbnailUrl: prop.images?.[0] || '',
+    description: 'Visite vidéo soumise depuis le formulaire d\'annonce',
+    status: vidStatus,
+    viewsCount: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    propertyTitle: prop.title || 'Bien Immobilier Kinshasa',
+    propertyPrice: prop.price || 0,
+    propertyCurrency: prop.currency || 'USD',
+    propertyCommune: prop.commune || 'Kinshasa',
+    propertyQuartier: prop.quartier || '',
+    propertyType: prop.type || 'villa',
+    propertyStatus: prop.status || 'for-sale',
+    propertyBedrooms: prop.bedrooms,
+    propertyBathrooms: prop.bathrooms,
+    agentName: prop.agencyName || user.agencyName || user.name || 'Agent Immobilier Kinimmo',
+    agencyName: prop.agencyName || user.agencyName,
+    agentPhone: prop.contactPhone || user.phone,
+    agentWhatsapp: prop.contactPhone || user.whatsapp || user.phone,
+    agentVerified: Boolean(user.isVerified),
+  };
+  inMemoryVideos.unshift(newVideo);
+  saveLocalVideos(inMemoryVideos);
+  return vidStatus;
+}
+
+function sanitizePropertyForViewer(prop: any, authUser: AuthUser | null) {
+  const normalized = normalizePropertyRecord(prop);
+  const matchingVideo = inMemoryVideos.find((v) => v.propertyId === normalized.id && v.videoUrl === normalized.videoUrl)
+    || inMemoryVideos.find((v) => v.propertyId === normalized.id);
+  const videoModStatus = matchingVideo?.status || normalized.videoModerationStatus;
+  const isOwnerOrAdmin = Boolean(authUser && canManageProperty(authUser, normalized));
+
+  if (videoModStatus && videoModStatus !== 'approved' && !isOwnerOrAdmin) {
+    return {
+      ...normalized,
+      videoUrl: undefined,
+      videoModerationStatus: videoModStatus,
+    };
+  }
+  return {
+    ...normalized,
+    ...(videoModStatus ? { videoModerationStatus: videoModStatus } : {}),
+  };
+}
+
 function normalizePropertyRecord(p: any) {
   if (!p || typeof p !== 'object') return p;
   return {
@@ -717,6 +1027,8 @@ function normalizePropertyRecord(p: any) {
     bathrooms: typeof p.bathrooms === 'number' ? p.bathrooms : Number(p.bathrooms) || 0,
     area: typeof p.area === 'number' ? p.area : Number(p.area) || 0,
     images: Array.isArray(p.images) ? p.images : [],
+    imagesMeta: Array.isArray(p.imagesMeta) ? p.imagesMeta : [],
+    imageFingerprints: Array.isArray(p.imageFingerprints) ? p.imageFingerprints : [],
     labels: Array.isArray(p.labels) ? p.labels : [],
     amenities: Array.isArray(p.amenities) ? p.amenities : [],
     customFields: p.customFields && typeof p.customFields === 'object' && !Array.isArray(p.customFields) ? p.customFields : {},
@@ -4310,6 +4622,15 @@ app.post('/api/cloudinary/upload', (req: Request, res: Response, next) => {
       });
 
       const secureUrl = uploadResult.secure_url;
+      if (uploadResult.duration && Number(uploadResult.duration) > MAX_VIDEO_DURATION_SECONDS) {
+        if (uploadResult.public_id) {
+          cloudinary.uploader.destroy(uploadResult.public_id, { resource_type: 'video', invalidate: true }).catch(() => {});
+        }
+        return res.status(400).json({
+          success: false,
+          error: `Vidéo trop longue (${Math.round(Number(uploadResult.duration))}s). Maximum autorisé : 60 secondes.`
+        });
+      }
       // Miniature générée automatiquement au début de la vidéo (so_0, format jpg)
       const autoThumbnail = secureUrl
         ? secureUrl.replace(/\.(mp4|webm|mov|m4v|ogg)(\?.*)?$/i, '.jpg$2').replace('/video/upload/', '/video/upload/so_0,q_auto,f_jpg,w_800,c_fill/')
@@ -4376,6 +4697,226 @@ app.post('/api/cloudinary/upload', (req: Request, res: Response, next) => {
     return res.status(500).json({
       success: false,
       error: err?.message || 'Erreur interne lors du téléversement vers Cloudinary.'
+    });
+  }
+});
+
+const imageMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
+
+// Générer une signature Cloudinary sécurisée pour upload direct navigateur (photos & vidéos)
+app.post('/api/cloudinary/sign', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+
+  serverCloudinaryConfig = loadCloudinaryConfig();
+  if (!serverCloudinaryConfig.cloudName) {
+    return res.status(400).json({ success: false, error: 'Cloudinary Cloud Name non configuré.' });
+  }
+
+  const resourceType = req.body?.resourceType === 'video' ? 'video' : 'image';
+  const defaultFolder = resourceType === 'video' ? 'kinimmo/property_videos' : 'kinimmo/property_images';
+  const folder = typeof req.body?.folder === 'string' && req.body.folder.trim() ? req.body.folder.trim() : defaultFolder;
+  const purpose = req.body?.purpose || (folder.includes('floor_plan') ? 'floor_plan' : resourceType === 'video' ? 'property_video' : 'property_photo');
+
+  const quotas = getUserMediaQuotasServer(user.id);
+  const check = validateMediaUploadServer({
+    purpose,
+    resourceType,
+    mimeType: req.body?.mimeType,
+    fileSize: req.body?.fileSize,
+    fileCount: req.body?.fileCount,
+    currentPhotoCount: req.body?.currentPhotoCount,
+    duration: req.body?.duration,
+    maxPlanPhotos: quotas.maxPlanPhotos,
+    maxPlanVideos: quotas.maxPlanVideos,
+    usedVideos: quotas.usedVideos,
+    isAdmin: user.role === 'admin',
+  });
+  if (!check.valid) {
+    return res.status(check.status || 400).json({ success: false, error: check.message, message: check.message });
+  }
+
+  const timestamp = Math.floor(Date.now() / 1000);
+
+  if (serverCloudinaryConfig.apiKey && serverCloudinaryConfig.apiSecret) {
+    const signature = crypto
+      .createHash('sha1')
+      .update(`folder=${folder}&timestamp=${timestamp}${serverCloudinaryConfig.apiSecret}`)
+      .digest('hex');
+    return res.json({
+      success: true,
+      mode: 'signed',
+      cloudName: serverCloudinaryConfig.cloudName,
+      apiKey: serverCloudinaryConfig.apiKey,
+      timestamp,
+      signature,
+      folder,
+      resourceType,
+      uploadUrl: `https://api.cloudinary.com/v1_1/${serverCloudinaryConfig.cloudName}/${resourceType}/upload`
+    });
+  }
+
+  if (serverCloudinaryConfig.uploadPreset) {
+    return res.json({
+      success: true,
+      mode: 'unsigned',
+      cloudName: serverCloudinaryConfig.cloudName,
+      uploadPreset: serverCloudinaryConfig.uploadPreset,
+      folder,
+      resourceType,
+      uploadUrl: `https://api.cloudinary.com/v1_1/${serverCloudinaryConfig.cloudName}/${resourceType}/upload`
+    });
+  }
+
+  return res.status(400).json({ success: false, error: 'Identifiants Cloudinary incomplets.' });
+});
+
+// Suppression sécurisée d'un média Cloudinary côté serveur
+app.post('/api/cloudinary/destroy', async (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+
+  const { publicId, url, resourceType, propertyId } = req.body || {};
+  if (propertyId && user.role !== 'admin') {
+    const prop = inMemoryProperties.find((p) => p.id === propertyId);
+    if (prop && !canManageProperty(user, prop)) {
+      return res.status(403).json({ success: false, error: 'Accès interdit pour supprimer ce média.' });
+    }
+  }
+  const result = await destroyFromCloudinaryServer({ publicId, url, resourceType });
+  return res.json({ success: Boolean(result.success || result.skipped), ...result });
+});
+
+// Détection d'empreinte dHash / URL déjà utilisée sur d'autres annonces (P2)
+app.post('/api/media/check-fingerprint', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  const fingerprints = Array.isArray(req.body?.fingerprints) ? req.body.fingerprints : [];
+  const imageUrls = Array.isArray(req.body?.imageUrls) ? req.body.imageUrls : [];
+  const excludePropertyId = req.body?.excludePropertyId ? String(req.body.excludePropertyId) : null;
+  const matches = findDuplicateFingerprintsInMemory(fingerprints, imageUrls, excludePropertyId);
+  return res.json({
+    success: true,
+    duplicateDetected: matches.length > 0,
+    matches,
+  });
+});
+
+// Téléverser une photo vers Cloudinary (multipart ou base64 JSON)
+app.post('/api/cloudinary/upload-image', (req: Request, res: Response, next) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ success: false, error: 'Authentification requise pour téléverser une photo.' });
+  const contentType = String(req.headers['content-type'] || '').toLowerCase();
+  if (contentType.includes('multipart/form-data')) {
+    return imageMulter.single('image')(req, res, next);
+  }
+  return next();
+}, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    serverCloudinaryConfig = loadCloudinaryConfig();
+    applyCloudinarySettings(serverCloudinaryConfig);
+
+    const file = req.file;
+    const dataUrl = req.body?.image || req.body?.fileData || req.body?.dataUrl;
+
+    if (!file && !dataUrl) {
+      return res.status(400).json({ success: false, error: 'Aucune photo transmise.' });
+    }
+
+    const quotas = getUserMediaQuotasServer(user.id);
+    const check = validateMediaUploadServer({
+      purpose: req.body?.purpose || 'property_photo',
+      resourceType: 'image',
+      mimeType: file?.mimetype || req.body?.mimeType,
+      fileSize: file?.size || req.body?.fileSize,
+      fileCount: req.body?.fileCount || 1,
+      currentPhotoCount: req.body?.currentPhotoCount || 0,
+      maxPlanPhotos: quotas.maxPlanPhotos,
+      isAdmin: user.role === 'admin',
+    });
+    if (!check.valid) {
+      return res.status(check.status || 400).json({ success: false, error: check.message, message: check.message });
+    }
+    const targetFolder = typeof req.body?.folder === 'string' && req.body.folder.trim()
+      ? req.body.folder.trim()
+      : 'kinimmo/property_images';
+
+    if (serverCloudinaryConfig.cloudName && serverCloudinaryConfig.apiSecret && serverCloudinaryConfig.apiKey) {
+      let uploadResult: any;
+      if (file) {
+        uploadResult = await new Promise<any>((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              resource_type: 'image',
+              folder: targetFolder,
+              transformation: [{ quality: 'auto:good', fetch_format: 'auto' }]
+            },
+            (err, result) => (err ? reject(err) : resolve(result))
+          );
+          stream.end(file.buffer);
+        });
+      } else {
+        uploadResult = await cloudinary.uploader.upload(String(dataUrl), {
+          resource_type: 'image',
+          folder: targetFolder,
+          transformation: [{ quality: 'auto:good', fetch_format: 'auto' }]
+        });
+      }
+
+      return res.json({
+        success: true,
+        url: uploadResult.url,
+        secure_url: uploadResult.secure_url,
+        public_id: uploadResult.public_id,
+        thumbnail_url: uploadResult.secure_url,
+        format: uploadResult.format,
+        bytes: uploadResult.bytes,
+        width: uploadResult.width,
+        height: uploadResult.height
+      });
+    }
+
+    if (serverCloudinaryConfig.cloudName && serverCloudinaryConfig.uploadPreset) {
+      const endpoint = `https://api.cloudinary.com/v1_1/${serverCloudinaryConfig.cloudName}/image/upload`;
+      const formData = new FormData();
+      if (file) {
+        formData.append('file', new Blob([file.buffer], { type: file.mimetype }), file.originalname);
+      } else {
+        formData.append('file', String(dataUrl));
+      }
+      formData.append('upload_preset', serverCloudinaryConfig.uploadPreset);
+      formData.append('folder', 'kinimmo/property_images');
+
+      const fetchRes = await fetch(endpoint, { method: 'POST', body: formData });
+      const cloudData: any = await fetchRes.json();
+      if (!fetchRes.ok) {
+        throw new Error(cloudData?.error?.message || 'Erreur Cloudinary');
+      }
+      return res.json({
+        success: true,
+        url: cloudData.url,
+        secure_url: cloudData.secure_url,
+        public_id: cloudData.public_id,
+        thumbnail_url: cloudData.secure_url,
+        format: cloudData.format,
+        bytes: cloudData.bytes,
+        width: cloudData.width,
+        height: cloudData.height
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: 'Cloudinary n\'est pas configuré.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Erreur lors du téléversement photo vers Cloudinary.'
     });
   }
 });
@@ -4592,10 +5133,13 @@ app.post('/api/videos', (req: Request, res: Response) => {
     if (!authUser) {
       return res.status(401).json({ success: false, error: 'Authentification requise pour publier une vidéo.' });
     }
-    const { propertyId, videoUrl, thumbnailUrl, description, status = 'pending' } = req.body;
+    const { propertyId, videoUrl, thumbnailUrl, description, duration, status = 'pending' } = req.body;
 
     if (!propertyId || !videoUrl) {
       return res.status(400).json({ success: false, error: 'L\'ID de l\'annonce et l\'URL de la vidéo sont obligatoires.' });
+    }
+    if (duration !== undefined && duration !== null && Number(duration) > MAX_VIDEO_DURATION_SECONDS) {
+      return res.status(400).json({ success: false, error: `Vidéo trop longue (${Math.round(Number(duration))}s). Maximum autorisé : 60 secondes.` });
     }
 
     // Récupérer les informations de la propriété depuis le store live
@@ -4699,6 +5243,9 @@ app.delete('/api/videos/:id', (req: Request, res: Response) => {
 
     inMemoryVideos = inMemoryVideos.filter(v => v.id !== id);
     saveLocalVideos(inMemoryVideos);
+    if (target.videoUrl && String(target.videoUrl).includes('cloudinary.com')) {
+      destroyFromCloudinaryServer({ url: target.videoUrl, resourceType: 'video' }).catch(() => {});
+    }
     return res.json({ success: true, message: 'Vidéo supprimée avec succès.' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -4848,7 +5395,9 @@ app.get('/api/properties', (req: Request, res: Response) => {
     }
 
     const total = list.length;
-    const paginated = list.slice(Number(offset), Number(offset) + Number(limit)).map(normalizePropertyRecord);
+    const paginated = list
+      .slice(Number(offset), Number(offset) + Number(limit))
+      .map((p) => sanitizePropertyForViewer(p, authUser));
     return res.json({ success: true, count: total, properties: paginated, data: paginated });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -4899,24 +5448,23 @@ app.get('/api/properties/:id', (req: Request, res: Response) => {
   if (!prop) {
     return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
   }
+  const authUser = getAuthUser(req);
   const ls = String(prop.listingStatus || '').toUpperCase();
   const isPublic = prop.published !== false && ls !== 'DRAFT' && ls !== 'ARCHIVED' && ls !== 'PENDING_REVIEW';
   if (!isPublic) {
-    const authUser = getAuthUser(req);
     if (!authUser || !canManageProperty(authUser, prop)) {
       return res.status(403).json({ success: false, error: 'Cette annonce n\'est pas publique.' });
     }
   }
-  return res.json({ success: true, property: normalizePropertyRecord(prop) });
+  return res.json({ success: true, property: sanitizePropertyForViewer(prop, authUser) });
 });
 
 // 10.3 Créer une propriété
-app.post('/api/properties', (req: Request, res: Response) => {
+app.post('/api/properties', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     const body = req.body || {};
 
-    // Règle métier : La publication d'un bien est strictement réservée aux utilisateurs connectés
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -4926,17 +5474,74 @@ app.post('/api/properties', (req: Request, res: Response) => {
 
     const id = body.id || `prop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const nowIso = new Date().toISOString();
-    const listingStatus = (body.listingStatus || 'PUBLISHED').toUpperCase();
+    const listingStatus = String(body.listingStatus || (body.published === false ? 'DRAFT' : 'PUBLISHED')).toUpperCase();
+    const isDraft = listingStatus === 'DRAFT' || listingStatus === 'ARCHIVED';
     const isAvailable = listingStatus === 'PUBLISHED';
 
     const { trust_status: _ts, trust_score: _tsc, trust_verified_at: _tva, ...safeBody } = body;
-    const persistedImages = Array.isArray(safeBody.images)
-      ? safeBody.images.map((img: unknown, idx: number) => saveBase64PropertyImage(img, id, idx)).filter(Boolean)
+    const rawImages = Array.isArray(safeBody.images) ? safeBody.images.filter(Boolean) : [];
+
+    if (!isDraft && listingStatus === 'PUBLISHED' && rawImages.length < MIN_PROPERTY_PHOTOS) {
+      return res.status(400).json({
+        success: false,
+        error: `Au moins ${MIN_PROPERTY_PHOTOS} photos sont requises pour publier une annonce publiquement (actuellement ${rawImages.length}). Enregistrez en brouillon pour continuer plus tard.`,
+      });
+    }
+
+    const quotas = getUserMediaQuotasServer(user.id);
+    const effectiveMaxPhotos = user.role === 'admin'
+      ? MAX_PROPERTY_PHOTOS
+      : Math.min(MAX_PROPERTY_PHOTOS, Math.max(MIN_PROPERTY_PHOTOS, quotas.maxPlanPhotos || MAX_PROPERTY_PHOTOS));
+
+    if (rawImages.length > effectiveMaxPhotos) {
+      return res.status(400).json({
+        success: false,
+        error: `Nombre maximum de photos dépassé (${rawImages.length}/${effectiveMaxPhotos} max).`,
+      });
+    }
+
+    const tourCheck = validateVirtualTourDomainServer(safeBody.virtualTourUrl, inMemorySettings.virtual_tour_allowed_domains);
+    if (!tourCheck.valid) {
+      return res.status(400).json({ success: false, error: tourCheck.message });
+    }
+
+    if (safeBody.videoDuration !== undefined && Number(safeBody.videoDuration) > MAX_VIDEO_DURATION_SECONDS) {
+      return res.status(400).json({ success: false, error: `La vidéo ne peut pas dépasser ${MAX_VIDEO_DURATION_SECONDS} secondes.` });
+    }
+
+    const persistedImages = (await Promise.all(rawImages.map((img: unknown, idx: number) => saveBase64PropertyImage(img, id, idx)))).filter(Boolean);
+    const persistedFloorPlan = safeBody.floorPlanUrl
+      ? await saveBase64PropertyImage(safeBody.floorPlanUrl, `${id}_plan`, 0)
+      : undefined;
+
+    const fingerprints: string[] = Array.isArray(safeBody.imageFingerprints)
+      ? safeBody.imageFingerprints
+      : Array.isArray(safeBody.imagesMeta)
+      ? safeBody.imagesMeta.map((m: any) => m?.fingerprint).filter(Boolean)
       : [];
+    const dupMatches = findDuplicateFingerprintsInMemory(fingerprints, persistedImages, null);
+    let fraudStatus = safeBody.fraudStatus || 'normal';
+    const fraudFlags = Array.isArray(safeBody.fraudFlags) ? [...safeBody.fraudFlags] : [];
+    if (dupMatches.length > 0) {
+      if (fraudStatus === 'normal') fraudStatus = 'review_required';
+      if (!fraudFlags.some((f: any) => f.code === 'DUPLICATE_PHOTOS')) {
+        fraudFlags.push({
+          code: 'DUPLICATE_PHOTOS',
+          label: 'Empreinte photo déjà utilisée sur une autre annonce',
+          severity: 'high',
+          details: dupMatches.map((m) => `${m.propertyTitle} (${m.propertyId})`).join(', '),
+        });
+      }
+    }
 
     const newProp = normalizePropertyRecord({
       ...safeBody,
       images: persistedImages,
+      ...(persistedFloorPlan ? { floorPlanUrl: persistedFloorPlan } : {}),
+      virtualTourUrl: tourCheck.normalizedUrl,
+      imageFingerprints: fingerprints,
+      fraudStatus,
+      fraudFlags,
       id,
       userId: user.id,
       agentId: user.role === 'admin' && body.agentId ? body.agentId : user.id,
@@ -4946,7 +5551,7 @@ app.post('/api/properties', (req: Request, res: Response) => {
       contactPhone: body.contactPhone || user.phone,
       listingStatus,
       isAvailable,
-      published: body.published !== false && listingStatus !== 'DRAFT' && listingStatus !== 'ARCHIVED',
+      published: !isDraft && body.published !== false && fraudStatus !== 'suspect',
       status: listingStatus === 'SOLD' ? 'sold' : (body.status || 'for-sale'),
       createdAt: body.createdAt || nowIso,
       updatedAt: nowIso,
@@ -4958,21 +5563,30 @@ app.post('/api/properties', (req: Request, res: Response) => {
           changedByUserId: user.id,
           changedByName: user.name || 'Agent Kinimmo',
           changedAt: nowIso,
-          note: 'Création initiale de l\'annonce'
+          note: isDraft ? 'Enregistrement en brouillon' : 'Création initiale de l\'annonce'
         }
       ]
     });
 
+    if (newProp.videoUrl) {
+      newProp.videoModerationStatus = ensurePendingVideoModerationInMemory({ prop: newProp, user, videoUrl: newProp.videoUrl });
+    }
+
     inMemoryProperties.unshift(newProp);
     saveLocalProperties(inMemoryProperties);
-    return res.status(201).json({ success: true, message: 'Annonce créée avec succès.', property: newProp });
+    return res.status(201).json({
+      success: true,
+      message: isDraft ? 'Brouillon enregistré avec succès.' : 'Annonce créée avec succès.',
+      duplicateMatches: dupMatches,
+      property: newProp
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
 });
 
 // 10.4 Mettre à jour une propriété
-app.put('/api/properties/:id', (req: Request, res: Response) => {
+app.put('/api/properties/:id', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) {
@@ -5001,6 +5615,33 @@ app.put('/api/properties/:id', (req: Request, res: Response) => {
 
     const oldStatus = current.listingStatus || (current.status === 'sold' ? 'SOLD' : 'PUBLISHED');
     const newStatus = safeIncoming.listingStatus ? String(safeIncoming.listingStatus).toUpperCase() : oldStatus;
+    const isDraft = newStatus === 'DRAFT' || newStatus === 'ARCHIVED';
+
+    const rawImages = Array.isArray(safeIncoming.images) ? safeIncoming.images.filter(Boolean) : current.images || [];
+    if (!isDraft && newStatus === 'PUBLISHED' && rawImages.length < MIN_PROPERTY_PHOTOS) {
+      return res.status(400).json({
+        success: false,
+        error: `Au moins ${MIN_PROPERTY_PHOTOS} photos sont requises pour publier une annonce publiquement (actuellement ${rawImages.length}).`,
+      });
+    }
+    if (rawImages.length > MAX_PROPERTY_PHOTOS) {
+      return res.status(400).json({
+        success: false,
+        error: `Maximum ${MAX_PROPERTY_PHOTOS} photos autorisées par annonce.`,
+      });
+    }
+
+    if (safeIncoming.virtualTourUrl !== undefined) {
+      const tourCheck = validateVirtualTourDomainServer(safeIncoming.virtualTourUrl, inMemorySettings.virtual_tour_allowed_domains);
+      if (!tourCheck.valid) {
+        return res.status(400).json({ success: false, error: tourCheck.message });
+      }
+      safeIncoming.virtualTourUrl = tourCheck.normalizedUrl;
+    }
+
+    if (safeIncoming.videoDuration !== undefined && Number(safeIncoming.videoDuration) > MAX_VIDEO_DURATION_SECONDS) {
+      return res.status(400).json({ success: false, error: `La vidéo ne peut pas dépasser ${MAX_VIDEO_DURATION_SECONDS} secondes.` });
+    }
 
     const history = Array.isArray(current.statusHistory) ? [...current.statusHistory] : [];
     if (newStatus !== oldStatus) {
@@ -5016,26 +5657,78 @@ app.put('/api/properties/:id', (req: Request, res: Response) => {
     }
 
     const incomingImages = Array.isArray(safeIncoming.images)
-      ? safeIncoming.images.map((img: unknown, idx: number) => saveBase64PropertyImage(img, id, idx)).filter(Boolean)
-      : undefined;
+      ? (await Promise.all(rawImages.map((img: unknown, i: number) => saveBase64PropertyImage(img, id, i)))).filter(Boolean)
+      : current.images || [];
+
+    const nextFloorPlan = safeIncoming.floorPlanUrl !== undefined
+      ? (safeIncoming.floorPlanUrl ? await saveBase64PropertyImage(safeIncoming.floorPlanUrl, `${id}_plan`, 0) : undefined)
+      : current.floorPlanUrl;
+
+    const fingerprints: string[] = Array.isArray(safeIncoming.imageFingerprints)
+      ? safeIncoming.imageFingerprints
+      : Array.isArray(safeIncoming.imagesMeta)
+      ? safeIncoming.imagesMeta.map((m: any) => m?.fingerprint).filter(Boolean)
+      : (current.imageFingerprints || []);
+    const dupMatches = findDuplicateFingerprintsInMemory(fingerprints, incomingImages, id);
+    let fraudStatus = safeIncoming.fraudStatus || current.fraudStatus || 'normal';
+    const fraudFlags = Array.isArray(safeIncoming.fraudFlags) ? [...safeIncoming.fraudFlags] : (current.fraudFlags || []);
+    if (dupMatches.length > 0) {
+      if (fraudStatus === 'normal') fraudStatus = 'review_required';
+      if (!fraudFlags.some((f: any) => f.code === 'DUPLICATE_PHOTOS')) {
+        fraudFlags.push({
+          code: 'DUPLICATE_PHOTOS',
+          label: 'Empreinte photo déjà utilisée sur une autre annonce',
+          severity: 'high',
+          details: dupMatches.map((m) => `${m.propertyTitle} (${m.propertyId})`).join(', '),
+        });
+      }
+    }
 
     const updated = normalizePropertyRecord({
       ...current,
       ...safeIncoming,
-      ...(incomingImages !== undefined ? { images: incomingImages } : {}),
+      images: incomingImages,
+      floorPlanUrl: nextFloorPlan,
+      imageFingerprints: fingerprints,
+      fraudStatus,
+      fraudFlags,
       id,
       userId: current.userId || user.id,
       agentId: user.role === 'admin' && safeIncoming.agentId ? safeIncoming.agentId : (current.agentId || user.id),
       listingStatus: newStatus,
       isAvailable: newStatus === 'PUBLISHED',
+      published: !isDraft && safeIncoming.published !== false && fraudStatus !== 'suspect',
       status: newStatus === 'SOLD' ? 'sold' : (safeIncoming.status || current.status),
       statusHistory: history,
       updatedAt: new Date().toISOString()
     });
 
+    if (updated.videoUrl && updated.videoUrl !== current.videoUrl) {
+      updated.videoModerationStatus = ensurePendingVideoModerationInMemory({ prop: updated, user, videoUrl: updated.videoUrl });
+    }
+
+    // Nettoyage Cloudinary des médias retirés
+    const prevImages = Array.isArray(current.images) ? current.images : [];
+    for (const oldImg of prevImages) {
+      if (oldImg && oldImg.includes('cloudinary.com') && !incomingImages.includes(oldImg)) {
+        destroyFromCloudinaryServer({ url: oldImg, resourceType: 'image' }).catch(() => {});
+      }
+    }
+    if (current.floorPlanUrl && current.floorPlanUrl.includes('cloudinary.com') && current.floorPlanUrl !== nextFloorPlan) {
+      destroyFromCloudinaryServer({ url: current.floorPlanUrl, publicId: current.floorPlanPublicId, resourceType: 'image' }).catch(() => {});
+    }
+    if (current.videoUrl && current.videoUrl.includes('cloudinary.com') && updated.videoUrl !== current.videoUrl) {
+      destroyFromCloudinaryServer({ url: current.videoUrl, publicId: current.videoPublicId, resourceType: 'video' }).catch(() => {});
+    }
+
     inMemoryProperties[idx] = updated;
     saveLocalProperties(inMemoryProperties);
-    return res.json({ success: true, message: 'Annonce mise à jour avec succès.', property: updated });
+    return res.json({
+      success: true,
+      message: 'Annonce mise à jour avec succès.',
+      duplicateMatches: dupMatches,
+      property: updated
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
@@ -5053,8 +5746,21 @@ app.delete('/api/properties/:id', (req: Request, res: Response) => {
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
     }
-    if (!canManageProperty(user, inMemoryProperties[idx])) {
+    const target = inMemoryProperties[idx];
+    if (!canManageProperty(user, target)) {
       return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez supprimer que vos propres annonces.' });
+    }
+
+    if (Array.isArray(target.images)) {
+      target.images.forEach((u: string) => {
+        if (u && u.includes('cloudinary.com')) destroyFromCloudinaryServer({ url: u, resourceType: 'image' }).catch(() => {});
+      });
+    }
+    if (target.floorPlanUrl && target.floorPlanUrl.includes('cloudinary.com')) {
+      destroyFromCloudinaryServer({ url: target.floorPlanUrl, publicId: target.floorPlanPublicId, resourceType: 'image' }).catch(() => {});
+    }
+    if (target.videoUrl && target.videoUrl.includes('cloudinary.com')) {
+      destroyFromCloudinaryServer({ url: target.videoUrl, publicId: target.videoPublicId, resourceType: 'video' }).catch(() => {});
     }
 
     inMemoryProperties.splice(idx, 1);
@@ -5090,6 +5796,16 @@ const handlePropertyStatusUpdate = (req: Request, res: Response) => {
     const current = inMemoryProperties[idx];
     if (!canManageProperty(user, current)) {
       return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez modifier que vos propres annonces.' });
+    }
+
+    if (targetStatus === 'PUBLISHED') {
+      const imgCount = Array.isArray(current.images) ? current.images.filter(Boolean).length : 0;
+      if (imgCount < MIN_PROPERTY_PHOTOS) {
+        return res.status(400).json({
+          success: false,
+          error: `Impossible de publier : au moins ${MIN_PROPERTY_PHOTOS} photos sont requises (actuellement ${imgCount}).`,
+        });
+      }
     }
 
     const oldStatus = current.listingStatus || (current.status === 'sold' ? 'SOLD' : 'PUBLISHED');
@@ -6183,7 +6899,8 @@ const DEFAULT_SETTINGS = {
   vip_whatsapp: '+243 84 529 4616',
   vip_email: 'vip@kinimmo.cd',
   vip_message: 'Bonjour, je souhaite bénéficier du service de conciergerie VIP Kinimmo.',
-  vip_description: 'Visites privées, vérifications juridiques et négociation clé en main.'
+  vip_description: 'Visites privées, vérifications juridiques et négociation clé en main.',
+  virtual_tour_allowed_domains: JSON.stringify(DEFAULT_VIRTUAL_TOUR_DOMAINS),
 };
 
 let inMemorySettings: Record<string, any> = (() => {
@@ -6867,9 +7584,22 @@ app.delete('/api/admin/properties/:id', (req: Request, res: Response) => {
   const admin = getAuthUser(req);
   if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
   if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
-  const initialLen = inMemoryProperties.length;
+  const target = inMemoryProperties.find((p) => p.id === req.params.id);
+  if (!target) return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+
+  if (Array.isArray(target.images)) {
+    target.images.forEach((u: string) => {
+      if (u && u.includes('cloudinary.com')) destroyFromCloudinaryServer({ url: u, resourceType: 'image' }).catch(() => {});
+    });
+  }
+  if (target.floorPlanUrl && target.floorPlanUrl.includes('cloudinary.com')) {
+    destroyFromCloudinaryServer({ url: target.floorPlanUrl, publicId: target.floorPlanPublicId, resourceType: 'image' }).catch(() => {});
+  }
+  if (target.videoUrl && target.videoUrl.includes('cloudinary.com')) {
+    destroyFromCloudinaryServer({ url: target.videoUrl, publicId: target.videoPublicId, resourceType: 'video' }).catch(() => {});
+  }
+
   inMemoryProperties = inMemoryProperties.filter((p) => p.id !== req.params.id);
-  if (inMemoryProperties.length === initialLen) return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
   saveLocalProperties(inMemoryProperties);
   return res.json({ success: true, message: 'Propriété supprimée.' });
 });

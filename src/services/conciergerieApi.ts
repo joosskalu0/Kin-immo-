@@ -5,8 +5,6 @@ import { initialProperties } from '../data/mockData';
 import { getStoredToken } from './mysqlApi';
 import { getApiBaseUrl } from '../utils/mediaUrl';
 
-const API_BASE_URL = getApiBaseUrl();
-
 function getAuthHeaders(includeJson = true): Record<string, string> {
   const headers: Record<string, string> = {};
   if (includeJson) {
@@ -299,7 +297,7 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
   // 3. Appel de l'API Express (Aperçu ou Hostinger MySQL)
   let shouldFallbackOffline = false;
   try {
-    const res = await fetch(`${API_BASE_URL}/concierge-requests`, {
+    const res = await fetch(`${getApiBaseUrl()}/concierge-requests`, {
       method: 'POST',
       headers: getAuthHeaders(true),
       body: JSON.stringify({
@@ -410,7 +408,7 @@ export async function fetchConciergeRequests(): Promise<ConciergerieRequest[]> {
     return getLocalStoredRequests();
   }
   try {
-    const res = await fetch(`${API_BASE_URL}/concierge-requests`, {
+    const res = await fetch(`${getApiBaseUrl()}/concierge-requests`, {
       headers: getAuthHeaders(false)
     });
     if (res.ok) {
@@ -436,7 +434,7 @@ export async function updateConciergeRequestFull(
   updateData: Partial<ConciergeRequest>
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE_URL}/concierge-requests/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/concierge-requests/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: getAuthHeaders(true),
       body: JSON.stringify(updateData)
@@ -490,7 +488,7 @@ export async function updateConciergeRequestStatus(
   if (assignedAgentId !== undefined) payload.assigned_agent_id = assignedAgentId;
 
   try {
-    const res = await fetch(`${API_BASE_URL}/concierge-requests/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/concierge-requests/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: getAuthHeaders(true),
       body: JSON.stringify(payload)
@@ -537,8 +535,8 @@ export async function fetchPropertyVisits(requestId?: string): Promise<PropertyV
   }
   try {
     const url = requestId
-      ? `${API_BASE_URL}/property-visits?request_id=${encodeURIComponent(requestId)}`
-      : `${API_BASE_URL}/property-visits`;
+      ? `${getApiBaseUrl()}/property-visits?request_id=${encodeURIComponent(requestId)}`
+      : `${getApiBaseUrl()}/property-visits`;
     const res = await fetch(url, {
       headers: getAuthHeaders(false)
     });
@@ -575,7 +573,7 @@ export async function schedulePropertyVisit(
   });
 
   try {
-    const res = await fetch(`${API_BASE_URL}/property-visits`, {
+    const res = await fetch(`${getApiBaseUrl()}/property-visits`, {
       method: 'POST',
       headers: getAuthHeaders(true),
       body: JSON.stringify(record)
@@ -605,7 +603,7 @@ export async function updatePropertyVisitStatus(
   notes?: string
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE_URL}/property-visits/${encodeURIComponent(visitId)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/property-visits/${encodeURIComponent(visitId)}`, {
       method: 'PATCH',
       headers: getAuthHeaders(true),
       body: JSON.stringify({ status, notes })
@@ -634,7 +632,7 @@ export async function updatePropertyVisitStatus(
  */
 export async function deletePropertyVisit(visitId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE_URL}/property-visits/${encodeURIComponent(visitId)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/property-visits/${encodeURIComponent(visitId)}`, {
       method: 'DELETE',
       headers: getAuthHeaders(false)
     });

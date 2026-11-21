@@ -17,7 +17,18 @@ const DEFAULT_SETTINGS = {
   vip_whatsapp: '+243 84 529 4616',
   vip_email: 'joosskalu72@gmail.com',
   vip_description: 'Besoin d’un conseil d’expert, d’une visite privée ou d’un accompagnement sur-mesure pour une acquisition de prestige à Gombe ou Ngaliema ?',
-  vip_message: 'Bonjour KINIMMO Conciergerie VIP, je souhaite être assisté personnellement pour trouver une résidence de standing ou un investissement immobilier à Kinshasa.'
+  vip_message: 'Bonjour KINIMMO Conciergerie VIP, je souhaite être assisté personnellement pour trouver une résidence de standing ou un investissement immobilier à Kinshasa.',
+  virtual_tour_allowed_domains: JSON.stringify([
+    'my.matterport.com',
+    'matterport.com',
+    'kuula.co',
+    'www.kuula.co',
+    'youtube.com',
+    'www.youtube.com',
+    'youtu.be',
+    'vimeo.com',
+    'player.vimeo.com',
+  ]),
 };
 
 /**

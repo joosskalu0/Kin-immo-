@@ -16,6 +16,7 @@
  */
 
 import { Property, FraudVerdict, FraudFlag, FraudAnalysisResult, PropertyUserReport } from '../types';
+import { dHashHammingDistance } from './mediaTools';
 
 // Valeurs de référence minimales réalistes par commune à Kinshasa (en USD)
 // Si le prix d'une annonce est très inférieur à ces seuils, il s'agit d'un signal fort d'arnaque
@@ -144,12 +145,18 @@ export function analyzePropertyForFraud(
   }
 
   // =========================================================================
-  // RÈGLE 2 : Mêmes photos utilisées plusieurs fois (doublons d'images)
+  // RÈGLE 2 : Mêmes photos utilisées plusieurs fois (doublons URL & empreinte dHash)
   // =========================================================================
   const duplicatePhotoUrls: string[] = [];
+  let fingerprintMatchCount = 0;
   let foundReusedFromOtherAgent = false;
+  const targetFingerprints: string[] = Array.isArray(target.imageFingerprints)
+    ? target.imageFingerprints.filter(Boolean)
+    : Array.isArray(target.imagesMeta)
+    ? target.imagesMeta.map((m) => m.fingerprint).filter((fp): fp is string => Boolean(fp))
+    : [];
 
-  if (targetImages.length > 0) {
+  if (targetImages.length > 0 || targetFingerprints.length > 0) {
     const targetUrlSet = new Set(targetImages.map(img => img.split('?')[0].trim()));
 
     otherProperties.forEach(otherProp => {
@@ -157,23 +164,40 @@ export function analyzePropertyForFraud(
       otherImgs.forEach(imgUrl => {
         if (imgUrl && targetUrlSet.has(imgUrl) && !duplicatePhotoUrls.includes(imgUrl)) {
           duplicatePhotoUrls.push(imgUrl);
-          // Si les photos sont réutilisées par un agent/compte différent
           if (otherProp.agentId && target.agentId && otherProp.agentId !== target.agentId) {
             foundReusedFromOtherAgent = true;
           }
         }
       });
+
+      const otherFingerprints: string[] = Array.isArray(otherProp.imageFingerprints)
+        ? otherProp.imageFingerprints.filter(Boolean)
+        : Array.isArray(otherProp.imagesMeta)
+        ? otherProp.imagesMeta.map((m) => m.fingerprint).filter((fp): fp is string => Boolean(fp))
+        : [];
+      for (const fp of targetFingerprints) {
+        if (otherFingerprints.some((ofp) => dHashHammingDistance(fp, ofp) <= 6)) {
+          fingerprintMatchCount += 1;
+          if (otherProp.agentId && target.agentId && otherProp.agentId !== target.agentId) {
+            foundReusedFromOtherAgent = true;
+          }
+          break;
+        }
+      }
     });
 
-    if (duplicatePhotoUrls.length > 0) {
-      const pts = foundReusedFromOtherAgent ? 45 : 25;
+    const totalDuplicates = Math.max(duplicatePhotoUrls.length, fingerprintMatchCount);
+    if (totalDuplicates > 0) {
+      const pts = foundReusedFromOtherAgent ? 45 : 30;
       riskScore += pts;
       flags.push({
         code: 'DUPLICATE_PHOTOS',
-        label: foundReusedFromOtherAgent ? 'Photos volées / réutilisées d\'un autre compte' : 'Photos dupliquées sur d\'autres annonces',
+        label: foundReusedFromOtherAgent
+          ? 'Empreinte d’image déjà utilisée par un autre compte'
+          : 'Photos ou empreintes d’images dupliquées sur d\'autres annonces',
         severity: foundReusedFromOtherAgent ? 'critical' : 'high',
         score: pts,
-        details: `${duplicatePhotoUrls.length} photo(s) identique(s) ont été détectées sur d'autres biens${foundReusedFromOtherAgent ? ' appartenant à d\'autres annonceurs' : ''}.`
+        details: `${totalDuplicates} photo(s) correspondante(s) (URL ou empreinte visuelle) détectée(s) sur d'autres annonces${foundReusedFromOtherAgent ? ' appartenant à d\'autres annonceurs' : ''}.`
       });
     }
   }

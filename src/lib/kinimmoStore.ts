@@ -33,8 +33,6 @@ import {
 import { mysqlApi, getStoredToken, clearStoredToken } from '../services/mysqlApi';
 import { getApiBaseUrl, resolvePropertyMedia } from '../utils/mediaUrl';
 
-const API_BASE_URL = getApiBaseUrl();
-
 // Database & Auth Mock/Proxy Objects to maintain full interface compatibility
 export const db = null as any;
 export const auth = {
@@ -125,7 +123,7 @@ export function subscribeToProperties(callback: (properties: Property[]) => void
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  fetch(`${API_BASE_URL}/properties`, { headers })
+  fetch(`${getApiBaseUrl()}/properties`, { headers })
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.properties) ? json.properties : null);
@@ -152,7 +150,7 @@ export function subscribeToCustomFields(callback: (fields: CustomFieldDefinition
     callback(initialCustomFields);
   }
 
-  fetch(`${API_BASE_URL}/custom-fields`)
+  fetch(`${getApiBaseUrl()}/custom-fields`)
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.fields) ? json.fields : (Array.isArray(json?.data) ? json.data : null);
@@ -180,7 +178,7 @@ export function subscribeToLeads(callback: (leads: LeadRequest[]) => void): () =
 
   const token = getStoredToken();
   if (token) {
-    fetch(`${API_BASE_URL}/leads`, {
+    fetch(`${getApiBaseUrl()}/leads`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -209,7 +207,7 @@ export function subscribeToAgents(callback: (agents: Agent[]) => void): () => vo
     callback([]);
   }
 
-  fetch(`${API_BASE_URL}/agents`)
+  fetch(`${getApiBaseUrl()}/agents`)
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.agents) ? json.agents : (Array.isArray(json?.data) ? json.data : null);
@@ -235,7 +233,7 @@ export function subscribeToAgencies(callback: (agencies: Agency[]) => void): () 
     callback([]);
   }
 
-  fetch(`${API_BASE_URL}/agencies`)
+  fetch(`${getApiBaseUrl()}/agencies`)
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.agencies) ? json.agencies : (Array.isArray(json?.data) ? json.data : null);
@@ -263,7 +261,7 @@ export function subscribeToInvoices(callback: (invoices: Invoice[]) => void): ()
 
   const token = getStoredToken();
   if (token) {
-    fetch(`${API_BASE_URL}/invoices`, {
+    fetch(`${getApiBaseUrl()}/invoices`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -304,7 +302,7 @@ export function subscribeToUsers(callback: (users: User[]) => void): () => void 
   } catch {}
 
   if (token && isAdmin) {
-    fetch(`${API_BASE_URL}/users`, {
+    fetch(`${getApiBaseUrl()}/users`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -380,7 +378,7 @@ export async function savePropertyToStore(property: Property, skipRemoteSync = f
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    await fetch(`${API_BASE_URL}/properties/${resolvedProp.id}`, {
+    await fetch(`${getApiBaseUrl()}/properties/${resolvedProp.id}`, {
       method: 'PUT',
       headers,
       body: JSON.stringify(resolvedProp)
@@ -417,7 +415,7 @@ export async function deletePropertyFromStore(id: string) {
     const token = getStoredToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    await fetch(`${API_BASE_URL}/properties/${id}`, { method: 'DELETE', headers });
+    await fetch(`${getApiBaseUrl()}/properties/${id}`, { method: 'DELETE', headers });
   } catch {}
 }
 export const deletePropertyFromFirestore = deletePropertyFromStore;
@@ -501,7 +499,7 @@ export async function saveUserToStore(user: User) {
   try {
     const token = getStoredToken();
     if (token) {
-      await fetch(`${API_BASE_URL}/users/${user.id}`, {
+      await fetch(`${getApiBaseUrl()}/users/${user.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

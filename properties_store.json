@@ -25,7 +25,15 @@
         "changedAt": "2026-11-12T15:56:17.610Z",
         "note": "Création initiale de l'annonce"
       }
-    ]
+    ],
+    "description": "",
+    "category": "Résidentiel",
+    "images": [],
+    "imagesMeta": [],
+    "imageFingerprints": [],
+    "labels": [],
+    "amenities": [],
+    "customFields": {}
   },
   {
     "id": "prop_1",
@@ -136,7 +144,9 @@
     "trust_score": 90,
     "trust_verified_at": "2026-09-12T15:00:00Z",
     "trust_expires_at": "2027-09-12T15:00:00Z",
-    "lastViewedAt": "2026-10-22T08:22:48.026Z"
+    "lastViewedAt": "2026-10-22T08:22:48.026Z",
+    "imagesMeta": [],
+    "imageFingerprints": []
   },
   {
     "id": "prop_2",
@@ -225,7 +235,9 @@
     "trust_score": 98,
     "trust_verified_at": "2026-10-28T05:43:36.193Z",
     "trust_expires_at": "2027-10-28T05:43:36.193Z",
-    "lastViewedAt": "2026-10-22T08:22:56.122Z"
+    "lastViewedAt": "2026-10-22T08:22:56.122Z",
+    "imagesMeta": [],
+    "imageFingerprints": []
   },
   {
     "id": "prop_3",
@@ -300,7 +312,9 @@
         "note": "Création et mise en ligne initiale de l'annonce"
       }
     ],
-    "lastViewedAt": "2026-10-22T08:23:02.974Z"
+    "lastViewedAt": "2026-10-22T08:23:02.974Z",
+    "imagesMeta": [],
+    "imageFingerprints": []
   },
   {
     "id": "prop_4",
@@ -373,7 +387,9 @@
         "note": "Création et mise en ligne initiale de l'annonce"
       }
     ],
-    "lastViewedAt": "2026-10-28T05:38:10.609Z"
+    "lastViewedAt": "2026-10-28T05:38:10.609Z",
+    "imagesMeta": [],
+    "imageFingerprints": []
   },
   {
     "id": "prop_5",
@@ -443,7 +459,9 @@
         "changedAt": "2026-08-04T08:00:00Z",
         "note": "Création et mise en ligne initiale de l'annonce"
       }
-    ]
+    ],
+    "imagesMeta": [],
+    "imageFingerprints": []
   },
   {
     "id": "prop_6",
@@ -510,7 +528,9 @@
         "changedAt": "2026-08-02T11:00:00Z",
         "note": "Création et mise en ligne initiale de l'annonce"
       }
-    ]
+    ],
+    "imagesMeta": [],
+    "imageFingerprints": []
   },
   {
     "id": "prop_7",
@@ -584,7 +604,9 @@
         "changedAt": "2026-08-05T10:00:00Z",
         "note": "Création et mise en ligne initiale de l'annonce"
       }
-    ]
+    ],
+    "imagesMeta": [],
+    "imageFingerprints": []
   },
   {
     "id": "prop_8",
@@ -657,6 +679,8 @@
         "note": "Création et mise en ligne initiale de l'annonce"
       }
     ],
-    "lastViewedAt": "2026-10-24T05:28:36.905Z"
+    "lastViewedAt": "2026-10-24T05:28:36.905Z",
+    "imagesMeta": [],
+    "imageFingerprints": []
   }
 ]

@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const uuidv4 = () => crypto.randomUUID();
 const pool = require('../config/database');
 const videoStorageService = require('../services/videoStorageService');
+const { destroyFromCloudinary, MAX_VIDEO_DURATION_SECONDS } = require('../services/cloudinaryRestService');
 
 /**
  * Contrôleur Kinimmo Visites & Modération Vidéos
@@ -454,6 +455,7 @@ class VideosController {
         videoUrl,
         thumbnailUrl,
         description,
+        duration,
         status = 'pending'
       } = req.body;
 
@@ -461,6 +463,13 @@ class VideosController {
         return res.status(400).json({
           success: false,
           message: 'L\'identifiant de l\'annonce (propertyId) et l\'URL de la vidéo (videoUrl) sont obligatoires.'
+        });
+      }
+
+      if (duration !== undefined && duration !== null && Number(duration) > MAX_VIDEO_DURATION_SECONDS) {
+        return res.status(400).json({
+          success: false,
+          message: `Vidéo trop longue (${Math.round(Number(duration))}s). La durée maximale autorisée est de ${MAX_VIDEO_DURATION_SECONDS} secondes.`
         });
       }
 
@@ -649,7 +658,7 @@ class VideosController {
       const { id } = req.params;
 
       const [existing] = await pool.execute(
-        'SELECT id, user_id FROM property_videos WHERE id = ? LIMIT 1',
+        'SELECT id, user_id, video_url FROM property_videos WHERE id = ? LIMIT 1',
         [id]
       );
 
@@ -672,6 +681,9 @@ class VideosController {
       }
 
       await pool.execute('DELETE FROM property_videos WHERE id = ?', [id]);
+      if (video.video_url && String(video.video_url).includes('cloudinary.com')) {
+        destroyFromCloudinary({ url: video.video_url, resourceType: 'video' }).catch(() => {});
+      }
 
       res.json({
         success: true,

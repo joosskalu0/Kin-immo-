@@ -79,6 +79,12 @@ JWT_EXPIRES_IN=15d
 
 # Domaine de votre site web (sans slash final)
 FRONTEND_URL=https://votredomaine.com
+
+# Cloudinary (hébergement permanent des photos et vidéos)
+CLOUDINARY_CLOUD_NAME=votre_cloud_name
+CLOUDINARY_API_KEY=votre_api_key
+CLOUDINARY_API_SECRET=votre_api_secret
+CLOUDINARY_UPLOAD_PRESET=kinimmo_videos
 ```
 
 ### Option B : Sur VPS Hostinger (Ubuntu / Debian)
@@ -126,16 +132,16 @@ Le script :
 
 ## 🚀 6. Étape 5 : Compiler et Déployer le Frontend
 
-1. Sur votre machine locale, créez un fichier `.env.production` à la racine du projet (basé sur `.env.production.example`) avec l'URL réelle de votre backend API :
-```env
-VITE_API_BASE_URL="https://api.votredomaine.com/api"
+1. Avant ou après compilation, indiquez l'URL de votre backend API dans le fichier normal **`public/kinimmo-config.js`** (aucun fichier caché `.env` requis) :
+```js
+window.__KINIMMO_API_BASE_URL__ = 'https://api.votredomaine.com/api';
 ```
-   *(Indispensable pour que les appels `/api/*` et les photos `/uploads/images/*` pointent vers votre serveur Node.js au lieu de `public_html/`).*
-2. Compilez ensuite l'application web :
+   *(Vous pouvez aussi modifier ce fichier directement dans `public_html/kinimmo-config.js` depuis le Gestionnaire de fichiers Hostinger sans même recompiler !)*
+2. Compilez l'application web :
 ```bash
 npm run build
 ```
-3. La compilation génère le dossier `dist/` contenant `index.html`, `.htaccess`, et le dossier `assets/`.
+3. La compilation génère le dossier `dist/` contenant `index.html`, `kinimmo-config.js`, `.htaccess`, et le dossier `assets/`.
 4. Ouvrez le **Gestionnaire de fichiers** Hostinger (ou utilisez FileZilla FTP), allez dans `public_html/`, supprimez `default.php` s'il est présent, et téléversez **tout le contenu** du dossier `dist/` directement dans `public_html/`.
 5. Vérifiez que le dossier `uploads/images/` sur votre serveur backend Node.js dispose bien des permissions d'écriture (`755`).
 

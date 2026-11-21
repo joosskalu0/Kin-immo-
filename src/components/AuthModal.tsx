@@ -98,12 +98,13 @@ export const formatAuthErrorMessage = (
     return "L'adresse e-mail saisie n'a pas un format valide (ex: contact@kinshasa-prestige.cd).";
   }
 
-  // 6. Network failure
+  // 6. Network failure (Safari "Load failed", Chrome "Failed to fetch", etc.)
   if (
     code === 'auth/network-request-failed' ||
-    rawMsg.includes('auth/network-request-failed')
+    rawMsg.includes('auth/network-request-failed') ||
+    /load failed|failed to fetch|networkerror|impossible de joindre le serveur/i.test(rawMsg)
   ) {
-    return "Impossible de joindre le serveur d'authentification. Veuillez vérifier votre connexion Internet et réessayer.";
+    return "Impossible de joindre le serveur de connexion. Vérifiez votre connexion Internet ou l'adresse du backend dans kinimmo-config.js (ex: https://api.kinimmo.com/api).";
   }
 
   // 7. Email already in use
