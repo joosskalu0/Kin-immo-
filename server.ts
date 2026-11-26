@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -67,7 +68,20 @@ import {
   sanitizePublicUser,
   validatePasswordPolicy,
   verifyPasswordBcrypt,
+  ACCESS_COOKIE_NAME,
+  parseCookies,
 } from './server/authSecurity';
+import {
+  isMysqlConfigured,
+  loadAllMysqlUsers,
+  findMysqlUserByIdentifier,
+  findMysqlUserById,
+  insertMysqlUser,
+  updateMysqlUserPassword,
+  updateMysqlUserProfile,
+  updateMysqlUserEmail,
+  mergeAccountIntoMemory,
+} from './server/mysqlUsersBridge';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1923,6 +1937,44 @@ function findUserByIdentifier(identifier: string): StoredAccountRecord | undefin
   });
 }
 
+async function findOrFetchUserByIdentifier(
+  identifier: string
+): Promise<{ user: StoredAccountRecord | undefined; suspended: boolean }> {
+  if (isMysqlConfigured()) {
+    const mysqlRes = await findMysqlUserByIdentifier(identifier);
+    if (mysqlRes.suspended) {
+      return { user: undefined, suspended: true };
+    }
+    if (mysqlRes.record) {
+      const merged = mergeAccountIntoMemory(inMemoryUsers, mysqlRes.record);
+      return { user: merged, suspended: false };
+    }
+  }
+  return { user: findUserByIdentifier(identifier), suspended: false };
+}
+
+async function ensureCookieUserLoadedFromMysql(req: Request): Promise<void> {
+  if (!isMysqlConfigured()) return;
+  const already = getAuthenticatedUserFromCookies(req, inMemoryUsers);
+  if (already) return;
+  const cookies = parseCookies(req);
+  const accessCookie = cookies[ACCESS_COOKIE_NAME];
+  if (!accessCookie) return;
+  try {
+    const parts = accessCookie.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      const sub = payload?.sub ? String(payload.sub) : '';
+      if (sub) {
+        const record = await findMysqlUserById(sub);
+        if (record) {
+          mergeAccountIntoMemory(inMemoryUsers, record);
+        }
+      }
+    }
+  } catch {}
+}
+
 async function sendVerificationLinkEmail(req: Request, user: StoredAccountRecord, targetEmail: string, purpose: 'verify_email' | 'change_email') {
   const { rawToken } = createOneTimeActionToken({
     purpose,
@@ -2041,11 +2093,14 @@ const handleRegister = async (req: Request, res: Response) => {
     }
 
     if (cleanEmail) {
-      const emailTaken = inMemoryUsers.some(
-        (u) =>
-          (u.email && normalizeEmailAddress(u.email) === cleanEmail) ||
-          (u.pendingEmail && normalizeEmailAddress(u.pendingEmail) === cleanEmail)
-      );
+      const mysqlExisting = isMysqlConfigured() ? await findMysqlUserByIdentifier(cleanEmail) : { record: null, suspended: false };
+      const emailTaken =
+        Boolean(mysqlExisting.record) ||
+        inMemoryUsers.some(
+          (u) =>
+            (u.email && normalizeEmailAddress(u.email) === cleanEmail) ||
+            (u.pendingEmail && normalizeEmailAddress(u.pendingEmail) === cleanEmail)
+        );
       if (emailTaken) {
         return res.status(409).json({
           success: false,
@@ -2055,9 +2110,12 @@ const handleRegister = async (req: Request, res: Response) => {
     }
 
     if (normalizedPhone) {
-      const phoneTaken = inMemoryUsers.some(
-        (u) => u.phone && u.phone.replace(/[\s().-]/g, '') === normalizedPhone
-      );
+      const mysqlPhoneExisting = isMysqlConfigured() ? await findMysqlUserByIdentifier(normalizedPhone) : { record: null, suspended: false };
+      const phoneTaken =
+        Boolean(mysqlPhoneExisting.record) ||
+        inMemoryUsers.some(
+          (u) => u.phone && u.phone.replace(/[\s().-]/g, '') === normalizedPhone
+        );
       if (phoneTaken) {
         return res.status(409).json({
           success: false,
@@ -2102,6 +2160,9 @@ const handleRegister = async (req: Request, res: Response) => {
 
     inMemoryUsers.unshift(newRecord);
     saveLocalUsers(inMemoryUsers);
+    if (isMysqlConfigured()) {
+      await insertMysqlUser(newRecord);
+    }
 
     const { accessToken, refreshToken } = createNewSessionPair(req, newRecord);
     appendAuthCookies(req, res, accessToken, refreshToken);
@@ -2152,7 +2213,13 @@ const handleLogin = async (req: Request, res: Response) => {
       });
     }
 
-    const found = findUserByIdentifier(rawIdentifier);
+    const { user: found, suspended } = await findOrFetchUserByIdentifier(rawIdentifier);
+    if (suspended) {
+      return res.status(403).json({
+        success: false,
+        message: 'Votre compte est suspendu ou désactivé.',
+      });
+    }
     if (!found) {
       return res.status(401).json({
         success: false,
@@ -2172,6 +2239,9 @@ const handleLogin = async (req: Request, res: Response) => {
     if (found.password !== undefined) {
       delete found.password;
       saveLocalUsers(inMemoryUsers);
+      if (isMysqlConfigured() && found.passwordHash) {
+        await updateMysqlUserPassword(found.id, found.passwordHash);
+      }
     }
 
     if (found.role === 'agency' && !found.agencyId) {
@@ -2194,7 +2264,8 @@ const handleLogin = async (req: Request, res: Response) => {
   }
 };
 
-const handleRefreshSession = (req: Request, res: Response) => {
+const handleRefreshSession = async (req: Request, res: Response) => {
+  await ensureCookieUserLoadedFromMysql(req);
   const result = rotateRefreshSession(req, inMemoryUsers);
   if (!result.ok || !result.user || !result.accessToken || !result.refreshToken) {
     clearAuthCookies(req, res);
@@ -2219,7 +2290,8 @@ const handleLogout = (req: Request, res: Response) => {
   return res.json({ success: true, message: 'Déconnexion effectuée.' });
 };
 
-const handleGetMe = (req: Request, res: Response) => {
+const handleGetMe = async (req: Request, res: Response) => {
+  await ensureCookieUserLoadedFromMysql(req);
   const user = getAuthUser(req);
   if (!user) {
     return res.status(401).json({
@@ -2235,7 +2307,8 @@ const handleGetMe = (req: Request, res: Response) => {
   });
 };
 
-const handleGetSession = (req: Request, res: Response) => {
+const handleGetSession = async (req: Request, res: Response) => {
+  await ensureCookieUserLoadedFromMysql(req);
   const user = getAuthUser(req);
   return res.json({
     success: true,
@@ -2245,7 +2318,7 @@ const handleGetSession = (req: Request, res: Response) => {
   });
 };
 
-const handleVerifyEmail = (req: Request, res: Response) => {
+const handleVerifyEmail = async (req: Request, res: Response) => {
   const token = String(req.body?.token || req.query?.token || '').trim();
   const check = consumeOneTimeActionToken(token, ['verify_email', 'change_email']);
   if (!check.ok || !check.record) {
@@ -2271,6 +2344,9 @@ const handleVerifyEmail = (req: Request, res: Response) => {
     }
     inMemoryUsers[idx].email = targetEmail;
     delete inMemoryUsers[idx].pendingEmail;
+    if (isMysqlConfigured()) {
+      await updateMysqlUserEmail(inMemoryUsers[idx].id, targetEmail);
+    }
   } else {
     if (normalizeEmailAddress(inMemoryUsers[idx].email) !== targetEmail) {
       return res.status(400).json({ success: false, message: "Ce lien ne correspond plus à l'adresse actuelle du compte." });
@@ -2376,7 +2452,7 @@ const handleForgotPassword = async (req: Request, res: Response) => {
       });
     }
 
-    const found = findUserByIdentifier(identifier);
+    const { user: found } = await findOrFetchUserByIdentifier(identifier);
     let resetPreviewUrl: string | undefined;
 
     if (found && found.email && isValidEmailAddress(found.email)) {
@@ -2461,6 +2537,9 @@ const handleResetPassword = async (req: Request, res: Response) => {
     delete userRecord.password;
     userRecord.passwordUpdatedAt = new Date().toISOString();
     saveLocalUsers(inMemoryUsers);
+    if (isMysqlConfigured()) {
+      await updateMysqlUserPassword(userRecord.id, userRecord.passwordHash);
+    }
 
     // Révoquer toutes les sessions existantes après réinitialisation
     revokeAllUserSessions(userRecord.id, 'password_reset');
@@ -2475,7 +2554,8 @@ const handleResetPassword = async (req: Request, res: Response) => {
   }
 };
 
-const handleUpdateProfile = (req: Request, res: Response) => {
+const handleUpdateProfile = async (req: Request, res: Response) => {
+  await ensureCookieUserLoadedFromMysql(req);
   const user = getAuthUser(req);
   if (!user) {
     return res.status(401).json({ success: false, message: 'Non autorisé.' });
@@ -2512,6 +2592,9 @@ const handleUpdateProfile = (req: Request, res: Response) => {
 
   inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...updates };
   saveLocalUsers(inMemoryUsers);
+  if (isMysqlConfigured()) {
+    await updateMysqlUserProfile(inMemoryUsers[idx].id, updates);
+  }
 
   const safeUser = sanitizePublicUser(inMemoryUsers[idx]);
   return res.json({ success: true, message: 'Profil mis à jour.', user: safeUser, data: { user: safeUser } });
@@ -2519,6 +2602,7 @@ const handleUpdateProfile = (req: Request, res: Response) => {
 
 const handleChangePassword = async (req: Request, res: Response) => {
   try {
+    await ensureCookieUserLoadedFromMysql(req);
     const authed = getAuthenticatedUserFromCookies(req, inMemoryUsers);
     if (!authed) {
       return res.status(401).json({ success: false, message: 'Non autorisé.' });
@@ -2553,6 +2637,9 @@ const handleChangePassword = async (req: Request, res: Response) => {
     delete target.password;
     target.passwordUpdatedAt = new Date().toISOString();
     saveLocalUsers(inMemoryUsers);
+    if (isMysqlConfigured()) {
+      await updateMysqlUserPassword(target.id, target.passwordHash);
+    }
 
     // Révoquer toutes les autres sessions actives par mesure de sécurité
     revokeAllUserSessions(target.id, 'password_changed', authed.sessionId);
@@ -9594,6 +9681,16 @@ function isHtmlPageRequest(req: Request): boolean {
 
 // Initialisation Serveur Vite (Dev) ou Fichiers Statiques (Prod)
 async function startServer() {
+  if (isMysqlConfigured()) {
+    const mysqlUsers = await loadAllMysqlUsers();
+    if (mysqlUsers.length > 0) {
+      for (const record of mysqlUsers) {
+        mergeAccountIntoMemory(inMemoryUsers, record);
+      }
+      console.log(`[MySQL Auth Bridge] ${mysqlUsers.length} compte(s) synchronisé(s) depuis la table MySQL users.`);
+    }
+  }
+
   const distPath = path.join(__dirname, 'dist');
   const hasDist = fs.existsSync(distPath) && fs.existsSync(path.join(distPath, 'index.html'));
 

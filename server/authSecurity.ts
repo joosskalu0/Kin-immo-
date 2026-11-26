@@ -109,7 +109,8 @@ export async function verifyPasswordBcrypt(
   user: StoredAccountRecord
 ): Promise<boolean> {
   if (user.passwordHash) {
-    return bcrypt.compare(plain, user.passwordHash);
+    const normalizedHash = user.passwordHash.trim().replace(/^\$2y\$/, '$2b$');
+    return bcrypt.compare(plain, normalizedHash);
   }
   // Rétrocompatibilité ultra-courte si un enregistrement hérité n'avait pas encore été migré
   if (user.password && timingSafeEqualStr(plain, user.password)) {
@@ -248,7 +249,9 @@ function buildCookieHeader(
   maxAgeSeconds: number,
   options: { httpOnly?: boolean } = { httpOnly: true }
 ): string {
-  const secure = isHttpsRequest(req) || process.env.NODE_ENV === 'production';
+  const hostHeader = String(req.headers['x-forwarded-host'] || req.headers.host || '');
+  const isLocalHttp = !isHttpsRequest(req) && /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(hostHeader);
+  const secure = isHttpsRequest(req) || (process.env.NODE_ENV === 'production' && !isLocalHttp);
   const isEmbedded = req.headers['x-kinimmo-embedded'] === '1';
   const segments = [
     `${name}=${encodeURIComponent(value)}`,
@@ -354,7 +357,13 @@ export function csrfProtectionMiddleware(req: Request, res: Response, next: Next
       const originHost = new URL(originHeader).host.toLowerCase();
       const requestHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase();
       const appUrlHost = process.env.APP_URL ? new URL(process.env.APP_URL).host.toLowerCase() : '';
-      const allowedHosts = new Set([requestHost, appUrlHost].filter(Boolean));
+      let frontendHost = '';
+      if (process.env.FRONTEND_URL) {
+        try {
+          frontendHost = new URL(process.env.FRONTEND_URL).host.toLowerCase();
+        } catch {}
+      }
+      const allowedHosts = new Set([requestHost, appUrlHost, frontendHost].filter(Boolean));
       if (allowedHosts.size > 0 && !allowedHosts.has(originHost)) {
         return res.status(403).json({
           success: false,

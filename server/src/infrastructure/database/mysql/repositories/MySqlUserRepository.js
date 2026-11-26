@@ -32,7 +32,7 @@ class MySqlUserRepository extends IUserRepository {
       password_hash: row.password_hash,
       phone: row.phone,
       whatsapp: row.whatsapp,
-      role: row.role,
+      role: String(row.role || 'user').trim().toLowerCase(),
       agency_id: row.agency_id,
       agency_name: row.agency_name,
       avatar: row.avatar,
@@ -73,21 +73,36 @@ class MySqlUserRepository extends IUserRepository {
    * @returns {Promise<User|null>}
    */
   async findByEmailOrPhone(identifier) {
-    const clean = String(identifier).trim();
+    const clean = String(identifier || '').trim();
+    if (!clean) return null;
     const cleanDigits = clean.replace(/[^\d+]/g, '');
+    const onlyDigits = clean.replace(/\D/g, '');
+    const last9 = onlyDigits.length >= 9 ? onlyDigits.slice(-9) : '';
     const query = `
       SELECT id, name, email, password_hash, phone, whatsapp, role,
              agency_id, agency_name, avatar, is_verified, kinshasa_badge_verified,
              rccm_or_nif, plan_id, subscription_status, created_at, updated_at
       FROM users
-      WHERE LOWER(email) = LOWER(?) 
+      WHERE LOWER(TRIM(email)) = LOWER(?) 
          OR phone = ? 
          OR phone = ?
          OR whatsapp = ?
          OR whatsapp = ?
+         OR (? <> '' AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)
+         OR (? <> '' AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(whatsapp, ''), ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)
       LIMIT 1
     `;
-    const [rows] = await this.pool.execute(query, [clean, clean, cleanDigits, clean, cleanDigits]);
+    const [rows] = await this.pool.execute(query, [
+      clean,
+      clean,
+      cleanDigits,
+      clean,
+      cleanDigits,
+      last9,
+      last9,
+      last9,
+      last9
+    ]);
     if (!rows || rows.length === 0) {
       return null;
     }

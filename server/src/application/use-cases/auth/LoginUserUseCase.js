@@ -27,19 +27,22 @@ class LoginUserUseCase {
    * @param {string} input.password
    * @returns {Promise<{ user: object, token: string }>}
    */
-  async execute({ email, password }) {
-    if (!email || !password) {
-      const err = new Error('Veuillez fournir votre adresse e-mail et votre mot de passe.');
+  async execute({ identifier, email, phone, password }) {
+    const rawIdentifier = String(identifier || email || phone || '').trim();
+    if (!rawIdentifier || !password) {
+      const err = new Error('Veuillez fournir votre identifiant (e-mail ou téléphone) et votre mot de passe.');
       err.statusCode = 400;
       throw err;
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
+    const lookupKey = rawIdentifier.includes('@') ? rawIdentifier.toLowerCase() : rawIdentifier;
 
-    // 1. Recherche de l'utilisateur par e-mail
-    const user = await this.userRepository.findByEmail(cleanEmail);
+    // 1. Recherche de l'utilisateur par e-mail ou téléphone
+    const user = this.userRepository.findByEmailOrPhone
+      ? await this.userRepository.findByEmailOrPhone(lookupKey)
+      : await this.userRepository.findByEmail(lookupKey);
     if (!user) {
-      const err = new Error('Identifiants incorrects : aucun compte trouvé pour cet e-mail.');
+      const err = new Error('Identifiants incorrects : aucun compte trouvé pour cet identifiant.');
       err.statusCode = 401;
       throw err;
     }

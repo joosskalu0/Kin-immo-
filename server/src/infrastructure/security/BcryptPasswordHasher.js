@@ -32,7 +32,9 @@ class BcryptPasswordHasher extends IPasswordHasher {
    * @returns {Promise<boolean>}
    */
   async compare(plainPassword, hashedPassword) {
-    return bcrypt.compare(plainPassword, hashedPassword);
+    if (!hashedPassword || typeof hashedPassword !== 'string') return false;
+    const normalizedHash = hashedPassword.trim().replace(/^\$2y\$/, '$2b$');
+    return bcrypt.compare(plainPassword, normalizedHash);
   }
 }
 

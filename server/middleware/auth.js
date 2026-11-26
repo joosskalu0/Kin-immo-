@@ -3,18 +3,44 @@ const pool = require('../config/database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'kinimmo_jwt_secret_default_key_2026';
 
+function extractCookieToken(req, cookieName) {
+  const header = req.headers && req.headers.cookie;
+  if (!header || typeof header !== 'string') return null;
+  const parts = header.split(';');
+  for (const part of parts) {
+    const eqIdx = part.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = part.slice(0, eqIdx).trim();
+    if (key === cookieName) {
+      const val = part.slice(eqIdx + 1).trim();
+      try {
+        return decodeURIComponent(val);
+      } catch {
+        return val;
+      }
+    }
+  }
+  return null;
+}
+
+function extractRequestJwt(req) {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.split(' ')[1];
+  }
+  return extractCookieToken(req, 'kinimmo_access');
+}
+
 /**
- * Middleware d'authentification par JWT
- * Vérifie le token présent dans le header 'Authorization: Bearer <token>'
+ * Middleware d'authentification par JWT (Header Bearer ou Cookie HttpOnly kinimmo_access)
  */
 async function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const token = extractRequestJwt(req);
 
   if (!token) {
     return res.status(401).json({
       success: false,
-      message: 'Accès refusé : Jeton d\'authentification (Token JWT) manquant.'
+      message: "Accès refusé : Jeton d'authentification (Token JWT) manquant."
     });
   }
 
@@ -34,7 +60,9 @@ async function authenticateToken(req, res, next) {
       });
     }
 
-    req.user = rows[0];
+    const userRow = rows[0];
+    userRow.role = String(userRow.role || 'user').trim().toLowerCase();
+    req.user = userRow;
     next();
   } catch (error) {
     return res.status(403).json({
@@ -45,11 +73,10 @@ async function authenticateToken(req, res, next) {
 }
 
 /**
- * Middleware d'authentification optionnelle (pour les routes publiques qui personnalisent le résultat si connecté)
+ * Middleware d'authentification optionnelle (Header Bearer ou Cookie HttpOnly kinimmo_access)
  */
 async function optionalAuth(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const token = extractRequestJwt(req);
 
   if (!token) {
     req.user = null;
@@ -62,7 +89,12 @@ async function optionalAuth(req, res, next) {
       'SELECT id, name, email, role, agency_id FROM users WHERE id = ? LIMIT 1',
       [decoded.id]
     );
-    req.user = rows.length > 0 ? rows[0] : null;
+    if (rows.length > 0) {
+      rows[0].role = String(rows[0].role || 'user').trim().toLowerCase();
+      req.user = rows[0];
+    } else {
+      req.user = null;
+    }
   } catch (e) {
     req.user = null;
   }
@@ -72,5 +104,7 @@ async function optionalAuth(req, res, next) {
 
 module.exports = {
   authenticateToken,
-  optionalAuth
+  optionalAuth,
+  extractRequestJwt,
+  extractCookieToken
 };
