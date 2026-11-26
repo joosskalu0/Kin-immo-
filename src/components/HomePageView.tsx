@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Property } from '../types';
-import { convertAndFormatPrice } from '../utils/currency';
+import { getPropertyDisplayCurrencies } from '../utils/propertyPricing';
 import { resolveMediaUrl, handlePropertyImageError, FALLBACK_PROPERTY_IMAGE, getOptimizedImageUrl } from '../utils/mediaUrl';
 import { PropertyCard } from './PropertyCard';
 import { EmptyState } from './StateFeedback';
@@ -370,12 +370,7 @@ export const HomePageView: React.FC<HomePageViewProps> = ({
             {featuredProperties.map((prop) => {
               const isFav = wishlist.includes(prop.id);
               const boostDisplay = getActiveBoostDisplay(prop);
-              const priceLabel = convertAndFormatPrice(
-                prop.price,
-                currency,
-                cdfExchangeRate,
-                prop.currency || 'USD'
-              );
+              const priceDisplay = getPropertyDisplayCurrencies(prop, cdfExchangeRate);
               const coverImg =
                 (Array.isArray(prop.images) && prop.images[0]
                   ? resolveMediaUrl(prop.images[0])
@@ -432,9 +427,14 @@ export const HomePageView: React.FC<HomePageViewProps> = ({
                         }`}
                       />
                     </button>
-                    <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-lg bg-[#1D4ED8] text-white text-[11px] sm:text-xs font-extrabold tabular-nums shadow-xs">
-                      {priceLabel}
-                      {prop.period === 'month' ? '/mois' : ''}
+                    <div className="absolute bottom-2 left-2 max-w-[calc(100%-16px)] px-2 py-1 rounded-lg bg-[#1D4ED8] text-white tabular-nums shadow-xs">
+                      <div className="text-[11px] sm:text-xs font-extrabold leading-tight truncate">
+                        {priceDisplay.primaryFormatted}
+                        {priceDisplay.periodSuffixCompact}
+                      </div>
+                      <div className="text-[10px] text-blue-100/95 font-medium leading-tight truncate">
+                        ≈ {priceDisplay.secondaryFormatted}{priceDisplay.periodSuffixCompact}
+                      </div>
                     </div>
                   </div>
 

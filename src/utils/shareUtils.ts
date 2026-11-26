@@ -244,10 +244,11 @@ export const formatPropertyPitch = (
   formattedPrice: string
 ): string => {
   const isSale = property.status === 'for-sale' || property.category === 'sale';
+  const periodLabel = property.period === 'year' ? '/an' : property.period === 'month' || !isSale ? '/mois' : '';
   return (
     `*${property.title.toUpperCase()}*\n` +
     `Localisation : ${property.commune || property.city}${property.quartier ? ` (${property.quartier})` : ''}\n` +
-    `Prix : ${formattedPrice}${property.period === 'month' ? '/mois' : ''}\n` +
+    `Prix : ${formattedPrice}${periodLabel}\n` +
     `Surface : ${property.area} m² | ${property.bedrooms} Chambres | ${property.bathrooms} Salles de bain\n` +
     `Type : ${property.type.toUpperCase()} - ${isSale ? 'À VENDRE' : 'À LOUER'}\n` +
     `\nConsulter la fiche complète & photos HD :\n${shareUrl}\n` +

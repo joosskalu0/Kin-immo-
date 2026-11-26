@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { convertAndFormatPrice } from '../utils/currency';
+import { getPropertyDisplayCurrencies } from '../utils/propertyPricing';
 import { X, Scale, Trash2, Check, Zap } from 'lucide-react';
 
 export const CompareModal: React.FC = () => {
@@ -12,7 +12,7 @@ export const CompareModal: React.FC = () => {
     clearCompare,
     properties,
     customFields,
-    currency,
+    cdfExchangeRate,
     setActivePropertyModalId,
   } = useApp();
 
@@ -89,9 +89,17 @@ export const CompareModal: React.FC = () => {
                         </div>
 
                         <div className="font-bold text-slate-900 line-clamp-2">{p.title}</div>
-                        <div className="text-emerald-700 font-black text-sm">
-                          {convertAndFormatPrice(p.price, currency)}
-                        </div>
+                        {(() => {
+                          const display = getPropertyDisplayCurrencies(p, cdfExchangeRate);
+                          return (
+                            <div className="text-emerald-700 font-black text-sm tabular-nums">
+                              {display.primaryFormatted}{display.periodSuffixCompact}
+                              <div className="text-[11px] font-medium text-slate-500">
+                                ≈ {display.secondaryFormatted}{display.periodSuffixCompact}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         <button
                           onClick={() => {

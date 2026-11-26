@@ -69,6 +69,9 @@ export interface Property {
   currency: string;
   period?: 'month' | 'year' | 'total'; // For rental or sale
   pricePeriod?: string;
+  isNegotiable?: boolean;
+  guaranteeMonths?: number; // 0 to 36 months, rental only
+  advanceMonths?: number; // 0 to 36 months, rental only
   type: PropertyType;
   status: PropertyStatus;
   listingStatus?: ListingLifecycleStatus;

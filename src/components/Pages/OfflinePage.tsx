@@ -18,7 +18,7 @@ import {
   getRecentProperties,
   RecentPropertySnapshot,
 } from '../../utils/offlineCache';
-import { convertAndFormatPrice } from '../../utils/currency';
+import { getPropertyDisplayCurrencies } from '../../utils/propertyPricing';
 import { FALLBACK_PROPERTY_IMAGE, handlePropertyImageError, resolveMediaUrl } from '../../utils/mediaUrl';
 import { cleanPhoneNumberForTel } from '../../utils/whatsapp';
 
@@ -193,12 +193,7 @@ export const OfflinePage: React.FC<OfflinePageProps> = ({ onNavigatePath }) => {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {recentProperties.map((prop) => {
-              const priceLabel = convertAndFormatPrice(
-                prop.price,
-                currency,
-                cdfExchangeRate,
-                prop.currency || 'USD'
-              );
+              const priceDisplay = getPropertyDisplayCurrencies(prop, cdfExchangeRate);
               return (
                 <article
                   key={prop.id}
@@ -219,8 +214,10 @@ export const OfflinePage: React.FC<OfflinePageProps> = ({ onNavigatePath }) => {
                         className="w-full h-full object-cover"
                       />
                       <span className="absolute bottom-2 left-2 px-2.5 py-1 rounded-lg bg-[#1D4ED8] text-white text-xs font-extrabold tabular-nums">
-                        {priceLabel}
-                        {prop.period === 'month' ? '/mois' : ''}
+                        {priceDisplay.primaryFormatted}{priceDisplay.periodSuffixCompact}
+                        <span className="block text-[10px] text-blue-100 font-medium">
+                          ≈ {priceDisplay.secondaryFormatted}{priceDisplay.periodSuffixCompact}
+                        </span>
                       </span>
                     </div>
                     <div className="p-3.5 space-y-1.5">
@@ -290,12 +287,7 @@ export const OfflinePage: React.FC<OfflinePageProps> = ({ onNavigatePath }) => {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {favoriteSnapshots.map((fav) => {
-              const priceLabel = convertAndFormatPrice(
-                fav.price,
-                currency,
-                cdfExchangeRate,
-                fav.currency || 'USD'
-              );
+              const priceDisplay = getPropertyDisplayCurrencies(fav, cdfExchangeRate);
               return (
                 <button
                   key={fav.id}
@@ -313,7 +305,12 @@ export const OfflinePage: React.FC<OfflinePageProps> = ({ onNavigatePath }) => {
                   />
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <p className="text-sm font-bold text-slate-900 truncate">{fav.title}</p>
-                    <p className="text-xs font-extrabold text-[#1D4ED8] tabular-nums">{priceLabel}</p>
+                    <p className="text-xs font-extrabold text-[#1D4ED8] tabular-nums">
+                      {priceDisplay.primaryFormatted}{priceDisplay.periodSuffixCompact}{' '}
+                      <span className="font-medium text-slate-500">
+                        (≈ {priceDisplay.secondaryFormatted}{priceDisplay.periodSuffixCompact})
+                      </span>
+                    </p>
                     <p className="text-xs text-slate-600 truncate">{fav.commune}</p>
                   </div>
                 </button>

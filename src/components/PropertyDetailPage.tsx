@@ -58,8 +58,11 @@ import { useApp } from '../context/AppContext';
 import {
   convertAndFormatPrice,
   formatAdminDateFR,
-  getDualCurrencyDisplay,
 } from '../utils/currency';
+import {
+  getPropertyDisplayCurrencies,
+  computeRentalBreakdown,
+} from '../utils/propertyPricing';
 import { canUserManageProperty } from '../utils/propertyPermissions';
 import { generatePropertyPDF, generateSignboardPosterPDF } from '../utils/pdfGenerator';
 import { buildPropertyShareUrl, resolvePropertyBySlugOrId } from '../utils/shareUtils';
@@ -292,15 +295,11 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
   const isCompared = compareList.includes(property.id);
   const isSold = property.status === 'sold' || property.listingStatus === 'SOLD';
 
-  // Calcul prix principal + conversion approximative datée (USD <-> CDF)
+  // Calcul prix principal dans la devise choisie (USD ou CDF) + équivalent converti daté + modalités locatives
   const effectiveDisplayCurrency = currency === 'CDF' ? 'CDF' : 'USD';
-  const dualPrice = getDualCurrencyDisplay(
-    property.price,
-    property.currency || 'USD',
-    effectiveDisplayCurrency,
-    cdfExchangeRate
-  );
-  const periodSuffix = property.period === 'month' ? ' / mois' : property.period === 'year' ? ' / an' : '';
+  const dualPrice = getPropertyDisplayCurrencies(property, cdfExchangeRate);
+  const periodSuffix = dualPrice.periodSuffixSpaced;
+  const rentalBreakdown = computeRentalBreakdown(property, cdfExchangeRate);
 
   // Résolution Agent, Agence & Utilisateur pour le bloc Annonceur
   const agent = agents.find(
@@ -470,7 +469,7 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
         customFieldDefs: customFields,
         agent,
         agency,
-        currencyCode: effectiveDisplayCurrency,
+        currencyCode: dualPrice.primaryCurrency,
         cdfExchangeRate,
         cdfExchangeRateUpdatedAt,
         mode,
@@ -1003,19 +1002,28 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 {property.title}
               </h1>
 
-              {/* Bloc Prix Principal + Conversion Approximative Admin Datée */}
+              {/* Bloc Prix Principal + Conversion Approximative Admin Datée + Négociabilité */}
               <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-baseline gap-2 flex-wrap">
+                <div className="space-y-1.5">
+                  <div className="flex items-baseline gap-2.5 flex-wrap">
                     <span className="text-3xl sm:text-4xl font-black text-emerald-700 tabular-nums tracking-tight">
                       {dualPrice.primaryFormatted}
                     </span>
                     {periodSuffix && (
                       <span className="text-sm font-semibold text-slate-500">{periodSuffix}</span>
                     )}
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${
+                        property.isNegotiable
+                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                          : 'bg-slate-100 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {property.isNegotiable ? 'Prix négociable' : 'Prix ferme'}
+                    </span>
                   </div>
                   <p className="text-sm font-semibold text-slate-700 tabular-nums">
-                    Conversion approximative :{' '}
+                    Équivalent converti :{' '}
                     <span className="text-slate-900 font-bold">
                       ≈ {dualPrice.secondaryFormatted}
                       {periodSuffix}
@@ -1161,6 +1169,89 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                   </span>
                 </div>
               </div>
+
+              {/* Conditions locatives détaillées (Périodicité, Garantie, Avance, Total entrée) */}
+              {rentalBreakdown && (
+                <div className="mt-4 pt-4 border-t border-slate-100">
+                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide">
+                        Conditions locatives
+                      </h2>
+                      <span className="text-xs font-semibold text-slate-600 tabular-nums">
+                        {rentalBreakdown.isAnnual
+                          ? `Base mensuelle : ${rentalBreakdown.monthlyEquivalentFormatted} (≈ ${rentalBreakdown.monthlyEquivalentSecondary})`
+                          : `Loyer mensuel : ${rentalBreakdown.monthlyEquivalentFormatted}`}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 tabular-nums">
+                      <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <span className="text-xs text-slate-500 block">Périodicité</span>
+                        <strong className="text-sm font-bold text-slate-900 mt-0.5 block">
+                          {rentalBreakdown.isAnnual ? 'Annuelle (/an)' : 'Mensuelle (/mois)'}
+                        </strong>
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <span className="text-xs text-slate-500 block">Garantie locative</span>
+                        {rentalBreakdown.guaranteeMonths !== undefined ? (
+                          <>
+                            <strong className="text-sm font-bold text-slate-900 mt-0.5 block">
+                              {rentalBreakdown.guaranteeMonths === 0
+                                ? '0 mois (Aucune)'
+                                : `${rentalBreakdown.guaranteeMonths} mois (${rentalBreakdown.guaranteeFormatted})`}
+                            </strong>
+                            {rentalBreakdown.guaranteeMonths > 0 && (
+                              <span className="text-[11px] text-slate-500 block">
+                                ≈ {rentalBreakdown.guaranteeSecondary}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <strong className="text-sm font-semibold text-slate-500 mt-0.5 block">
+                            À convenir
+                          </strong>
+                        )}
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <span className="text-xs text-slate-500 block">Avance sur loyer</span>
+                        {rentalBreakdown.advanceMonths !== undefined ? (
+                          <>
+                            <strong className="text-sm font-bold text-slate-900 mt-0.5 block">
+                              {rentalBreakdown.advanceMonths === 0
+                                ? '0 mois (Aucune)'
+                                : `${rentalBreakdown.advanceMonths} mois (${rentalBreakdown.advanceFormatted})`}
+                            </strong>
+                            {rentalBreakdown.advanceMonths > 0 && (
+                              <span className="text-[11px] text-slate-500 block">
+                                ≈ {rentalBreakdown.advanceSecondary}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <strong className="text-sm font-semibold text-slate-500 mt-0.5 block">
+                            À convenir
+                          </strong>
+                        )}
+                      </div>
+                    </div>
+
+                    {rentalBreakdown.hasEntryBreakdown && (
+                      <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 tabular-nums">
+                        <span>Total indicatif à la signature ({rentalBreakdown.totalEntryMonths} mois de loyer)</span>
+                        <span className="font-extrabold text-emerald-800 text-sm">
+                          {rentalBreakdown.totalEntryFormatted}{' '}
+                          <span className="font-medium text-slate-500 text-xs">
+                            (≈ {rentalBreakdown.totalEntrySecondary})
+                          </span>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </section>
 
             {/* DESCRIPTION & CARACTÉRISTIQUES DÉTAILLÉES */}
@@ -1446,12 +1537,7 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 const simImg =
                   (Array.isArray(sim.images) && resolveMediaUrl(sim.images[0])) ||
                   FALLBACK_PROPERTY_IMAGE;
-                const simPrice = convertAndFormatPrice(
-                  sim.price,
-                  effectiveDisplayCurrency,
-                  cdfExchangeRate,
-                  sim.currency || 'USD'
-                );
+                const simDisplay = getPropertyDisplayCurrencies(sim, cdfExchangeRate);
                 return (
                   <article
                     key={sim.id}
@@ -1479,11 +1565,15 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                           {sim.title}
                         </h3>
                       </div>
-                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                        <span className="font-extrabold text-emerald-700 tabular-nums">
-                          {simPrice}
-                          {sim.period === 'month' ? '/mois' : ''}
-                        </span>
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                        <div className="tabular-nums">
+                          <span className="font-extrabold text-emerald-700 block">
+                            {simDisplay.primaryFormatted}{simDisplay.periodSuffixCompact}
+                          </span>
+                          <span className="text-[11px] text-slate-500 block">
+                            ≈ {simDisplay.secondaryFormatted}{simDisplay.periodSuffixCompact}
+                          </span>
+                        </div>
                         <span className="text-slate-500 tabular-nums">
                           {sim.bedrooms ? `${sim.bedrooms} ch` : `${sim.area || '-'} m²`}
                         </span>

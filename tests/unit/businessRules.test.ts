@@ -42,6 +42,11 @@ import {
 } from '../../src/utils/authValidation';
 import { canUserPublishListings } from '../../server/authSecurity';
 import { findMatchingProperties } from '../../src/utils/propertyMatching';
+import {
+  validateAndNormalizePropertyPricing,
+  getPropertyDisplayCurrencies,
+  computeRentalBreakdown,
+} from '../../src/utils/propertyPricing';
 import type { Agent, Property, PropertyUserReport, User } from '../../src/types';
 
 function makeProperty(overrides: Partial<Property> = {}): Property {
@@ -372,3 +377,145 @@ describe('4. Calculs métier (devises, facturation, rétrogradation douce, match
     assert.ok(matches[0].score >= 70);
   });
 });
+
+describe('7. Tarification immobilière, devises USD/CDF et conditions locatives', () => {
+  it('valide les prix entiers, devises USD/CDF, périodicité mois/an, négociabilité et garantie/avance 0..36', () => {
+    const decimalReject = validateAndNormalizePropertyPricing({
+      status: 'for-sale',
+      price: 150000.5,
+      currency: 'USD',
+      requirePositivePrice: true,
+    });
+    assert.equal(decimalReject.valid, false);
+
+    const badCurrency = validateAndNormalizePropertyPricing({
+      status: 'for-rent',
+      price: 1200,
+      currency: 'EUR',
+      period: 'month',
+      requirePositivePrice: true,
+    });
+    assert.equal(badCurrency.valid, false);
+
+    const badPeriod = validateAndNormalizePropertyPricing({
+      status: 'for-rent',
+      price: 1200,
+      currency: 'USD',
+      period: 'week',
+      requirePositivePrice: true,
+    });
+    assert.equal(badPeriod.valid, false);
+
+    const badGuarantee = validateAndNormalizePropertyPricing({
+      status: 'for-rent',
+      price: 1200,
+      currency: 'USD',
+      period: 'month',
+      guaranteeMonths: 37,
+      requirePositivePrice: true,
+    });
+    assert.equal(badGuarantee.valid, false);
+
+    const badAdvanceFloat = validateAndNormalizePropertyPricing({
+      status: 'for-rent',
+      price: 1200,
+      currency: 'USD',
+      period: 'month',
+      advanceMonths: 1.5,
+      requirePositivePrice: true,
+    });
+    assert.equal(badAdvanceFloat.valid, false);
+
+    const validRentCdf = validateAndNormalizePropertyPricing({
+      status: 'for-rent',
+      price: 2850000,
+      currency: 'cdf',
+      period: 'year',
+      isNegotiable: true,
+      guaranteeMonths: 3,
+      advanceMonths: 2,
+      requirePositivePrice: true,
+    });
+    assert.equal(validRentCdf.valid, true);
+    if (validRentCdf.valid) {
+      assert.equal(validRentCdf.data.currency, 'CDF');
+      assert.equal(validRentCdf.data.period, 'year');
+      assert.equal(validRentCdf.data.isNegotiable, true);
+      assert.equal(validRentCdf.data.guaranteeMonths, 3);
+      assert.equal(validRentCdf.data.advanceMonths, 2);
+    }
+
+    const salePurgesRental = validateAndNormalizePropertyPricing({
+      status: 'for-sale',
+      price: 220000,
+      currency: 'USD',
+      period: 'month',
+      isNegotiable: false,
+      guaranteeMonths: 4,
+      advanceMonths: 2,
+      requirePositivePrice: true,
+    });
+    assert.equal(salePurgesRental.valid, true);
+    if (salePurgesRental.valid) {
+      assert.equal(salePurgesRental.data.period, 'total');
+      assert.equal(salePurgesRental.data.guaranteeMonths, undefined);
+      assert.equal(salePurgesRental.data.advanceMonths, undefined);
+    }
+  });
+
+  it('affiche la devise choisie (USD ou CDF) + équivalent converti et calcule garantie/avance en mois', () => {
+    const cdfDisplay = getPropertyDisplayCurrencies(
+      { price: 2850000, currency: 'CDF', period: 'month', status: 'for-rent' },
+      2850
+    );
+    assert.equal(cdfDisplay.primaryCurrency, 'CDF');
+    assert.equal(cdfDisplay.secondaryCurrency, 'USD');
+    assert.match(cdfDisplay.primaryFormatted, /FC/);
+    assert.match(cdfDisplay.secondaryFormatted, /1\s?000|\$1\s?000/);
+    assert.equal(cdfDisplay.periodSuffixCompact, '/mois');
+
+    const annualBreakdown = computeRentalBreakdown(
+      {
+        price: 12000,
+        currency: 'USD',
+        period: 'year',
+        status: 'for-rent',
+        guaranteeMonths: 3,
+        advanceMonths: 2,
+      },
+      2850
+    );
+    assert.ok(annualBreakdown);
+    assert.equal(annualBreakdown.isAnnual, true);
+    assert.equal(annualBreakdown.monthlyEquivalent, 1000);
+    assert.equal(annualBreakdown.guaranteeAmount, 3000);
+    assert.equal(annualBreakdown.advanceAmount, 2000);
+    assert.equal(annualBreakdown.totalEntryMonths, 5);
+    assert.equal(annualBreakdown.totalEntryAmount, 5000);
+  });
+
+  it('ne signale pas à tort un loyer équitable en CDF ou en périodicité annuelle comme prix anormalement bas', () => {
+    const fairCdfRent = makeProperty({
+      id: 'prop_cdf_fair',
+      status: 'for-rent',
+      currency: 'CDF',
+      period: 'month',
+      price: 4275000, // 1500 USD / mois à Gombe (> minRent 700$)
+      commune: 'Gombe',
+    });
+    const resCdf = analyzePropertyForFraud(fairCdfRent, [fairCdfRent], []);
+    assert.equal(resCdf.flags.some((f) => f.code === 'ABNORMALLY_LOW_PRICE'), false);
+
+    const fairAnnualRent = makeProperty({
+      id: 'prop_annual_fair',
+      status: 'for-rent',
+      currency: 'USD',
+      period: 'year',
+      price: 18000, // 1500 USD / mois
+      commune: 'Gombe',
+    });
+    const resAnnual = analyzePropertyForFraud(fairAnnualRent, [fairAnnualRent], []);
+    assert.equal(resAnnual.flags.some((f) => f.code === 'ABNORMALLY_LOW_PRICE'), false);
+  });
+});
+

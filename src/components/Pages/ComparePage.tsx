@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { convertAndFormatPrice } from '../../utils/currency';
+import { getPropertyDisplayCurrencies } from '../../utils/propertyPricing';
 import { Scale, Trash2, X, Zap } from 'lucide-react';
 import { EmptyState, PageHeaderBar } from '../StateFeedback';
 import { getOptimizedImageUrl, FALLBACK_PROPERTY_IMAGE } from '../../utils/mediaUrl';
@@ -11,7 +11,7 @@ interface ComparePageProps {
 }
 
 export const ComparePage: React.FC<ComparePageProps> = ({ onNavigatePath }) => {
-  const { compareList, toggleCompare, clearCompare, properties, customFields, currency } = useApp();
+  const { compareList, toggleCompare, clearCompare, properties, customFields, cdfExchangeRate } = useApp();
 
   const comparedProperties = properties.filter((p) => compareList.includes(p.id));
   const shareUrl = typeof window !== 'undefined' ? window.location.href : 'https://kinimmo.cd/comparer';
@@ -80,9 +80,17 @@ export const ComparePage: React.FC<ComparePageProps> = ({ onNavigatePath }) => {
                       <div className="font-bold text-slate-900 line-clamp-2 text-xs sm:text-sm">
                         {p.title}
                       </div>
-                      <div className="text-[#1D4ED8] font-extrabold text-sm tabular-nums">
-                        {convertAndFormatPrice(p.price, currency)}
-                      </div>
+                      {(() => {
+                        const display = getPropertyDisplayCurrencies(p, cdfExchangeRate);
+                        return (
+                          <div className="text-[#1D4ED8] font-extrabold text-sm tabular-nums">
+                            {display.primaryFormatted}{display.periodSuffixCompact}
+                            <div className="text-[11px] text-slate-500 font-medium">
+                              ≈ {display.secondaryFormatted}{display.periodSuffixCompact}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={() => onNavigatePath(`/annonces/${encodeURIComponent(getPropertySlug(p))}`)}

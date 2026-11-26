@@ -210,8 +210,13 @@ export function analyzePropertyForFraud(
 
   const targetCommune = target.commune || 'Gombe';
   const communeBenchmark = KINSHASA_PRICE_BENCHMARKS[targetCommune] || KINSHASA_PRICE_BENCHMARKS['Gombe'];
-  const isRent = target.status === 'for-rent' || target.period === 'month';
-  const targetPrice = Number(target.price) || 0;
+  const isRent = target.status === 'for-rent' || target.period === 'month' || target.period === 'year';
+  const rawPrice = Number(target.price) || 0;
+  const usdPrice =
+    String(target.currency || 'USD').toUpperCase() === 'CDF'
+      ? rawPrice / 2850
+      : rawPrice;
+  const targetPrice = isRent && target.period === 'year' ? usdPrice / 12 : usdPrice;
 
   if (isRent) {
     benchmarkPrice = communeBenchmark.minRent;
@@ -225,7 +230,7 @@ export function analyzePropertyForFraud(
         label: 'Prix anormalement bas (suspect d\'arnaque au loyer)',
         severity: pts >= 35 ? 'critical' : 'high',
         score: pts,
-        details: `Loyer affiché de ${targetPrice}$/${target.period || 'mois'} à ${targetCommune}, alors que le plancher réaliste du quartier est d'au moins ${communeBenchmark.minRent}$ (prix inférieur de ${Math.round((1 - priceAnomalyRatio) * 100)}%).`
+        details: `Loyer estimé à ${Math.round(targetPrice)}$/mois à ${targetCommune}, alors que le plancher réaliste du quartier est d'au moins ${communeBenchmark.minRent}$ (prix inférieur de ${Math.round((1 - priceAnomalyRatio) * 100)}%).`
       });
     }
   } else {

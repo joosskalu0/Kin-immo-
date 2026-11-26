@@ -5,7 +5,10 @@ import {
   openWhatsApp,
   triggerPhoneCall,
 } from '../../utils/whatsapp';
-import { convertAndFormatPrice } from '../../utils/currency';
+import {
+  getPropertyDisplayCurrencies,
+  formatPropertyPrimaryPriceWithPeriod,
+} from '../../utils/propertyPricing';
 import {
   trackVideoStart,
   trackVideoSignificantWatch,
@@ -94,7 +97,7 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
     properties,
     agents,
     agencies,
-    currency,
+    cdfExchangeRate,
     wishlist,
     toggleWishlist,
     setActivePropertyModalId,
@@ -315,7 +318,7 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
     trackVideoWhatsAppClick(property);
     const targetPhone = agent?.whatsapp || agent?.phone || property.contactPhone || '+243810000001';
     const cleanCommune = property.commune || 'Kinshasa';
-    const priceFormatted = `$${property.price.toLocaleString()}${property.period === 'month' ? '/mois' : ''}`;
+    const priceFormatted = formatPropertyPrimaryPriceWithPeriod(property, cdfExchangeRate, true);
     const prefilledMessage = `Bonjour ${agent?.name || 'Conseiller Kinimmo'}, j'ai vu la visite vidéo du bien "${property.title}" (${cleanCommune}, ${priceFormatted}) sur Kinimmo. Je souhaite organiser une visite directe ou recevoir la fiche complète.`;
 
     openWhatsApp(targetPhone, prefilledMessage);
@@ -574,8 +577,8 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                 (property.images && property.images[0] ? resolveMediaUrl(property.images[0]) : FALLBACK_PROPERTY_IMAGE);
               const posterImage = getOptimizedImageUrl(rawPoster, { width: 800 }) || rawPoster;
 
-              // Affichage du prix formaté via la devise active et contre-valeur CDF
-              const formattedPrice = convertAndFormatPrice(property.price, currency);
+              // Affichage du prix dans la devise choisie (USD ou CDF) + équivalent converti
+              const priceDisplay = getPropertyDisplayCurrencies(property, cdfExchangeRate);
 
               // Libellé propre du type de bien
               const typeLabel = TYPE_LABELS[property.type] || property.type;
@@ -799,12 +802,17 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
                     </div>
 
                     {/* Prix et Devise Réels */}
-                    <div className="flex items-baseline gap-2">
+                    <div className="flex items-baseline gap-2 flex-wrap tabular-nums">
                       <span className="text-2xl sm:text-3xl font-black text-white tracking-tight drop-shadow-md">
-                        {formattedPrice}
-                        {property.period === 'month' && (
-                          <span className="text-xs sm:text-sm font-bold text-slate-300 ml-0.5">/mois</span>
+                        {priceDisplay.primaryFormatted}
+                        {priceDisplay.periodSuffixCompact && (
+                          <span className="text-xs sm:text-sm font-bold text-slate-300 ml-0.5">
+                            {priceDisplay.periodSuffixCompact}
+                          </span>
                         )}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-300">
+                        ≈ {priceDisplay.secondaryFormatted}{priceDisplay.periodSuffixCompact}
                       </span>
                     </div>
 

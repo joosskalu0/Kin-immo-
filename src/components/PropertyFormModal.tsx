@@ -70,6 +70,12 @@ import {
   FingerprintMatch,
 } from '../services/cloudinaryService';
 import { resolveAccountBillingSummary } from '../utils/billingHelpers';
+import {
+  PropertyCurrencyCode,
+  RentalPeriodicity,
+  MAX_RENTAL_MONTHS,
+  validateAndNormalizePropertyPricing,
+} from '../utils/propertyPricing';
 
 export const PropertyFormModal: React.FC = () => {
   const {
@@ -107,9 +113,13 @@ export const PropertyFormModal: React.FC = () => {
   // Form State
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [price, setPrice] = useState<number>(450000);
-  const [currency, setCurrency] = useState('USD');
+  const [priceInput, setPriceInput] = useState<string>('450000');
+  const [currency, setCurrency] = useState<PropertyCurrencyCode>('USD');
   const [period, setPeriod] = useState<'month' | 'year' | 'total'>('total');
+  const [rentalPeriod, setRentalPeriod] = useState<RentalPeriodicity>('month');
+  const [isNegotiable, setIsNegotiable] = useState<boolean>(false);
+  const [guaranteeMonthsInput, setGuaranteeMonthsInput] = useState<string>('');
+  const [advanceMonthsInput, setAdvanceMonthsInput] = useState<string>('');
   const [type, setType] = useState<PropertyType>('apartment');
   const [status, setStatus] = useState<PropertyStatus>('for-sale');
   const [category, setCategory] = useState('Résidentiel Haut de Gamme');
@@ -179,9 +189,21 @@ export const PropertyFormModal: React.FC = () => {
     if (editingProperty) {
       setTitle(editingProperty.title);
       setDescription(editingProperty.description);
-      setPrice(editingProperty.price);
-      setCurrency(editingProperty.currency || 'USD');
+      setPriceInput(
+        editingProperty.price !== undefined && editingProperty.price !== null
+          ? String(Math.round(Number(editingProperty.price) || 0))
+          : ''
+      );
+      setCurrency(String(editingProperty.currency || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD');
       setPeriod(editingProperty.period || 'total');
+      setRentalPeriod(editingProperty.period === 'year' ? 'year' : 'month');
+      setIsNegotiable(Boolean(editingProperty.isNegotiable));
+      setGuaranteeMonthsInput(
+        typeof editingProperty.guaranteeMonths === 'number' ? String(editingProperty.guaranteeMonths) : ''
+      );
+      setAdvanceMonthsInput(
+        typeof editingProperty.advanceMonths === 'number' ? String(editingProperty.advanceMonths) : ''
+      );
       setType(editingProperty.type);
       setStatus(editingProperty.status);
       setCategory(editingProperty.category);
@@ -254,6 +276,12 @@ export const PropertyFormModal: React.FC = () => {
     } else {
       setTitle('');
       setDescription('');
+      setPriceInput('450000');
+      setCurrency('USD');
+      setRentalPeriod('month');
+      setIsNegotiable(false);
+      setGuaranteeMonthsInput('');
+      setAdvanceMonthsInput('');
       setImageUrls([]);
       setImagesMeta([]);
       setFloorPlanUrl('');
@@ -732,8 +760,18 @@ export const PropertyFormModal: React.FC = () => {
         setSubmitError("Veuillez renseigner le titre de l'annonce avant de passer à l'étape suivante.");
         return;
       }
-      if (!price || Number(price) <= 0) {
-        setSubmitError("Veuillez indiquer un prix valide supérieur à 0 USD.");
+      const stepPricingCheck = validateAndNormalizePropertyPricing({
+        status,
+        price: priceInput,
+        currency,
+        period: status === 'for-rent' ? rentalPeriod : 'total',
+        isNegotiable,
+        guaranteeMonths: status === 'for-rent' ? guaranteeMonthsInput : undefined,
+        advanceMonths: status === 'for-rent' ? advanceMonthsInput : undefined,
+        requirePositivePrice: true,
+      });
+      if (!stepPricingCheck.valid) {
+        setSubmitError(stepPricingCheck.error);
         return;
       }
       if (!description || !description.trim()) {
@@ -764,13 +802,24 @@ export const PropertyFormModal: React.FC = () => {
       return;
     }
 
-    if (targetMode === 'PUBLISHED') {
-      if (!price || Number(price) <= 0) {
-        setSubmitError("Le prix de l'annonce doit être supérieur à zéro pour publier.");
-        setStep(1);
-        return;
-      }
+    const pricingCheck = validateAndNormalizePropertyPricing({
+      status,
+      listingStatus: targetMode,
+      price: priceInput,
+      currency,
+      period: status === 'for-rent' ? rentalPeriod : 'total',
+      isNegotiable,
+      guaranteeMonths: status === 'for-rent' ? guaranteeMonthsInput : undefined,
+      advanceMonths: status === 'for-rent' ? advanceMonthsInput : undefined,
+      requirePositivePrice: targetMode === 'PUBLISHED',
+    });
+    if (!pricingCheck.valid) {
+      setSubmitError(pricingCheck.error);
+      setStep(1);
+      return;
+    }
 
+    if (targetMode === 'PUBLISHED') {
       if (!description || !description.trim()) {
         setSubmitError("La description de l'annonce est obligatoire pour publier.");
         setStep(1);
@@ -856,9 +905,12 @@ export const PropertyFormModal: React.FC = () => {
       id: editingProperty ? editingProperty.id : `prop_${Date.now()}`,
       title: title.trim(),
       description: description || '',
-      price: Number(price) || 0,
-      currency,
-      period: status === 'for-rent' ? 'month' : 'total',
+      price: pricingCheck.data.price,
+      currency: pricingCheck.data.currency,
+      period: pricingCheck.data.period,
+      isNegotiable: pricingCheck.data.isNegotiable,
+      guaranteeMonths: pricingCheck.data.guaranteeMonths,
+      advanceMonths: pricingCheck.data.advanceMonths,
       type,
       status,
       listingStatus: targetMode === 'DRAFT' ? 'DRAFT' : 'PUBLISHED',
@@ -1114,20 +1166,33 @@ export const PropertyFormModal: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block font-semibold text-slate-300 mb-1">
-                    Prix (USD) *
+                    Prix ({currency === 'CDF' ? 'FC' : 'USD'}) *
                   </label>
                   <input
-                    type="number"
-                    value={isNaN(price) ? '' : price}
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      setPrice(isNaN(val) ? 0 : val);
-                    }}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={priceInput}
+                    onChange={(e) => setPriceInput(e.target.value.replace(/[^\d]/g, ''))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-bold text-sm tabular-nums focus:outline-none focus:border-emerald-500"
                   />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-300 mb-1">
+                    Devise *
+                  </label>
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value === 'CDF' ? 'CDF' : 'USD')}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-semibold focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="USD">USD ($)</option>
+                    <option value="CDF">CDF (FC)</option>
+                  </select>
                 </div>
 
                 <div>
@@ -1139,8 +1204,8 @@ export const PropertyFormModal: React.FC = () => {
                     onChange={(e) => setStatus(e.target.value as PropertyStatus)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="for-sale">A Vendre</option>
-                    <option value="for-rent">A Louer</option>
+                    <option value="for-sale">À Vendre</option>
+                    <option value="for-rent">À Louer</option>
                     <option value="sold">Vendu / Loué (Transaction conclue)</option>
                     <option value="open-house">Portes Ouvertes</option>
                     <option value="pending">Sous Offre / Compromis</option>
@@ -1164,6 +1229,68 @@ export const PropertyFormModal: React.FC = () => {
                     <option value="commercial">Local Commercial</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-300 mb-1">
+                    Prix négociable
+                  </label>
+                  <select
+                    value={isNegotiable ? 'yes' : 'no'}
+                    onChange={(e) => setIsNegotiable(e.target.value === 'yes')}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="no">Non (Prix ferme)</option>
+                    <option value="yes">Oui (Négociable)</option>
+                  </select>
+                </div>
+
+                {status === 'for-rent' && (
+                  <>
+                    <div>
+                      <label className="block font-semibold text-slate-300 mb-1">
+                        Périodicité du loyer
+                      </label>
+                      <select
+                        value={rentalPeriod}
+                        onChange={(e) => setRentalPeriod(e.target.value === 'year' ? 'year' : 'month')}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="month">Par mois</option>
+                        <option value="year">Par an</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-300 mb-1">
+                        Garantie (0–{MAX_RENTAL_MONTHS} mois)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={guaranteeMonthsInput}
+                        onChange={(e) => setGuaranteeMonthsInput(e.target.value.replace(/[^\d]/g, ''))}
+                        placeholder="ex: 3"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-bold tabular-nums focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-300 mb-1">
+                        Avance (0–{MAX_RENTAL_MONTHS} mois)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={advanceMonthsInput}
+                        onChange={(e) => setAdvanceMonthsInput(e.target.value.replace(/[^\d]/g, ''))}
+                        placeholder="ex: 2"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-bold tabular-nums focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               <div>

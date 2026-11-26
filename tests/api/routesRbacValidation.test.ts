@@ -309,5 +309,97 @@ describe('API : Chaque route, chaque rôle, accès sans jeton, mauvais rôle, va
       body: { propertyTitle: 'Vente RBAC', amount: 120000 },
     });
     assert.equal(txRes.status, 201);
+
+    // 8. Validation stricte tarification (entier, USD/CDF, mois/an, négociable, garantie/avance 0..36)
+    const badDecimal = await agentClient.request('/api/properties', {
+      method: 'POST',
+      body: {
+        title: 'Appartement Prix Décimal',
+        description: 'Test rejet décimales',
+        price: 1500.75,
+        currency: 'USD',
+        status: 'for-rent',
+        period: 'month',
+        images: ['a.jpg', 'b.jpg', 'c.jpg'],
+        published: true,
+      },
+    });
+    assert.equal(badDecimal.status, 400);
+
+    const badCurrency = await agentClient.request('/api/properties', {
+      method: 'POST',
+      body: {
+        title: 'Appartement Devise EUR',
+        description: 'Test rejet devise non supportée',
+        price: 1500,
+        currency: 'EUR',
+        status: 'for-rent',
+        period: 'month',
+        images: ['a.jpg', 'b.jpg', 'c.jpg'],
+        published: true,
+      },
+    });
+    assert.equal(badCurrency.status, 400);
+
+    const badGuaranteeRange = await agentClient.request('/api/properties', {
+      method: 'POST',
+      body: {
+        title: 'Appartement Garantie 40 mois',
+        description: 'Test rejet garantie > 36',
+        price: 1500,
+        currency: 'USD',
+        status: 'for-rent',
+        period: 'month',
+        guaranteeMonths: 40,
+        images: ['a.jpg', 'b.jpg', 'c.jpg'],
+        published: true,
+      },
+    });
+    assert.equal(badGuaranteeRange.status, 400);
+
+    const validRentalCdf = await agentClient.request('/api/properties', {
+      method: 'POST',
+      body: {
+        title: 'Villa Location Annuelle CDF',
+        description: 'Location annuelle en francs congolais avec garantie et avance.',
+        price: 34200000,
+        currency: 'CDF',
+        status: 'for-rent',
+        period: 'year',
+        isNegotiable: true,
+        guaranteeMonths: 3,
+        advanceMonths: 2,
+        images: ['a.jpg', 'b.jpg', 'c.jpg'],
+        published: true,
+      },
+    });
+    assert.equal(validRentalCdf.status, 201);
+    assert.equal(validRentalCdf.data.property.currency, 'CDF');
+    assert.equal(validRentalCdf.data.property.period, 'year');
+    assert.equal(validRentalCdf.data.property.isNegotiable, true);
+    assert.equal(validRentalCdf.data.property.guaranteeMonths, 3);
+    assert.equal(validRentalCdf.data.property.advanceMonths, 2);
+
+    const badPutDecimal = await agentClient.request(`/api/properties/${validRentalCdf.data.property.id}`, {
+      method: 'PUT',
+      body: { price: 999.99 },
+    });
+    assert.equal(badPutDecimal.status, 400);
+
+    const switchedToSale = await agentClient.request(`/api/properties/${validRentalCdf.data.property.id}`, {
+      method: 'PUT',
+      body: {
+        status: 'for-sale',
+        price: 250000,
+        currency: 'USD',
+        isNegotiable: false,
+      },
+    });
+    assert.equal(switchedToSale.status, 200);
+    assert.equal(switchedToSale.data.property.period, 'total');
+    assert.equal(switchedToSale.data.property.guaranteeMonths, undefined);
+    assert.equal(switchedToSale.data.property.advanceMonths, undefined);
+    assert.equal(switchedToSale.data.property.isNegotiable, false);
   });
 });
+

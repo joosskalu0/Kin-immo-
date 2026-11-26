@@ -1,7 +1,8 @@
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import { Property, CustomFieldDefinition, Agent, Agency, CurrencyCode, Invoice } from '../types';
-import { formatAdminDateFR, getDualCurrencyDisplay } from './currency';
+import { formatAdminDateFR } from './currency';
+import { getPropertyDisplayCurrencies, getPropertyPeriodSuffix } from './propertyPricing';
 import { buildPropertyShareUrl } from './shareUtils';
 
 export interface GeneratePropertyPDFOptions {
@@ -116,12 +117,7 @@ export async function generatePropertyPDF(
   } = options;
 
   const listingUrl = buildPropertyShareUrl(property);
-  const dual = getDualCurrencyDisplay(
-    property.price,
-    property.currency || 'USD',
-    currencyCode,
-    cdfExchangeRate
-  );
+  const dual = getPropertyDisplayCurrencies(property, cdfExchangeRate);
 
   const [qrDataUrl, heroPhotoDataUrl] = await Promise.all([
     QRCode.toDataURL(listingUrl, {
@@ -175,7 +171,7 @@ export async function generatePropertyPDF(
   doc.setTextColor(5, 150, 105);
   doc.setFontSize(15);
   doc.setFont('helvetica', 'bold');
-  const periodSuffix = property.period === 'month' ? ' / mois' : '';
+  const periodSuffix = dual.periodSuffixSpaced;
   doc.text(`${dual.primaryFormatted}${periodSuffix}`, 14, afterTitleY + 2);
 
   doc.setTextColor(71, 85, 105);
@@ -694,9 +690,11 @@ export async function generateSignboardPosterPDF(
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const isSale = property.status === 'for-sale';
   const bannerLabel = isSale ? 'À VENDRE' : 'À LOUER';
-  const priceLabel = `${Number(property.price || 0).toLocaleString('fr-FR')} ${property.currency || 'USD'}${
-    !isSale && property.period === 'month' ? ' / mois' : ''
-  }`;
+  const priceLabel = `${Number(property.price || 0).toLocaleString('fr-FR')} ${property.currency || 'USD'}${getPropertyPeriodSuffix(
+    property.period,
+    property.status,
+    false
+  )}`;
   const locationLabel = [property.quartier, property.commune || property.city || 'Kinshasa']
     .filter(Boolean)
     .join(' • ');

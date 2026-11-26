@@ -20,6 +20,12 @@ import {
 } from './src/data/contentSeed';
 import { getPropertySlug, resolvePropertyBySlugOrId } from './src/utils/shareUtils';
 import {
+  validateAndNormalizePropertyPricing,
+  formatPropertyPrimaryPriceWithPeriod,
+  coerceBooleanFlag,
+  MAX_RENTAL_MONTHS,
+} from './src/utils/propertyPricing';
+import {
   DEFAULT_FEATURED_SLOTS_LIMIT,
   computeBoostMetrics,
   evaluateBoostRequestStatus,
@@ -1186,11 +1192,41 @@ function sanitizePropertyForViewer(prop: any, authUser: AuthUser | null) {
 
 function normalizePropertyRecord(p: any) {
   if (!p || typeof p !== 'object') return p;
+  const status = String(p.status || 'for-sale');
+  const isRent = status === 'for-rent';
+  const rawPrice = Number(p.price);
+  const safePrice = Number.isFinite(rawPrice) && rawPrice >= 0 ? Math.round(rawPrice) : 0;
+  const normalizedCurrency = String(p.currency || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD';
+  const normalizedPeriod = isRent
+    ? (String(p.period || '').toLowerCase() === 'year' ? 'year' : 'month')
+    : 'total';
+  const rawGuarantee =
+    isRent && p.guaranteeMonths !== undefined && p.guaranteeMonths !== null && p.guaranteeMonths !== ''
+      ? Math.round(Number(p.guaranteeMonths))
+      : undefined;
+  const rawAdvance =
+    isRent && p.advanceMonths !== undefined && p.advanceMonths !== null && p.advanceMonths !== ''
+      ? Math.round(Number(p.advanceMonths))
+      : undefined;
+  const safeGuarantee =
+    rawGuarantee !== undefined && Number.isInteger(rawGuarantee) && rawGuarantee >= 0 && rawGuarantee <= MAX_RENTAL_MONTHS
+      ? rawGuarantee
+      : undefined;
+  const safeAdvance =
+    rawAdvance !== undefined && Number.isInteger(rawAdvance) && rawAdvance >= 0 && rawAdvance <= MAX_RENTAL_MONTHS
+      ? rawAdvance
+      : undefined;
+
   return {
     ...p,
     description: typeof p.description === 'string' ? p.description : '',
     category: p.category || 'Résidentiel',
-    currency: p.currency || 'USD',
+    price: safePrice,
+    currency: normalizedCurrency,
+    period: normalizedPeriod,
+    isNegotiable: coerceBooleanFlag(p.isNegotiable, false),
+    guaranteeMonths: safeGuarantee,
+    advanceMonths: safeAdvance,
     bedrooms: typeof p.bedrooms === 'number' ? p.bedrooms : Number(p.bedrooms) || 0,
     bathrooms: typeof p.bathrooms === 'number' ? p.bathrooms : Number(p.bathrooms) || 0,
     area: typeof p.area === 'number' ? p.area : Number(p.area) || 0,
@@ -4052,7 +4088,7 @@ function activateBoostOnPropertyAndInvoice(inv: any, adminUser: AuthUser) {
       },
       details: {
         amenities: prop.amenities || ['Sécurité 24/7', 'Groupe & Forage', 'Titre foncier garanti'],
-        priceInfo: `$${Number(prop.price || 0).toLocaleString()} ${prop.period === 'month' ? '/ mois' : ''}`,
+        priceInfo: formatPropertyPrimaryPriceWithPeriod(prop, 2850, false),
         deliveryDate: 'Disponible immédiatement'
       }
     };
@@ -6429,11 +6465,22 @@ app.post('/api/properties', async (req: Request, res: Response) => {
       });
     }
 
-    const numericPrice = Number(body.price);
-    if (body.price !== undefined && (!Number.isFinite(numericPrice) || numericPrice < 0)) {
+    const resolvedTransactionStatus = listingStatus === 'SOLD' ? 'sold' : (body.status || 'for-sale');
+    const pricingCheck = validateAndNormalizePropertyPricing({
+      status: resolvedTransactionStatus,
+      listingStatus,
+      price: body.price,
+      currency: body.currency,
+      period: body.period,
+      isNegotiable: body.isNegotiable,
+      guaranteeMonths: body.guaranteeMonths,
+      advanceMonths: body.advanceMonths,
+      requirePositivePrice: !isDraft && listingStatus === 'PUBLISHED',
+    });
+    if (!pricingCheck.valid) {
       return res.status(400).json({
         success: false,
-        error: 'Le prix du bien doit être un nombre positif valide.',
+        error: pricingCheck.error,
       });
     }
 
@@ -6512,7 +6559,12 @@ app.post('/api/properties', async (req: Request, res: Response) => {
     const newProp = normalizePropertyRecord({
       ...safeBody,
       title: cleanTitle,
-      price: Number.isFinite(numericPrice) ? numericPrice : 0,
+      price: pricingCheck.data.price,
+      currency: pricingCheck.data.currency,
+      period: pricingCheck.data.period,
+      isNegotiable: pricingCheck.data.isNegotiable,
+      guaranteeMonths: pricingCheck.data.guaranteeMonths,
+      advanceMonths: pricingCheck.data.advanceMonths,
       images: persistedImages,
       ...(persistedFloorPlan ? { floorPlanUrl: persistedFloorPlan } : {}),
       virtualTourUrl: tourCheck.normalizedUrl,
@@ -6532,7 +6584,7 @@ app.post('/api/properties', async (req: Request, res: Response) => {
       ...(user.role !== 'admin'
         ? { featured: false, isPremium: false, isUrgent: false, isSponsored: false, isVerified: false, verified: false }
         : {}),
-      status: listingStatus === 'SOLD' ? 'sold' : (body.status || 'for-sale'),
+      status: resolvedTransactionStatus,
       createdAt: body.createdAt || nowIso,
       updatedAt: nowIso,
       statusHistory: [
@@ -6675,9 +6727,42 @@ app.put('/api/properties/:id', async (req: Request, res: Response) => {
       }
     }
 
+    const resolvedNextStatus = newStatus === 'SOLD' ? 'sold' : (safeIncoming.status || current.status);
+    const pricingCheck = validateAndNormalizePropertyPricing({
+      status: resolvedNextStatus,
+      listingStatus: newStatus,
+      price: safeIncoming.price !== undefined ? safeIncoming.price : current.price,
+      currency: safeIncoming.currency !== undefined ? safeIncoming.currency : current.currency,
+      period:
+        safeIncoming.period !== undefined
+          ? safeIncoming.period
+          : resolvedNextStatus === 'for-rent'
+          ? (current.period === 'year' ? 'year' : 'month')
+          : 'total',
+      isNegotiable: safeIncoming.isNegotiable !== undefined ? safeIncoming.isNegotiable : current.isNegotiable,
+      guaranteeMonths:
+        resolvedNextStatus === 'for-rent'
+          ? (safeIncoming.guaranteeMonths !== undefined ? safeIncoming.guaranteeMonths : current.guaranteeMonths)
+          : undefined,
+      advanceMonths:
+        resolvedNextStatus === 'for-rent'
+          ? (safeIncoming.advanceMonths !== undefined ? safeIncoming.advanceMonths : current.advanceMonths)
+          : undefined,
+      requirePositivePrice: !isDraft && newStatus === 'PUBLISHED',
+    });
+    if (!pricingCheck.valid) {
+      return res.status(400).json({ success: false, error: pricingCheck.error });
+    }
+
     const updated = normalizePropertyRecord({
       ...current,
       ...safeIncoming,
+      price: pricingCheck.data.price,
+      currency: pricingCheck.data.currency,
+      period: pricingCheck.data.period,
+      isNegotiable: pricingCheck.data.isNegotiable,
+      guaranteeMonths: pricingCheck.data.guaranteeMonths,
+      advanceMonths: pricingCheck.data.advanceMonths,
       images: incomingImages,
       floorPlanUrl: nextFloorPlan,
       imageFingerprints: fingerprints,
@@ -6689,7 +6774,7 @@ app.put('/api/properties/:id', async (req: Request, res: Response) => {
       listingStatus: newStatus,
       isAvailable: newStatus === 'PUBLISHED',
       published: !isDraft && safeIncoming.published !== false && fraudStatus !== 'suspect',
-      status: newStatus === 'SOLD' ? 'sold' : (safeIncoming.status || current.status),
+      status: resolvedNextStatus,
       statusHistory: history,
       updatedAt: new Date().toISOString()
     });
@@ -9238,7 +9323,7 @@ function resolveSeoMetadataForRequest(req: Request, baseUrl: string): ServerSeoM
       const slug = getPropertySlug(prop);
       const canonicalUrl = `${baseUrl}/annonces/${encodeURIComponent(slug)}`;
       const isSale = prop.status === 'for-sale' || prop.category === 'sale';
-      const priceStr = `${Number(prop.price || 0).toLocaleString('fr-FR')} ${prop.currency || 'USD'}${!isSale && prop.period === 'month' ? '/mois' : ''}`;
+      const priceStr = formatPropertyPrimaryPriceWithPeriod(prop, 2850, true);
       const locStr = [prop.quartier, prop.commune || prop.city || 'Kinshasa'].filter(Boolean).join(', ');
       const title = `${prop.title} — ${priceStr} à ${prop.commune || 'Kinshasa'} | Kinimmo`;
       const rawDesc = prop.description

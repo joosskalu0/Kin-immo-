@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
 import { Sparkles, MapPin, BedDouble, Bath, Maximize2, ArrowRight, ShieldCheck, Star } from 'lucide-react';
 import { Property } from '../types';
+import { useApp } from '../context/AppContext';
+import { getPropertyDisplayCurrencies } from '../utils/propertyPricing';
 import {
   resolveMediaUrl,
   handlePropertyImageError,
@@ -28,6 +30,7 @@ export const VitrineSection: React.FC<VitrineSectionProps> = ({
   onSelectProperty,
   onExploreCatalog
 }) => {
+  const { cdfExchangeRate } = useApp();
   // Filtrage strict et robuste des biens de la vitrine
   const vitrineProperties = useMemo(() => {
     const now = new Date().getTime();
@@ -112,12 +115,10 @@ export const VitrineSection: React.FC<VitrineSectionProps> = ({
             ? property.type.charAt(0).toUpperCase() + property.type.slice(1)
             : 'Résidence';
 
-          // Formatage du prix
-          const formattedPrice = property.currency === 'CDF'
-            ? `${Number(property.price || 0).toLocaleString()} FC`
-            : `${Number(property.price || 0).toLocaleString()} $`;
-
-          const periodText = property.period === 'month' ? '/ mois' : '';
+          // Formatage du prix dans sa devise d'origine + équivalent converti
+          const priceDisplay = getPropertyDisplayCurrencies(property, cdfExchangeRate);
+          const formattedPrice = priceDisplay.primaryFormatted;
+          const periodText = priceDisplay.periodSuffixSpaced;
 
           const mainImgProps = getResponsiveImgProps(
             mainImage,
@@ -178,15 +179,20 @@ export const VitrineSection: React.FC<VitrineSectionProps> = ({
                   </h3>
 
                   {/* Prix */}
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-xl sm:text-2xl font-black text-amber-600 tracking-tight">
-                      {formattedPrice}
-                    </span>
-                    {periodText && (
-                      <span className="text-xs font-semibold text-slate-500">
-                        {periodText}
+                  <div className="space-y-0.5 tabular-nums">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xl sm:text-2xl font-black text-amber-600 tracking-tight">
+                        {formattedPrice}
                       </span>
-                    )}
+                      {periodText && (
+                        <span className="text-xs font-semibold text-slate-500">
+                          {periodText}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs font-medium text-slate-500">
+                      ≈ {priceDisplay.secondaryFormatted}{priceDisplay.periodSuffixCompact}
+                    </p>
                   </div>
                 </div>
 

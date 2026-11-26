@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Property } from '../types';
 import { useApp } from '../context/AppContext';
-import { convertAndFormatPrice } from '../utils/currency';
+import { formatPropertyPrimaryPriceWithPeriod, getPropertyDisplayCurrencies } from '../utils/propertyPricing';
 import {
   MapPin,
   Navigation,
@@ -96,7 +96,7 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
   height = 'h-[600px]',
   initialCommune,
 }) => {
-  const { currency, setActivePropertyModalId, setFilters } = useApp();
+  const { currency, cdfExchangeRate, setActivePropertyModalId, setFilters } = useApp();
 
   // Style de fond de carte OpenStreetMap (100% gratuit, sans clé API)
   const [mapStyle, setMapStyle] = useState<MapLayerStyle>('voyager');
@@ -589,7 +589,7 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
 
       const isSelected = selectedProperty?.id === prop.id;
       const isSale = prop.status === 'for-sale';
-      const formattedPrice = convertAndFormatPrice(prop.price, currency);
+      const formattedPrice = formatPropertyPrimaryPriceWithPeriod(prop, cdfExchangeRate, true);
 
       const html = `
         <div class="group cursor-pointer transform transition-all duration-200 hover:scale-110 select-none ${
@@ -634,7 +634,7 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
 
       layer.addLayer(marker);
     });
-  }, [properties, showProperties, selectedProperty, currency]);
+  }, [properties, showProperties, selectedProperty, currency, cdfExchangeRate]);
 
   // 9. Tracé de l'itinéraire sélectionné
   useEffect(() => {
@@ -1129,8 +1129,20 @@ export const PropertyMap: React.FC<PropertyMapProps> = ({
             {selectedProperty.commune || 'Kinshasa'}
           </p>
 
-          <div className="flex items-center justify-between font-black text-sm text-emerald-700 mb-2">
-            <span>{convertAndFormatPrice(selectedProperty.price, currency)}</span>
+          <div className="flex items-center justify-between font-black text-sm text-emerald-700 mb-2 tabular-nums">
+            <div>
+              {(() => {
+                const display = getPropertyDisplayCurrencies(selectedProperty, cdfExchangeRate);
+                return (
+                  <>
+                    <span>{display.primaryFormatted}{display.periodSuffixCompact}</span>
+                    <span className="block text-[10px] text-slate-500 font-medium">
+                      ≈ {display.secondaryFormatted}{display.periodSuffixCompact}
+                    </span>
+                  </>
+                );
+              })()}
+            </div>
             <span className="text-[10px] text-slate-500 font-normal">
               {selectedProperty.bedrooms} ch • {selectedProperty.area} m²
             </span>

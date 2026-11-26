@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Property } from '../types';
 import { useApp } from '../context/AppContext';
-import { convertAndFormatPrice } from '../utils/currency';
+import { getPropertyDisplayCurrencies } from '../utils/propertyPricing';
 import { buildPropertyShareUrl } from '../utils/shareUtils';
 import { canUserManageProperty } from '../utils/propertyPermissions';
 import { buildBoostPath, dispatchAppNavigate } from '../utils/navigation';
@@ -88,7 +88,8 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
   const isCompared = compareList.includes(property.id);
   const isSold = property.status === 'sold' || property.listingStatus === 'SOLD';
   const isRented = property.listingStatus === 'RENTED';
-  const formattedPrice = convertAndFormatPrice(property.price, currency, cdfExchangeRate, property.currency || 'USD');
+  const priceDisplay = getPropertyDisplayCurrencies(property, cdfExchangeRate);
+  const formattedPrice = `${priceDisplay.primaryFormatted}${priceDisplay.periodSuffixCompact}`;
   const labels = Array.isArray(property.labels) ? property.labels : [];
   const boostDisplay = getActiveBoostDisplay(property);
 
@@ -374,14 +375,21 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
         </div>
 
         {/* Bottom Image Overlay: Price Tag & Eye Button */}
-        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between z-10">
+        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2 z-10">
           <div className="bg-[#1D4ED8] text-white px-3 py-1.5 rounded-xl shadow-md tabular-nums">
-            <span className="text-base sm:text-lg font-extrabold tracking-tight">
-              {formattedPrice}
-            </span>
-            {property.period === 'month' && (
-              <span className="text-xs text-blue-100 font-semibold">/mois</span>
-            )}
+            <div className="flex items-baseline gap-0.5 flex-wrap">
+              <span className="text-base sm:text-lg font-extrabold tracking-tight">
+                {priceDisplay.primaryFormatted}
+              </span>
+              {priceDisplay.periodSuffixCompact && (
+                <span className="text-xs text-blue-100 font-semibold">
+                  {priceDisplay.periodSuffixCompact}
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-blue-100/95 font-medium leading-tight">
+              ≈ {priceDisplay.secondaryFormatted}{priceDisplay.periodSuffixCompact}
+            </div>
           </div>
 
           <button

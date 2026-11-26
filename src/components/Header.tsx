@@ -79,17 +79,19 @@ export const Header: React.FC<HeaderProps> = ({
             className="shrink-0"
           />
 
-          {/* Mobile Compact Header Actions (Strictly Logo + Recherche + Cloche) */}
-          <div className="flex lg:hidden items-center gap-2 flex-1 justify-end min-w-0">
+          {/* Mobile Compact Header Actions (Logo + Recherche + Télécharger + Cloche) */}
+          <div className="flex lg:hidden items-center gap-1.5 flex-1 justify-end min-w-0">
             <button
               type="button"
               onClick={() => onNavigatePath('/rechercher')}
               aria-label="Rechercher un bien"
-              className="flex-1 max-w-[200px] h-10 px-3 rounded-xl bg-slate-100 hover:bg-slate-200/80 border border-slate-200 text-slate-600 text-xs font-medium flex items-center gap-2 transition-colors cursor-pointer"
+              className="flex-1 min-w-0 max-w-[190px] h-10 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 border border-slate-200 text-slate-600 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Search className="w-4 h-4 text-[#1D4ED8] shrink-0" />
               <span className="truncate">Rechercher...</span>
             </button>
+
+            <PWAInstallButton compact />
 
             <button
               type="button"

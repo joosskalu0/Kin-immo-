@@ -65,6 +65,14 @@ import {
 import { resolveAccountBillingSummary } from '../../utils/billingHelpers';
 import { EmptyState, ErrorState, PageHeaderBar } from '../StateFeedback';
 import { goBackOrFallback } from '../../utils/navigation';
+import {
+  PropertyCurrencyCode,
+  RentalPeriodicity,
+  MAX_RENTAL_MONTHS,
+  validateAndNormalizePropertyPricing,
+  computeRentalBreakdown,
+  getPropertyDisplayCurrencies,
+} from '../../utils/propertyPricing';
 
 interface PublishPageProps {
   editPropertyId?: string | null;
@@ -90,6 +98,7 @@ export const PublishPage: React.FC<PublishPageProps> = ({
     agencies,
     agencyCollaborators,
     contactSettings,
+    cdfExchangeRate,
   } = useApp();
 
   const resolvedEditingProperty = React.useMemo(() => {
@@ -121,8 +130,13 @@ export const PublishPage: React.FC<PublishPageProps> = ({
   // Form State
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [price, setPrice] = useState<number>(150000);
-  const [currency] = useState('USD');
+  const [priceInput, setPriceInput] = useState<string>('150000');
+  const [priceDecimalHint, setPriceDecimalHint] = useState<string | null>(null);
+  const [currency, setCurrency] = useState<PropertyCurrencyCode>('USD');
+  const [rentalPeriod, setRentalPeriod] = useState<RentalPeriodicity>('month');
+  const [isNegotiable, setIsNegotiable] = useState<boolean>(false);
+  const [guaranteeMonthsInput, setGuaranteeMonthsInput] = useState<string>('');
+  const [advanceMonthsInput, setAdvanceMonthsInput] = useState<string>('');
   const [type, setType] = useState<PropertyType>('apartment');
   const [status, setStatus] = useState<PropertyStatus>('for-sale');
   const [category] = useState('Résidentiel Haut de Gamme');
@@ -197,7 +211,25 @@ export const PublishPage: React.FC<PublishPageProps> = ({
     if (resolvedEditingProperty) {
       setTitle(resolvedEditingProperty.title);
       setDescription(resolvedEditingProperty.description);
-      setPrice(resolvedEditingProperty.price);
+      setPriceInput(
+        resolvedEditingProperty.price !== undefined && resolvedEditingProperty.price !== null
+          ? String(Math.round(Number(resolvedEditingProperty.price) || 0))
+          : ''
+      );
+      setPriceDecimalHint(null);
+      setCurrency(String(resolvedEditingProperty.currency || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD');
+      setRentalPeriod(resolvedEditingProperty.period === 'year' ? 'year' : 'month');
+      setIsNegotiable(Boolean(resolvedEditingProperty.isNegotiable));
+      setGuaranteeMonthsInput(
+        typeof resolvedEditingProperty.guaranteeMonths === 'number'
+          ? String(resolvedEditingProperty.guaranteeMonths)
+          : ''
+      );
+      setAdvanceMonthsInput(
+        typeof resolvedEditingProperty.advanceMonths === 'number'
+          ? String(resolvedEditingProperty.advanceMonths)
+          : ''
+      );
       setType(resolvedEditingProperty.type);
       setStatus(resolvedEditingProperty.status);
       setLabels(resolvedEditingProperty.labels || []);
@@ -691,14 +723,27 @@ export const PublishPage: React.FC<PublishPageProps> = ({
       return;
     }
 
+    const pricingCheck = validateAndNormalizePropertyPricing({
+      status,
+      listingStatus: targetMode,
+      price: priceInput,
+      currency,
+      period: status === 'for-rent' ? rentalPeriod : 'total',
+      isNegotiable,
+      guaranteeMonths: status === 'for-rent' ? guaranteeMonthsInput : undefined,
+      advanceMonths: status === 'for-rent' ? advanceMonthsInput : undefined,
+      requirePositivePrice: targetMode === 'PUBLISHED',
+    });
+
+    if (!pricingCheck.valid) {
+      setSubmitError({
+        message: pricingCheck.error,
+        hint: 'Saisissez un montant entier sans décimales et, en location, des mois entre 0 et 36.',
+      });
+      return;
+    }
+
     if (targetMode === 'PUBLISHED') {
-      if (!price || Number(price) <= 0) {
-        setSubmitError({
-          message: 'Le prix doit être supérieur à 0 USD.',
-          hint: 'Indiquez le prix de vente ou le loyer mensuel.',
-        });
-        return;
-      }
 
       if (!description || !description.trim()) {
         setSubmitError({
@@ -783,9 +828,12 @@ export const PublishPage: React.FC<PublishPageProps> = ({
       id: propId,
       title: title.trim(),
       description: description || '',
-      price: Number(price) || 0,
-      currency,
-      period: status === 'for-rent' ? 'month' : 'total',
+      price: pricingCheck.data.price,
+      currency: pricingCheck.data.currency,
+      period: pricingCheck.data.period,
+      isNegotiable: pricingCheck.data.isNegotiable,
+      guaranteeMonths: pricingCheck.data.guaranteeMonths,
+      advanceMonths: pricingCheck.data.advanceMonths,
       type,
       status,
       listingStatus: targetMode === 'DRAFT' ? 'DRAFT' : 'PUBLISHED',
@@ -1102,18 +1150,221 @@ export const PublishPage: React.FC<PublishPageProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                {status === 'for-rent' ? 'Loyer mensuel (USD) *' : 'Prix (USD) *'}
-              </label>
-              <input
-                type="number"
-                value={isNaN(price) ? '' : price}
-                onChange={(e) => setPrice(isNaN(Number(e.target.value)) ? 0 : Number(e.target.value))}
-                placeholder="ex: 150000"
-                className="w-full h-11 bg-slate-50 border border-slate-300 rounded-xl px-3 text-sm text-slate-900 font-bold tabular-nums focus:outline-none focus:border-[#1D4ED8]"
-              />
+              <label className="block text-xs font-bold text-slate-700 mb-1">Devise du prix *</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['USD', 'CDF'] as const).map((curr) => (
+                  <button
+                    key={curr}
+                    type="button"
+                    onClick={() => setCurrency(curr)}
+                    className={`min-h-[44px] rounded-xl font-bold text-xs sm:text-sm border transition-colors cursor-pointer ${
+                      currency === curr
+                        ? 'bg-[#1D4ED8] text-white border-[#1D4ED8]'
+                        : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    {curr === 'USD' ? 'USD ($)' : 'CDF (FC)'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="publish-price-input" className="block text-xs font-bold text-slate-700 mb-1">
+                {status === 'for-rent'
+                  ? `Loyer ${rentalPeriod === 'year' ? 'annuel' : 'mensuel'} (${currency === 'CDF' ? 'FC' : 'USD'}) *`
+                  : `Prix de vente (${currency === 'CDF' ? 'FC' : 'USD'}) *`}
+              </label>
+              <input
+                id="publish-price-input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={priceInput}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (/[.,]/.test(raw)) {
+                    setPriceDecimalHint('Saisissez uniquement un nombre entier, sans virgule ni centimes.');
+                  } else {
+                    setPriceDecimalHint(null);
+                  }
+                  setPriceInput(raw.replace(/[^\d]/g, ''));
+                }}
+                placeholder={currency === 'CDF' ? 'ex: 2500000' : status === 'for-rent' ? 'ex: 1500' : 'ex: 150000'}
+                className="w-full h-11 bg-slate-50 border border-slate-300 rounded-xl px-3 text-sm text-slate-900 font-bold tabular-nums focus:outline-none focus:border-[#1D4ED8]"
+              />
+              {priceDecimalHint && (
+                <p className="text-[11px] font-semibold text-amber-700 mt-1">{priceDecimalHint}</p>
+              )}
+              {Number(priceInput) > 0 && (() => {
+                const preview = getPropertyDisplayCurrencies(
+                  {
+                    price: Number(priceInput),
+                    currency,
+                    period: status === 'for-rent' ? rentalPeriod : 'total',
+                    status,
+                  },
+                  cdfExchangeRate
+                );
+                return (
+                  <p className="text-[11px] text-slate-500 mt-1 tabular-nums">
+                    Équivalent affiché : <strong className="text-slate-700">≈ {preview.secondaryFormatted}{preview.periodSuffixCompact}</strong>
+                  </p>
+                );
+              })()}
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Prix négociable *</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNegotiable(true)}
+                  className={`min-h-[44px] rounded-xl font-bold text-xs sm:text-sm border transition-colors cursor-pointer ${
+                    isNegotiable
+                      ? 'bg-[#1D4ED8] text-white border-[#1D4ED8]'
+                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  Oui, négociable
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsNegotiable(false)}
+                  className={`min-h-[44px] rounded-xl font-bold text-xs sm:text-sm border transition-colors cursor-pointer ${
+                    !isNegotiable
+                      ? 'bg-[#1D4ED8] text-white border-[#1D4ED8]'
+                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  Non, prix ferme
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {status === 'for-rent' && (
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 sm:p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wide">
+                  Conditions de location
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Garantie et avance libres de 0 à {MAX_RENTAL_MONTHS} mois
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Périodicité du loyer *</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setRentalPeriod('month')}
+                      className={`min-h-[44px] rounded-xl font-bold text-xs border transition-colors cursor-pointer ${
+                        rentalPeriod === 'month'
+                          ? 'bg-[#1D4ED8] text-white border-[#1D4ED8]'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                      }`}
+                    >
+                      Par mois
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRentalPeriod('year')}
+                      className={`min-h-[44px] rounded-xl font-bold text-xs border transition-colors cursor-pointer ${
+                        rentalPeriod === 'year'
+                          ? 'bg-[#1D4ED8] text-white border-[#1D4ED8]'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                      }`}
+                    >
+                      Par an
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="publish-guarantee-months" className="block text-xs font-bold text-slate-700 mb-1">
+                    Garantie (mois de loyer)
+                  </label>
+                  <input
+                    id="publish-guarantee-months"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={guaranteeMonthsInput}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/[^\d]/g, '');
+                      setGuaranteeMonthsInput(digits);
+                    }}
+                    placeholder="ex: 3 (0 à 36)"
+                    className="w-full h-11 bg-white border border-slate-300 rounded-xl px-3 text-sm text-slate-900 font-bold tabular-nums focus:outline-none focus:border-[#1D4ED8]"
+                  />
+                  {guaranteeMonthsInput !== '' && Number(guaranteeMonthsInput) > MAX_RENTAL_MONTHS && (
+                    <p className="text-[11px] font-semibold text-rose-600 mt-1">
+                      Maximum {MAX_RENTAL_MONTHS} mois autorisés.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="publish-advance-months" className="block text-xs font-bold text-slate-700 mb-1">
+                    Avance (mois de loyer)
+                  </label>
+                  <input
+                    id="publish-advance-months"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={advanceMonthsInput}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/[^\d]/g, '');
+                      setAdvanceMonthsInput(digits);
+                    }}
+                    placeholder="ex: 2 (0 à 36)"
+                    className="w-full h-11 bg-white border border-slate-300 rounded-xl px-3 text-sm text-slate-900 font-bold tabular-nums focus:outline-none focus:border-[#1D4ED8]"
+                  />
+                  {advanceMonthsInput !== '' && Number(advanceMonthsInput) > MAX_RENTAL_MONTHS && (
+                    <p className="text-[11px] font-semibold text-rose-600 mt-1">
+                      Maximum {MAX_RENTAL_MONTHS} mois autorisés.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {Number(priceInput) > 0 && (guaranteeMonthsInput !== '' || advanceMonthsInput !== '') && (() => {
+                const gVal = guaranteeMonthsInput !== '' ? Math.min(MAX_RENTAL_MONTHS, Number(guaranteeMonthsInput)) : undefined;
+                const aVal = advanceMonthsInput !== '' ? Math.min(MAX_RENTAL_MONTHS, Number(advanceMonthsInput)) : undefined;
+                const breakdown = computeRentalBreakdown(
+                  {
+                    price: Number(priceInput),
+                    currency,
+                    period: rentalPeriod,
+                    status: 'for-rent',
+                    guaranteeMonths: gVal,
+                    advanceMonths: aVal,
+                  },
+                  cdfExchangeRate
+                );
+                if (!breakdown || !breakdown.hasEntryBreakdown) return null;
+                return (
+                  <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 tabular-nums">
+                    <span>
+                      Base mensuelle : <strong>{breakdown.monthlyEquivalentFormatted}</strong>
+                      {breakdown.isAnnual ? ' (1/12e du loyer annuel)' : ''}
+                    </span>
+                    <span>
+                      Total à la signature ({breakdown.totalEntryMonths} mois) :{' '}
+                      <strong className="text-[#1D4ED8]">{breakdown.totalEntryFormatted}</strong>{' '}
+                      <span className="text-slate-500">(≈ {breakdown.totalEntrySecondary})</span>
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">Titre de l'annonce *</label>
