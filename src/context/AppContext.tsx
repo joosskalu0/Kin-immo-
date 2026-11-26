@@ -42,6 +42,7 @@ import {
   resolveAccountBillingSummary
 } from '../utils/billingHelpers';
 import { resolvePropertyMedia } from '../utils/mediaUrl';
+import { isBoostWindowActive, parseFeaturedSlotsLimit, resolveBoostPrimaryLabel } from '../utils/boostHelpers';
 
 export interface ConfirmOptions {
   title?: string;
@@ -102,9 +103,12 @@ import {
   listenToAuthChanges,
   logOutFromFirebase
 } from '../lib/kinimmoStore';
-import { mysqlApi, getStoredToken } from '../services/mysqlApi';
+import { mysqlApi } from '../services/mysqlApi';
+import { purgeLegacyAuthStorage } from '../services/secureFetch';
 import { getAdminCredentials, saveAdminCredentials } from '../lib/adminCredentials';
 import { parsePropertyIdFromUrl, resolvePropertyBySlugOrId, updateBrowserUrlForProperty } from '../utils/shareUtils';
+import { dispatchAppNavigate } from '../utils/navigation';
+import { readStoredWishlist, writeStoredWishlist } from '../utils/offlineCache';
 
 interface AppContextType {
   language: LanguageCode;
@@ -407,25 +411,16 @@ const getInitialHeroSlides = (): ArchitecturalSlide[] => {
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguage] = useState<LanguageCode>('fr');
   const [currency, setCurrency] = useState<CurrencyCode>('USD');
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const raw = localStorage.getItem('kinimmo_user');
-        return raw ? JSON.parse(raw) : null;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState<User | null>(null);
 
   // Invitation link state for agents & agencies
   const [invitedRole, setInvitedRole] = useState<'agent' | 'agency' | null>(null);
   const [invitedBy, setInvitedBy] = useState<string | null>(null);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
-  // Proactively clean up legacy temporary items from old migrations (without touching kinimmo data)
+  // Purger immédiatement toute ancienne donnée d'authentification ou jeton hérité de localStorage
   useEffect(() => {
+    purgeLegacyAuthStorage();
     try {
       localStorage.removeItem('estatik_kinshasa_user');
       localStorage.removeItem('estatik_admin_credentials_v1');
@@ -442,31 +437,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   }, []);
 
-  // Écouter les changements d'état d'authentification utilisateur et valider la session stockée
+  // Hydrater la session utilisateur exclusivement depuis les cookies HttpOnly (/api/auth/me avec rotation automatique)
   useEffect(() => {
+    let active = true;
     const unsub = listenToAuthChanges((currentUser) => {
-      setUser(currentUser);
+      if (active) setUser(currentUser);
     });
 
-    const token = getStoredToken();
-    if (token) {
-      mysqlApi.getMe().then((res) => {
+    mysqlApi
+      .getSession()
+      .then((res) => {
+        if (!active) return;
         const liveUser = res.user || res.data?.user;
         if (res.success && liveUser) {
-          setUser((prev) => ({ ...(prev || {}), ...liveUser }));
-          try {
-            localStorage.setItem('kinimmo_user', JSON.stringify(liveUser));
-          } catch {}
-        } else if (res.status === 401 || res.status === 403) {
-          try {
-            localStorage.removeItem('kinimmo_admin_session');
-          } catch {}
-          logOutFromFirebase();
+          setUser(liveUser);
+        } else {
+          purgeLegacyAuthStorage();
+          setUser(null);
         }
-      }).catch(() => {});
-    }
+      })
+      .catch(() => {});
 
-    return () => unsub();
+    return () => {
+      active = false;
+      unsub();
+    };
   }, []);
 
   // Check URL query parameters for agent/agency invitation links
@@ -494,6 +489,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logOut = async () => {
     setUser(null);
+    await mysqlApi.logout();
     await logOutFromFirebase();
   };
 
@@ -560,7 +556,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const [wishlist, setWishlist] = useState<string[]>([]);
+  const [wishlist, setWishlist] = useState<string[]>(() => readStoredWishlist());
   const [compareList, setCompareList] = useState<string[]>([]);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
 
@@ -926,6 +922,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const merged: SiteContactSettings = {
       ...contactSettings,
       ...newSettings,
+      featuredSlotsLimit: parseFeaturedSlotsLimit(newSettings.featuredSlotsLimit ?? contactSettings.featuredSlotsLimit),
       virtualTourAllowedDomains: newSettings.virtualTourAllowedDomains ?? contactSettings.virtualTourAllowedDomains,
       vipConcierge: {
         ...contactSettings.vipConcierge,
@@ -1334,12 +1331,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  // Sync user profile to Firestore (never password)
+  // Sync user profile to Firestore (never password) and refresh protected streams once authenticated
   useEffect(() => {
     if (user) {
       saveUserToFirestore(user).catch(err => console.error('Error saving user to Firestore:', err));
+      const unsubLeadsAuth = subscribeToLeads((items) => {
+        if (Array.isArray(items)) setLeads(items);
+      });
+      const unsubInvoicesAuth = subscribeToInvoices((items) => {
+        if (Array.isArray(items)) setInvoices(items);
+      });
+      return () => {
+        unsubLeadsAuth();
+        unsubInvoicesAuth();
+      };
     }
-  }, [user]);
+  }, [user?.id]);
 
   // Translate helper
   const t = (key: string): string => {
@@ -2380,11 +2387,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Wishlist Actions
   const toggleWishlist = (propertyId: string) => {
-    setWishlist((prev) =>
-      prev.includes(propertyId)
+    setWishlist((prev) => {
+      const next = prev.includes(propertyId)
         ? prev.filter((id) => id !== propertyId)
-        : [...prev, propertyId]
-    );
+        : [...prev, propertyId];
+      writeStoredWishlist(next);
+      return next;
+    });
   };
 
   // Compare Actions
@@ -2614,21 +2623,112 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = invoices.find((i) => i.id === invoiceId || i.invoiceNumber === invoiceId);
     if (!target) return { success: false, message: 'Facture introuvable.' };
 
+    let apiRes: any = null;
     try {
-      await mysqlApi.approveInvoice(invoiceId);
+      apiRes = await mysqlApi.approveInvoice(invoiceId);
     } catch {}
 
-    const nowIso = new Date().toISOString();
+    const serverInv = apiRes?.invoice;
+    const serverProp = apiRes?.property;
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const cycle: 'monthly' | 'yearly' = target.billingCycle === 'yearly' ? 'yearly' : 'monthly';
     const matchedPlan = subscriptionPlans.find((p) => p.id === target.planId);
     const durationDays = target.isTrial ? Math.max(1, Number(matchedPlan?.trialDays || 7)) : (cycle === 'yearly' ? 365 : 30);
-    const nextExpiry = new Date(Date.now() + durationDays * 86400000).toISOString().split('T')[0];
-    const receiptNum = target.receiptNumber || `REC-KIN-${Math.floor(100000 + Math.random() * 900000)}`;
+    const nextExpiry = new Date(nowMs + durationDays * 86400000).toISOString().split('T')[0];
+    const receiptNum = serverInv?.receipt_number || serverInv?.receiptNumber || target.receiptNumber || `REC-KIN-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const anyInv = target as any;
+    const targetPropId = serverInv?.property_id || anyInv.propertyId || anyInv.property_id || (String(anyInv.targetType) === 'property' ? target.targetId : null);
+
+    let fallbackStartsAt = nowIso;
+    let fallbackExpiresAt = new Date(nowMs + (Number(anyInv.duration_days) || 7) * 86400000).toISOString();
+    let fallbackViewsBefore = 0;
+    let fallbackContactsBefore = 0;
+    let resolvedLabel = serverInv?.boost_label || anyInv.boost_label;
+
+    if (targetPropId) {
+      const existingProp = properties.find((p) => p.id === targetPropId);
+      const optionId = String(serverInv?.option_id || anyInv.optionId || anyInv.option_id || '').toLowerCase();
+      const boostType = String(serverInv?.boost_type || anyInv.boost_type || (optionId.includes('sponsor') ? 'sponsorise' : optionId.includes('premium') ? 'premium' : optionId.includes('urgent') ? 'urgent' : 'featured')).toLowerCase();
+      let boostDays = Number(serverInv?.duration_days || anyInv.duration_days) || 7;
+      if (!serverInv?.duration_days && !anyInv.duration_days) {
+        if (optionId.includes('30')) boostDays = 30;
+        else if (optionId.includes('14')) boostDays = 14;
+      }
+
+      if (existingProp && isBoostWindowActive(existingProp.boostStartedAt, existingProp.boostExpiresAt, nowMs)) {
+        const curExpMs = Date.parse(existingProp.boostExpiresAt!);
+        fallbackStartsAt = existingProp.boostStartedAt || nowIso;
+        fallbackExpiresAt = new Date(curExpMs + boostDays * 86400000).toISOString();
+      } else {
+        fallbackExpiresAt = new Date(nowMs + boostDays * 86400000).toISOString();
+      }
+
+      if (existingProp) {
+        fallbackViewsBefore = Number(existingProp.viewsCount || 0);
+        fallbackContactsBefore = Number(existingProp.whatsappClicks || 0) + Number(existingProp.phoneCalls || 0) + Number(existingProp.leadsCount || 0);
+      }
+
+      if (!resolvedLabel && boostType !== 'urgent') {
+        resolvedLabel = resolveBoostPrimaryLabel(boostType, serverInv?.badge_text || anyInv.badge_text);
+      }
+
+      const finalStartsAt = serverInv?.starts_at || serverProp?.boostStartedAt || fallbackStartsAt;
+      const finalExpiresAt = serverInv?.expires_at || serverProp?.boostExpiresAt || fallbackExpiresAt;
+
+      setProperties((curr) => {
+        const updatedProps = curr.map((p) => {
+          if (p.id === targetPropId) {
+            if (serverProp) {
+              return { ...p, ...serverProp };
+            }
+            const isUrg = boostType === 'urgent' || optionId.includes('urgent');
+            const isPrem = boostType === 'premium' || optionId.includes('premium');
+            const isSpons = resolvedLabel === 'Sponsorisé' || boostType === 'sponsorise';
+            const isFeat = !isUrg && (resolvedLabel === 'À la une' || boostType === 'featured' || isPrem);
+            return {
+              ...p,
+              boostStartedAt: finalStartsAt,
+              boostExpiresAt: finalExpiresAt,
+              boostSuspended: false,
+              boostType: boostType as any,
+              boostLabel: isUrg ? p.boostLabel : resolvedLabel,
+              featured: isFeat || p.featured,
+              isPremium: isPrem || p.isPremium,
+              isSponsored: isSpons || p.isSponsored,
+              isUrgent: isUrg || p.isUrgent,
+              listingTier: isPrem ? 'premium' : (isFeat || isSpons ? 'featured' : p.listingTier),
+              refreshBumpAt: nowIso,
+              updatedAt: nowIso
+            };
+          }
+          return p;
+        });
+        saveDurableLocalProperties(updatedProps);
+        return updatedProps;
+      });
+      promotePropertyToHero(targetPropId);
+    }
 
     const updatedInv: Invoice = {
       ...target,
+      ...(serverInv ? {
+        starts_at: serverInv.starts_at,
+        expires_at: serverInv.expires_at,
+        views_before: serverInv.views_before,
+        contacts_before: serverInv.contacts_before,
+        boost_type: serverInv.boost_type,
+        boost_label: serverInv.boost_label,
+      } : targetPropId ? {
+        starts_at: fallbackStartsAt,
+        expires_at: fallbackExpiresAt,
+        views_before: fallbackViewsBefore,
+        contacts_before: fallbackContactsBefore,
+        boost_label: resolvedLabel,
+      } : {}),
       status: 'paid',
-      paidAt: nowIso,
+      paidAt: serverInv?.paid_at || nowIso,
       validatedAt: nowIso,
       validatedBy: user?.name || 'Administrateur Kinimmo',
       receiptNumber: receiptNum,
@@ -2641,40 +2741,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     saveInvoiceToFirestore(updatedInv).catch(() => {});
 
     let restoredCount = 0;
-    const anyInv = target as any;
-    const targetPropId = anyInv.propertyId || anyInv.property_id || (String(anyInv.targetType) === 'property' ? target.targetId : null);
-
-    if (targetPropId) {
-      const optionId = String(anyInv.optionId || anyInv.option_id || '').toLowerCase();
-      let boostDays = Number(anyInv.duration_days) || 7;
-      if (optionId.includes('30')) boostDays = 30;
-      else if (optionId.includes('14')) boostDays = 14;
-      const expiresAt = new Date(Date.now() + boostDays * 86400000).toISOString();
-
-      setProperties((curr) => {
-        const updatedProps = curr.map((p) => {
-          if (p.id === targetPropId) {
-            const isPrem = optionId.includes('premium');
-            const isFeat = optionId.includes('featured') || isPrem;
-            const isUrg = optionId.includes('urgent');
-            return {
-              ...p,
-              boostExpiresAt: expiresAt,
-              featured: isFeat || p.featured,
-              isPremium: isPrem || p.isPremium,
-              isUrgent: isUrg || p.isUrgent,
-              listingTier: isPrem ? 'premium' : (isFeat ? 'featured' : p.listingTier),
-              refreshBumpAt: nowIso,
-              updatedAt: nowIso
-            };
-          }
-          return p;
-        });
-        saveDurableLocalProperties(updatedProps);
-        return updatedProps;
-      });
-      promotePropertyToHero(targetPropId);
-    } else {
+    if (!targetPropId) {
       if (target.targetType === 'agency' || target.targetId.startsWith('agency_')) {
         updateAgencySubscriptionStatus(target.targetId, 'Active', nextExpiry, target.planId, cycle);
       }
@@ -2767,7 +2834,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setProperties((curr) => {
           const updatedProps = curr.map((p) =>
             p.id === targetPropId
-              ? { ...p, featured: false, isPremium: false, isUrgent: false, boostExpiresAt: undefined, listingTier: 'standard' as const, updatedAt: nowIso }
+              ? {
+                  ...p,
+                  featured: false,
+                  isPremium: false,
+                  isSponsored: false,
+                  isUrgent: false,
+                  boostSuspended: false,
+                  boostStartedAt: undefined,
+                  boostExpiresAt: undefined,
+                  boostLabel: undefined,
+                  boostType: undefined,
+                  boostBadgeText: undefined,
+                  listingTier: 'standard' as const,
+                  updatedAt: nowIso,
+                }
               : p
           );
           saveDurableLocalProperties(updatedProps);
@@ -3155,15 +3236,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activePropertyModalId,
         setActivePropertyModalId: handleSetActivePropertyModalId,
         isFieldsBuilderOpen,
-        setIsFieldsBuilderOpen,
+        setIsFieldsBuilderOpen: (open: boolean) => {
+          setIsFieldsBuilderOpen(open);
+          if (open) dispatchAppNavigate('/admin/champs');
+        },
         isSubmitPropertyOpen,
-        setIsSubmitPropertyOpen,
+        setIsSubmitPropertyOpen: (open: boolean) => {
+          setIsSubmitPropertyOpen(open);
+          if (open) {
+            dispatchAppNavigate('/publier');
+          }
+        },
         isAuthModalOpen,
-        setIsAuthModalOpen,
+        setIsAuthModalOpen: (open: boolean) => {
+          setIsAuthModalOpen(open);
+          if (open) dispatchAppNavigate('/connexion');
+        },
         isSecurityModalOpen,
-        setIsSecurityModalOpen,
+        setIsSecurityModalOpen: (open: boolean) => {
+          setIsSecurityModalOpen(open);
+          if (open) dispatchAppNavigate('/compte/securite');
+        },
         isCompareOpen,
-        setIsCompareOpen,
+        setIsCompareOpen: (open: boolean) => {
+          setIsCompareOpen(open);
+          if (open) dispatchAppNavigate('/comparer');
+        },
         editingProperty,
         setEditingProperty,
         importCSV,
@@ -3210,26 +3308,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       </div>
 
       {confirmState && (
-        <div className="fixed inset-0 z-[99999] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl relative">
-            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6" />
+        <div className="fixed inset-0 z-[99999] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl relative">
+            <div className="w-11 h-11 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5" />
             </div>
 
-            <div className="space-y-1.5">
-              <h3 className="text-xl font-bold text-white">
-                {confirmState.title || 'Confirmation de suppression'}
+            <div className="space-y-1">
+              <h3 className="text-lg font-extrabold text-slate-900">
+                {confirmState.title || 'Confirmer cette action'}
               </h3>
-              <p className="text-slate-300 text-sm leading-relaxed">
+              <p className="text-slate-600 text-sm leading-relaxed">
                 {confirmState.message}
               </p>
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setConfirmState(null)}
-                className="flex-1 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-sm transition-all"
+                className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm transition-colors cursor-pointer"
               >
                 {confirmState.cancelText || 'Annuler'}
               </button>
@@ -3244,10 +3342,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     setConfirmState(null);
                   }
                 }}
-                className="flex-1 py-3 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm shadow-lg shadow-rose-500/20 transition-all flex items-center justify-center gap-2"
+                className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
-                {confirmState.confirmText || 'Supprimer'}
+                {confirmState.confirmText || 'Confirmer'}
               </button>
             </div>
           </div>

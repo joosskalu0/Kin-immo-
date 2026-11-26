@@ -2,35 +2,17 @@
 import {
   TrustVerification,
   TrustStatus,
-  TrustDocument,
-  TrustCheck,
   TrustAuditLog,
-  TrustPropertyAvailability,
   TrustNotification,
   AvailabilityStatus
 } from '../types/trust';
-
-import { getStoredToken } from './mysqlApi';
-import { getApiBaseUrl } from '../utils/mediaUrl';
-
-function getHeaders(): HeadersInit {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-
-  const token = getStoredToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
-}
-
+import { secureFetch } from './secureFetch';
 
 export const trustService = {
   // 1. Obtenir le badge de confiance public
   async getBadge(targetType: 'agent' | 'agency' | 'property', targetId: string) {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/trust/badge/${targetType}/${targetId}`);
+      const res = await secureFetch(`/trust/badge/${targetType}/${targetId}`);
       if (!res.ok) return null;
       const json = await res.json();
       return json.data;
@@ -47,9 +29,7 @@ export const trustService = {
       if (filters?.status) params.append('status', filters.status);
       if (filters?.applicant_id) params.append('applicant_id', filters.applicant_id);
 
-      const res = await fetch(`${getApiBaseUrl()}/trust/verifications?${params.toString()}`, {
-        headers: getHeaders()
-      });
+      const res = await secureFetch(`/trust/verifications?${params.toString()}`);
       if (!res.ok) return [];
       const json = await res.json();
       return json.data || [];
@@ -61,9 +41,7 @@ export const trustService = {
   // 3. Détail d'un dossier
   async getVerificationById(id: string): Promise<TrustVerification | null> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/trust/verifications/${id}`, {
-        headers: getHeaders()
-      });
+      const res = await secureFetch(`/trust/verifications/${id}`);
       if (!res.ok) return null;
       const json = await res.json();
       return json.data || null;
@@ -87,9 +65,8 @@ export const trustService = {
       file_mime_type?: string;
     }>;
   }) {
-    const res = await fetch(`${getApiBaseUrl()}/trust/apply`, {
+    const res = await secureFetch('/trust/apply', {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -109,9 +86,8 @@ export const trustService = {
       expires_in_months?: number;
     }
   ) {
-    const res = await fetch(`${getApiBaseUrl()}/trust/verifications/${id}/status`, {
+    const res = await secureFetch(`/trust/verifications/${id}/status`, {
       method: 'PUT',
-      headers: getHeaders(),
       body: JSON.stringify(decision)
     });
     return res.json();
@@ -127,9 +103,8 @@ export const trustService = {
       evidence_notes?: string;
     }
   ) {
-    const res = await fetch(`${getApiBaseUrl()}/trust/verifications/${verificationId}/checks`, {
+    const res = await secureFetch(`/trust/verifications/${verificationId}/checks`, {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify(check)
     });
     return res.json();
@@ -137,9 +112,8 @@ export const trustService = {
 
   // 7. Valider ou refuser une pièce justificative
   async updateDocumentStatus(documentId: string, status: 'approved' | 'rejected', rejectionNote?: string) {
-    const res = await fetch(`${getApiBaseUrl()}/trust/documents/${documentId}/status`, {
+    const res = await secureFetch(`/trust/documents/${documentId}/status`, {
       method: 'PUT',
-      headers: getHeaders(),
       body: JSON.stringify({ status, rejection_note: rejectionNote })
     });
     return res.json();
@@ -154,9 +128,8 @@ export const trustService = {
       notes?: string;
     }
   ) {
-    const res = await fetch(`${getApiBaseUrl()}/trust/availability/${propertyId}`, {
+    const res = await secureFetch(`/trust/availability/${propertyId}`, {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -164,21 +137,18 @@ export const trustService = {
 
   // 8b. Demander des informations complémentaires (Admin)
   async requestMoreInfo(verificationId: string, data: { message: string; requested_fields?: string[] }) {
-    const res = await fetch(`${getApiBaseUrl()}/trust/verifications/${verificationId}/request-info`, {
+    const res = await secureFetch(`/trust/verifications/${verificationId}/request-info`, {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
   },
 
-
   // 8c. Consigner l'accès et la consultation d'un justificatif sécurisé
   async logDocumentAccess(documentId: string, verificationId: string, documentTitle: string) {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/trust/documents/${documentId}/access-log`, {
+      const res = await secureFetch(`/trust/documents/${documentId}/access-log`, {
         method: 'POST',
-        headers: getHeaders(),
         body: JSON.stringify({ verification_id: verificationId, document_title: documentTitle })
       });
       return await res.json();
@@ -190,9 +160,7 @@ export const trustService = {
   // 9. Journal d'audit des administrateurs
   async getAuditLogs(): Promise<TrustAuditLog[]> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/trust/audit-logs`, {
-        headers: getHeaders()
-      });
+      const res = await secureFetch('/trust/audit-logs');
       if (!res.ok) return [];
       const json = await res.json();
       return json.data || [];
@@ -204,9 +172,7 @@ export const trustService = {
   // 10. Notifications Kinimmo Trust
   async getNotifications(): Promise<TrustNotification[]> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/trust/notifications`, {
-        headers: getHeaders()
-      });
+      const res = await secureFetch('/trust/notifications');
       if (!res.ok) return [];
       const json = await res.json();
       return json.data || [];
@@ -217,9 +183,8 @@ export const trustService = {
 
   async markNotificationRead(id: string) {
     try {
-      await fetch(`${getApiBaseUrl()}/trust/notifications/${id}/read`, {
-        method: 'PUT',
-        headers: getHeaders()
+      await secureFetch(`/trust/notifications/${id}/read`, {
+        method: 'PUT'
       });
     } catch {}
   }

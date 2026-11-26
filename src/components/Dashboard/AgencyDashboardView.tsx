@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Property, ListingLifecycleStatus, LeadRequest, AgencyCollaborator, AgencyTransaction, AgencyRole } from '../../types';
+import { dispatchAppNavigate } from '../../utils/navigation';
 import {
   LISTING_STATUS_CONFIG,
   getListingLifecycleStatus,
@@ -63,11 +64,15 @@ export type AgencySectionId =
 interface AgencyDashboardViewProps {
   onOpenSubmitProperty?: () => void;
   onOpenSecurityModal?: () => void;
+  forcedSection?: AgencySectionId;
+  hideTopNav?: boolean;
 }
 
 export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
   onOpenSubmitProperty,
-  onOpenSecurityModal
+  onOpenSecurityModal,
+  forcedSection,
+  hideTopNav = false,
 }) => {
   const {
     user,
@@ -89,10 +94,18 @@ export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
     agencyTransactions,
     createAgencyTransaction,
     cdfExchangeRate,
-    subscriptionPlans
+    subscriptionPlans,
+    requestConfirm,
   } = useApp();
 
-  const [activeSection, setActiveSection] = useState<AgencySectionId>('collaborators');
+  const [activeSection, setActiveSection] = useState<AgencySectionId>(forcedSection || 'collaborators');
+  const [inviteErrorMsg, setInviteErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (forcedSection) {
+      setActiveSection(forcedSection);
+    }
+  }, [forcedSection]);
 
   // 1. Profil de l'agence
   const [agencyName, setAgencyName] = useState(user?.agencyName || 'Congo Luxury Homes SARL');
@@ -199,8 +212,9 @@ export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
   // Inviter un collaborateur
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
+    setInviteErrorMsg(null);
     if (!inviteName.trim() || !inviteEmail.trim()) {
-      alert('Veuillez renseigner le nom et l’adresse e-mail.');
+      setInviteErrorMsg('Veuillez renseigner le nom complet et l’adresse e-mail du collaborateur.');
       return;
     }
 
@@ -347,7 +361,8 @@ export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
             <button
               onClick={() => {
                 setEditingProperty(null);
-                setIsSubmitPropertyOpen(true);
+                if (onOpenSubmitProperty) onOpenSubmitProperty();
+                else dispatchAppNavigate('/publier');
               }}
               className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 flex items-center justify-center gap-2"
             >
@@ -358,35 +373,37 @@ export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
         </div>
 
         {/* Navigation Tabs Agence */}
-        <div className="flex border-t border-slate-800/80 mt-6 pt-3 gap-2 overflow-x-auto text-xs font-semibold">
-          {[
-            { id: 'collaborators', label: `Collaborateurs (${agencyCollaborators.length})`, icon: Users },
-            { id: 'roles_permissions', label: 'Rôles & Permissions', icon: ShieldCheck },
-            { id: 'assignments', label: `Attribution des Biens (${totalAgencyProperties})`, icon: Layers },
-            { id: 'transactions', label: `Visites & Transactions (${agencyTransactions.length})`, icon: DollarSign },
-            { id: 'analytics', label: 'Statistiques Globales & Agents', icon: TrendingUp },
-            { id: 'subscriptions', label: 'Abonnement Agence & Facturation', icon: CreditCard },
-            { id: 'trust_verification', label: 'Vérification Kinimmo Trust', icon: Award },
-            { id: 'profile', label: 'Profil de l’Agence', icon: Building2 }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeSection === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveSection(tab.id as AgencySectionId)}
-                className={`py-2 px-3.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-2 ${
-                  isActive
-                    ? 'bg-indigo-500 text-slate-950 font-bold shadow-md shadow-indigo-500/20'
-                    : 'bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800/80'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {!hideTopNav && (
+          <div className="flex border-t border-slate-800/80 mt-6 pt-3 gap-2 overflow-x-auto text-xs font-semibold">
+            {[
+              { id: 'collaborators', label: `Collaborateurs (${agencyCollaborators.length})`, icon: Users },
+              { id: 'roles_permissions', label: 'Rôles & Permissions', icon: ShieldCheck },
+              { id: 'assignments', label: `Attribution des Biens (${totalAgencyProperties})`, icon: Layers },
+              { id: 'transactions', label: `Visites & Transactions (${agencyTransactions.length})`, icon: DollarSign },
+              { id: 'analytics', label: 'Statistiques Globales & Agents', icon: TrendingUp },
+              { id: 'subscriptions', label: 'Abonnement Agence & Facturation', icon: CreditCard },
+              { id: 'trust_verification', label: 'Vérification Kinimmo Trust', icon: Award },
+              { id: 'profile', label: 'Profil de l’Agence', icon: Building2 }
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeSection === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveSection(tab.id as AgencySectionId)}
+                  className={`py-2 px-3.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-2 ${
+                    isActive
+                      ? 'bg-indigo-500 text-slate-950 font-bold shadow-md shadow-indigo-500/20'
+                      : 'bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800/80'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ======================================================== */}
@@ -527,9 +544,13 @@ export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
                       {collab.role !== 'agency_owner' && (
                         <button
                           onClick={() => {
-                            if (confirm(`Confirmez-vous le retrait de ${collab.name} de l'agence ?`)) {
-                              deleteAgencyCollaborator(collab.id);
-                            }
+                            requestConfirm({
+                              title: 'Retirer ce collaborateur ?',
+                              message: `Confirmez-vous le retrait de ${collab.name} de l'agence ?`,
+                              confirmText: 'Retirer',
+                              cancelText: 'Annuler',
+                              onConfirm: () => deleteAgencyCollaborator(collab.id),
+                            });
                           }}
                           className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
                           title="Retirer le collaborateur"
@@ -1222,6 +1243,11 @@ export const AgencyDashboardView: React.FC<AgencyDashboardViewProps> = ({
             {inviteSuccessMsg && (
               <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
                 {inviteSuccessMsg}
+              </div>
+            )}
+            {inviteErrorMsg && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold">
+                {inviteErrorMsg}
               </div>
             )}
 

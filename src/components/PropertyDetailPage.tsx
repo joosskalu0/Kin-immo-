@@ -63,6 +63,7 @@ import {
 import { canUserManageProperty } from '../utils/propertyPermissions';
 import { generatePropertyPDF, generateSignboardPosterPDF } from '../utils/pdfGenerator';
 import { buildPropertyShareUrl, resolvePropertyBySlugOrId } from '../utils/shareUtils';
+import { dispatchAppNavigate } from '../utils/navigation';
 import { slugifyText } from '../data/contentSeed';
 import { buildWhatsAppUrl, cleanPhoneNumberForTel, cleanPhoneNumberForWhatsApp, copyPhoneNumber } from '../utils/whatsapp';
 import { ApproximatePropertyMap } from './ApproximatePropertyMap';
@@ -727,6 +728,8 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                     '(max-width: 768px) 100vw, 1200px',
                     1200
                   )}
+                  loading="eager"
+                  fetchPriority="high"
                   onClick={() => setIsFullscreenGallery(true)}
                   onError={(e) => handlePropertyImageError(e)}
                   className="w-full h-full object-cover cursor-zoom-in transition-transform duration-500 group-hover:scale-[1.01]"
@@ -1031,7 +1034,8 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                       type="button"
                       onClick={() => {
                         setEditingProperty(property);
-                        setIsSubmitPropertyOpen(true);
+                        setActivePropertyModalId(null);
+                        dispatchAppNavigate(`/publier/${encodeURIComponent(property.id)}`);
                       }}
                       className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                     >

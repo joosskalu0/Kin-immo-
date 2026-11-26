@@ -1,0 +1,16 @@
+[
+  {
+    "id": "sess_e41be09e3636b4ddd0f75518",
+    "userId": "user_1795505109426_4zkw",
+    "currentTokenHash": "0fcd6dbff34bb3c24490bd03fa9a9737c6145a07b63d471f20d94ed7d0cb0297",
+    "previousTokenHash": null,
+    "rotationCount": 0,
+    "userAgent": "node",
+    "ip": "127.0.0.1",
+    "createdAt": "2026-11-24T07:25:10.756Z",
+    "lastActiveAt": "2026-11-24T07:25:10.756Z",
+    "expiresAt": "2026-12-08T07:25:10.756Z",
+    "revokedAt": "2026-11-24T07:25:11.030Z",
+    "revokedReason": "logout"
+  }
+]

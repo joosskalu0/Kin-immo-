@@ -67,7 +67,7 @@ export const FloatingConciergeWidget: React.FC<FloatingConciergeWidgetProps> = (
   };
 
   return (
-    <div className="fixed bottom-18 sm:bottom-22 right-3 sm:right-5 z-40 flex flex-col items-end gap-2.5 select-none">
+    <div className="hidden lg:flex fixed bottom-6 right-5 z-40 flex-col items-end gap-2.5 select-none">
       {/* Floating Menu Popover (Structuré & Compact) */}
       {isOpen && (
         <div className="w-[310px] sm:w-[350px] rounded-3xl bg-white/95 backdrop-blur-xl border border-slate-200 p-4 sm:p-5 shadow-2xl text-slate-900 space-y-3.5 animate-in slide-in-from-bottom-3 duration-200">

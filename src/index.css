@@ -1,19 +1,53 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
-/* Base typography set to 16px and fixed layout stability */
+:root {
+  --kin-royal: #1d4ed8;
+  --kin-royal-deep: #0b3ea8;
+  --kin-gold: #facc15;
+  --kin-gold-deep: #eab308;
+  --kin-surface: #f8fafc;
+  --kin-ink: #0f172a;
+}
+
+/* Base typography & 360px mobile-first horizontal overflow protection */
 html, body {
+  font-family: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 16px;
+  line-height: 1.5;
   -webkit-text-size-adjust: 100%;
   overflow-x: hidden;
   max-width: 100%;
   width: 100%;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif;
 }
 
 #root {
   overflow-x: hidden;
   max-width: 100%;
   width: 100%;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .leaflet-container {
@@ -39,3 +73,45 @@ html, body {
   border: none;
 }
 
+/* Accessibilité WCAG AA : focus clavier visible et lien d'évitement */
+.skip-link {
+  position: fixed;
+  top: -120px;
+  left: 12px;
+  z-index: 100;
+  background-color: #1d4ed8;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.875rem;
+  padding: 10px 16px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 12px;
+  outline: 2px solid #facc15;
+  outline-offset: 2px;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -5,8 +5,8 @@
  * l'optimisation mobile (q_auto, f_auto) et l'extraction automatique de miniatures.
  */
 
-import { getStoredToken } from './mysqlApi';
 import { getCandidateApiBaseUrls, setResolvedApiBaseUrl } from '../utils/mediaUrl';
+import { secureFetch, ensureCsrfToken, isEmbeddedIframe } from './secureFetch';
 
 export interface CloudinaryConfig {
   cloudName: string;
@@ -48,10 +48,6 @@ function buildAuthHeaders(includeJson = true): Record<string, string> {
   if (includeJson) {
     headers['Content-Type'] = 'application/json';
   }
-  const token = getStoredToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
   return headers;
 }
 
@@ -59,56 +55,34 @@ async function cloudinaryApiFetch<T = any>(
   path: string,
   options?: RequestInit
 ): Promise<{ data: T; baseUrl: string }> {
-  const candidates = getCandidateApiBaseUrls();
-  let lastError: any = null;
+  const res = await secureFetch(path, options);
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
 
-  for (const baseUrl of candidates) {
+  if (contentType.includes('text/html')) {
+    throw new Error(`Réponse HTML inattendue sur ${path}`);
+  }
+
+  const rawText = await res.text();
+  let parsed: any = {};
+  if (rawText) {
     try {
-      const res = await fetch(`${baseUrl}${path}`, options);
-      const contentType = (res.headers.get('content-type') || '').toLowerCase();
-
-      // Si Apache/Hostinger renvoie index.html (404 SPA fallback), tenter le sous-domaine API suivant
-      if (contentType.includes('text/html')) {
-        lastError = new Error(`Réponse HTML reçue sur ${baseUrl}${path}`);
-        continue;
+      parsed = JSON.parse(rawText);
+    } catch {
+      if (rawText.trim().startsWith('<')) {
+        throw new Error(`Réponse HTML inattendue sur ${path}`);
       }
-
-      const rawText = await res.text();
-      let parsed: any = {};
-      if (rawText) {
-        try {
-          parsed = JSON.parse(rawText);
-        } catch {
-          if (rawText.trim().startsWith('<')) {
-            lastError = new Error(`Réponse HTML inattendue sur ${baseUrl}${path}`);
-            continue;
-          }
-          throw new Error(`Réponse serveur invalide (${res.status}).`);
-        }
-      }
-
-      if (!res.ok) {
-        const msg = parsed?.message || parsed?.error || `Erreur HTTP ${res.status}`;
-        const err = new Error(msg);
-        (err as any).status = res.status;
-        throw err;
-      }
-
-      setResolvedApiBaseUrl(baseUrl);
-      return { data: parsed as T, baseUrl };
-    } catch (err: any) {
-      const isNetworkOrHtml =
-        err?.name === 'TypeError' ||
-        /load failed|failed to fetch|networkerror|réponse html/i.test(String(err?.message || ''));
-
-      lastError = err;
-      if (!isNetworkOrHtml && typeof err?.status === 'number' && err.status !== 404 && err.status !== 405) {
-        throw err;
-      }
+      throw new Error(`Réponse serveur invalide (${res.status}).`);
     }
   }
 
-  throw lastError || new Error('Serveur API Kinimmo injoignable pour Cloudinary.');
+  if (!res.ok) {
+    const msg = parsed?.message || parsed?.error || `Erreur HTTP ${res.status}`;
+    const err = new Error(msg);
+    (err as any).status = res.status;
+    throw err;
+  }
+
+  return { data: parsed as T, baseUrl: '' };
 }
 
 function buildNormalizedResult(
@@ -201,7 +175,7 @@ function xhrUploadToCloudinaryDirect(
   });
 }
 
-function xhrUploadViaBackend(
+async function xhrUploadViaBackend(
   baseUrl: string,
   endpointPath: string,
   fieldName: 'image' | 'video',
@@ -209,15 +183,19 @@ function xhrUploadViaBackend(
   resourceType: 'image' | 'video',
   onProgress?: (percent: number) => void
 ): Promise<CloudinaryUploadResult> {
+  const csrfToken = await ensureCsrfToken();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const formData = new FormData();
     formData.append(fieldName, file);
 
     xhr.open('POST', `${baseUrl}${endpointPath}`, true);
-    const token = getStoredToken();
-    if (token) {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.withCredentials = true;
+    if (isEmbeddedIframe()) {
+      xhr.setRequestHeader('X-Kinimmo-Embedded', '1');
+    }
+    if (csrfToken) {
+      xhr.setRequestHeader('X-CSRF-Token', csrfToken);
     }
 
     if (xhr.upload && onProgress) {

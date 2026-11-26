@@ -49,7 +49,7 @@ import {
   BookOpen
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { mysqlApi, clearStoredToken, DEFAULT_CONTACT_SETTINGS } from '../../services/mysqlApi';
+import { mysqlApi, DEFAULT_CONTACT_SETTINGS } from '../../services/mysqlApi';
 import { Property, SiteContactSettings } from '../../types';
 import { AdminMonetizationManager } from './AdminMonetizationManager';
 import { AdminHeroShowcaseManager } from './AdminHeroShowcaseManager';
@@ -90,6 +90,41 @@ type TabType =
   | 'kinimmo_trust'
   | 'contents';
 
+const ADMIN_TAB_PATHS: Record<TabType, string> = {
+  overview: '/admin',
+  properties: '/admin/proprietes',
+  hero_showcase: '/admin/vitrine',
+  videos: '/admin/videos',
+  conciergerie: '/admin/conciergerie',
+  agents: '/admin/agents',
+  agencies: '/admin/agences',
+  users: '/admin/utilisateurs',
+  custom_fields: '/admin/champs',
+  monetization: '/admin/facturation',
+  fraud_detection: '/admin/fraude',
+  kinimmo_trust: '/admin/confiance',
+  contents: '/admin/contenus',
+  settings: '/admin/parametres',
+};
+
+function resolveAdminTabFromPath(pathname: string): TabType {
+  const clean = (pathname || '/admin').replace(/\/+$/, '').toLowerCase();
+  if (clean.startsWith('/admin/conciergerie')) return 'conciergerie';
+  if (clean.startsWith('/admin/champs') || clean.startsWith('/admin/custom_fields')) return 'custom_fields';
+  if (clean.startsWith('/admin/proprietes')) return 'properties';
+  if (clean.startsWith('/admin/vitrine')) return 'hero_showcase';
+  if (clean.startsWith('/admin/videos')) return 'videos';
+  if (clean.startsWith('/admin/agents')) return 'agents';
+  if (clean.startsWith('/admin/agences')) return 'agencies';
+  if (clean.startsWith('/admin/utilisateurs')) return 'users';
+  if (clean.startsWith('/admin/facturation')) return 'monetization';
+  if (clean.startsWith('/admin/fraude')) return 'fraud_detection';
+  if (clean.startsWith('/admin/confiance')) return 'kinimmo_trust';
+  if (clean.startsWith('/admin/contenus')) return 'contents';
+  if (clean.startsWith('/admin/parametres')) return 'settings';
+  return 'overview';
+}
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
   onLogout,
@@ -116,10 +151,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== 'undefined') {
-      const path = window.location.pathname;
-      if (path === '/admin/conciergerie' || path.startsWith('/admin/conciergerie')) {
-        return 'conciergerie';
-      }
+      return resolveAdminTabFromPath(window.location.pathname);
     }
     return 'overview';
   });
@@ -128,29 +160,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [backendStatus, setBackendStatus] = useState<'connected' | 'disconnected'>('connected');
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Synchronisation d'URL pour /admin/conciergerie
+  // Synchronisation complète des URLs /admin/:section
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      if (activeTab === 'conciergerie') {
-        if (window.location.pathname !== '/admin/conciergerie') {
-          window.history.pushState({}, '', '/admin/conciergerie');
-        }
-      } else {
-        if (window.location.pathname === '/admin/conciergerie') {
-          window.history.pushState({}, '', '/admin');
-        }
+      const targetPath = ADMIN_TAB_PATHS[activeTab] || '/admin';
+      if (window.location.pathname.startsWith('/admin') && window.location.pathname !== targetPath) {
+        window.history.pushState({}, '', targetPath);
       }
     }
   }, [activeTab]);
 
   useEffect(() => {
     const handlePopState = () => {
-      if (typeof window !== 'undefined') {
-        if (window.location.pathname === '/admin/conciergerie') {
-          setActiveTab('conciergerie');
-        } else if (window.location.pathname === '/admin') {
-          setActiveTab('overview');
-        }
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+        setActiveTab(resolveAdminTabFromPath(window.location.pathname));
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -701,192 +724,126 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </header>
 
-      {/* Navigation Sub-Header (Tabs) */}
-      <nav className="bg-slate-900 border-b border-slate-800 px-4 sm:px-8 py-2 overflow-x-auto scrollbar-none flex items-center gap-1 sm:gap-2">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'overview'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>Tableau de bord</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('properties')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'properties'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          <span>Propriétés ({propertiesList.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('hero_showcase')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'hero_showcase'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Sparkles className="w-4 h-4 text-emerald-400" />
-          <span>Mises en Avant & Vitrine Hero</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('videos')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'videos'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Film className="w-4 h-4 text-emerald-400" />
-          <span>Vidéos & Visites ({propertyVideos.length})</span>
-          {propertyVideos.filter((v) => v.status === 'pending').length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 animate-pulse">
-              {propertyVideos.filter((v) => v.status === 'pending').length}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('conciergerie')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'conciergerie'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Compass className="w-4 h-4 text-emerald-400" />
-          <span>Conciergerie</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('agents')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'agents'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>Agents ({agentsList.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('agencies')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'agencies'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Briefcase className="w-4 h-4" />
-          <span>Agences ({agenciesList.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('users')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'users'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Key className="w-4 h-4" />
-          <span>Utilisateurs ({usersList.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('custom_fields')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'custom_fields'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-          <span>Critères & Champs PRO ({dbCustomFields.length || customFields.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('monetization')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'monetization'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <DollarSign className="w-4 h-4 text-emerald-400" />
-          <span>Factures & Abonnements</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('fraud_detection')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'fraud_detection'
-              ? 'bg-red-500/15 text-red-400 border border-red-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <ShieldAlert className="w-4 h-4 text-red-400" />
-          <span>Sécurité & Anti-Fraude</span>
-          {(fraudAuditSummary.suspectCount > 0 || fraudAuditSummary.reviewRequiredCount > 0) && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-red-500/20 text-red-400 border border-red-500/30">
-              {fraudAuditSummary.suspectCount + fraudAuditSummary.reviewRequiredCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('kinimmo_trust')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'kinimmo_trust'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Kinimmo Trust</span>
-          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-            Dossiers
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('contents')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'contents'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <BookOpen className="w-4 h-4 text-emerald-400" />
-          <span>Contenus, Blog & Légal</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shrink-0 ${
-            activeTab === 'settings'
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-          }`}
-        >
-          <Settings className="w-4 h-4" />
-          <span>Paramètres</span>
-        </button>
+      {/* Mobile Horizontal Tabs (< 1024px) */}
+      <nav className="lg:hidden bg-slate-900 border-b border-slate-800 px-4 py-2 overflow-x-auto no-scrollbar flex items-center gap-1.5">
+        {[
+          { id: 'overview' as TabType, label: 'Tableau de bord', icon: Layers },
+          { id: 'properties' as TabType, label: `Propriétés (${propertiesList.length})`, icon: Building2 },
+          { id: 'hero_showcase' as TabType, label: 'Vitrine Hero', icon: Sparkles },
+          {
+            id: 'videos' as TabType,
+            label: `Vidéos (${propertyVideos.length})`,
+            icon: Film,
+            badge: propertyVideos.filter((v) => v.status === 'pending').length,
+          },
+          { id: 'conciergerie' as TabType, label: 'Conciergerie', icon: Compass },
+          { id: 'agents' as TabType, label: `Agents (${agentsList.length})`, icon: Users },
+          { id: 'agencies' as TabType, label: `Agences (${agenciesList.length})`, icon: Briefcase },
+          { id: 'users' as TabType, label: `Utilisateurs (${usersList.length})`, icon: Key },
+          { id: 'custom_fields' as TabType, label: `Champs PRO (${dbCustomFields.length || customFields.length})`, icon: SlidersHorizontal },
+          { id: 'monetization' as TabType, label: 'Factures & Plans', icon: DollarSign },
+          {
+            id: 'fraud_detection' as TabType,
+            label: 'Anti-Fraude',
+            icon: ShieldAlert,
+            badge: fraudAuditSummary.suspectCount + fraudAuditSummary.reviewRequiredCount,
+            danger: true,
+          },
+          { id: 'kinimmo_trust' as TabType, label: 'Kinimmo Trust', icon: ShieldCheck },
+          { id: 'contents' as TabType, label: 'Contenus & Blog', icon: BookOpen },
+          { id: 'settings' as TabType, label: 'Paramètres', icon: Settings },
+        ].map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
+                isActive
+                  ? item.danger
+                    ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                    : 'bg-[#1D4ED8] text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span>{item.label}</span>
+              {item.badge && item.badge > 0 ? (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-[#FACC15] text-slate-950 tabular-nums">
+                  {item.badge}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
       </nav>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-8">
+      {/* Desktop Split Layout: Menu Latéral Persistant (>= 1024px) + Contenu Principal */}
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0">
+        <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-slate-900 border-r border-slate-800 p-4 gap-1 sticky top-[65px] h-[calc(100vh-65px)] overflow-y-auto">
+          <div className="px-2 pb-2 mb-1 border-b border-slate-800">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+              Menu Administration
+            </span>
+          </div>
+          {[
+            { id: 'overview' as TabType, label: 'Tableau de bord', icon: Layers },
+            { id: 'properties' as TabType, label: `Propriétés (${propertiesList.length})`, icon: Building2 },
+            { id: 'hero_showcase' as TabType, label: 'Vitrine Hero', icon: Sparkles },
+            {
+              id: 'videos' as TabType,
+              label: `Vidéos & Visites (${propertyVideos.length})`,
+              icon: Film,
+              badge: propertyVideos.filter((v) => v.status === 'pending').length,
+            },
+            { id: 'conciergerie' as TabType, label: 'Conciergerie', icon: Compass },
+            { id: 'agents' as TabType, label: `Agents (${agentsList.length})`, icon: Users },
+            { id: 'agencies' as TabType, label: `Agences (${agenciesList.length})`, icon: Briefcase },
+            { id: 'users' as TabType, label: `Utilisateurs (${usersList.length})`, icon: Key },
+            { id: 'custom_fields' as TabType, label: `Critères & Champs (${dbCustomFields.length || customFields.length})`, icon: SlidersHorizontal },
+            { id: 'monetization' as TabType, label: 'Factures & Abonnements', icon: DollarSign },
+            {
+              id: 'fraud_detection' as TabType,
+              label: 'Sécurité & Anti-Fraude',
+              icon: ShieldAlert,
+              badge: fraudAuditSummary.suspectCount + fraudAuditSummary.reviewRequiredCount,
+              danger: true,
+            },
+            { id: 'kinimmo_trust' as TabType, label: 'Kinimmo Trust', icon: ShieldCheck },
+            { id: 'contents' as TabType, label: 'Contenus, Blog & Légal', icon: BookOpen },
+            { id: 'settings' as TabType, label: 'Paramètres', icon: Settings },
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                  isActive
+                    ? item.danger
+                      ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                      : 'bg-[#1D4ED8] text-white shadow-sm'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <span className="flex items-center gap-2.5 truncate">
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </span>
+                {item.badge && item.badge > 0 ? (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-[#FACC15] text-slate-950 tabular-nums shrink-0">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </aside>
+
+        {/* Main Content Area */}
+        <main className="flex-1 min-w-0 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-8">
         {backendStatus === 'disconnected' && (
           <div className="p-4 sm:p-5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
             <div className="flex items-start sm:items-center gap-3">
@@ -3040,7 +2997,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <AdminContentCmsManager />
           </div>
         )}
-      </main>
+        </main>
+      </div>
 
       {/* ==================================================== */}
       {/* MODAL : RÉINITIALISATION DE MOT DE PASSE               */}

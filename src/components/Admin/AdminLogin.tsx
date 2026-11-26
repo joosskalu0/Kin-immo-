@@ -11,7 +11,8 @@ import {
   Database,
   CheckCircle2,
 } from 'lucide-react';
-import { mysqlApi, setStoredToken } from '../../services/mysqlApi';
+import { mysqlApi } from '../../services/mysqlApi';
+import { useApp } from '../../context/AppContext';
 
 interface AdminLoginProps {
   onLoginSuccess: (adminUser: any) => void;
@@ -19,6 +20,7 @@ interface AdminLoginProps {
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturnHome }) => {
+  const { setUser } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -31,34 +33,19 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onReturn
     setIsLoading(true);
 
     try {
-      // Authentification sécurisée via l'API REST MySQL côté serveur
-      const res = await mysqlApi.login({ email: email.trim(), password });
-
+      const res = await mysqlApi.login({ identifier: email.trim(), password });
       const loggedUser = res.user || res.data?.user;
-      const authToken = res.token || res.data?.token;
 
       if (res.success && loggedUser) {
-        // Vérification stricte des permissions : Seul le rôle 'admin' est autorisé
         if (loggedUser.role !== 'admin') {
+          await mysqlApi.logout().catch(() => {});
           setIsLoading(false);
           setErrorMessage('Accès refusé. Ce compte ne dispose pas des privilèges administrateur.');
           return;
         }
 
-        if (authToken) {
-          setStoredToken(authToken);
-        }
-
-        // Sauvegarder la session admin et synchroniser l'utilisateur courant
+        setUser(loggedUser);
         try {
-          localStorage.setItem('kinimmo_admin_session', JSON.stringify({
-            id: loggedUser.id,
-            name: loggedUser.name,
-            email: loggedUser.email,
-            role: loggedUser.role,
-            loginTime: new Date().toISOString()
-          }));
-          localStorage.setItem('kinimmo_user', JSON.stringify(loggedUser));
           window.dispatchEvent(new CustomEvent('kinimmo_auth_change', { detail: loggedUser }));
         } catch {}
 

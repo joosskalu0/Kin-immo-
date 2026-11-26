@@ -1,0 +1,472 @@
+[
+  {
+    "id": "tok_196c35fb2ab69dc5",
+    "tokenHash": "c34a7a08be8a2fac49c3472af2c22c36ca7471ff1af091c8442f41337955e911",
+    "purpose": "verify_email",
+    "userId": "user_1795608713054_cz5b",
+    "targetEmail": "agence360@kinimmo.cd",
+    "createdAt": "2026-11-25T12:11:53.519Z",
+    "expiresAt": "2026-11-26T12:11:53.519Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_bf8ae18fb0e66599",
+    "tokenHash": "fff7136aa22fb04461aa74cc61a8704961f9d1abcbf203390643fb58998c4985",
+    "purpose": "verify_email",
+    "userId": "user_1795608700597_0ufv",
+    "targetEmail": "boost360@kinimmo.cd",
+    "createdAt": "2026-11-25T12:11:41.033Z",
+    "expiresAt": "2026-11-26T12:11:41.033Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_fa37bd630c1051f2",
+    "tokenHash": "347f231fbe2691258baf842905ae01f050c757b6cf4aea69ea1ec837cb717d1b",
+    "purpose": "reset_password",
+    "userId": "user_1795608644240_nezd",
+    "targetEmail": "alice.sec@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:46.262Z",
+    "expiresAt": "2026-11-25T13:10:46.262Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_f360642813ab588c",
+    "tokenHash": "f6b088f48934e172a4c698076ac531146d4230bf7bdfffa51851b375262eaf0b",
+    "purpose": "verify_email",
+    "userId": "user_1795608645261_9mzz",
+    "targetEmail": "hack.admin@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:45.754Z",
+    "expiresAt": "2026-11-26T12:10:45.754Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_70d22c91849a4008",
+    "tokenHash": "440f242279b4e4c9c05734987f1cea947baa5aa2b115124cce91743c1047ce89",
+    "purpose": "verify_email",
+    "userId": "user_1795608644798_9w0e",
+    "targetEmail": "bob.sec@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:45.236Z",
+    "expiresAt": "2026-11-26T12:10:45.236Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_5ecf96873103faa6",
+    "tokenHash": "0539cbf380881813c5cf8ba33fdbb3f0bc1999d6aceb776ba11e07cbe5899470",
+    "purpose": "verify_email",
+    "userId": "user_1795608644240_nezd",
+    "targetEmail": "alice.sec@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:44.786Z",
+    "expiresAt": "2026-11-26T12:10:44.786Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_0f32c6526d90441a",
+    "tokenHash": "cc97de3ae2b9dbd883236bfa1d762efe12d90c48854ba1854372624b4d3fbb29",
+    "purpose": "verify_email",
+    "userId": "user_1795608641035_jd2g",
+    "targetEmail": "dir.agence.b@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:41.510Z",
+    "expiresAt": "2026-11-26T12:10:41.510Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_1b121f25d724578d",
+    "tokenHash": "926390f9ce3f135be9e71e6e8ecac3c799dca3977487b511e8acd8596a630d36",
+    "purpose": "verify_email",
+    "userId": "user_1795608640566_2pww",
+    "targetEmail": "dir.agence.a@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:41.022Z",
+    "expiresAt": "2026-11-26T12:10:41.022Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_cd4881de53c019ff",
+    "tokenHash": "de4aab7811c979861901acc36fa224f2fd67c89bd7594922bffe1142eca2cf85",
+    "purpose": "verify_email",
+    "userId": "user_1795608637541_whgh",
+    "targetEmail": "agence.rbac@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:37.975Z",
+    "expiresAt": "2026-11-26T12:10:37.975Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_f356fce0ed673abf",
+    "tokenHash": "193766b8383500dc1977b699d8e683319d18421cd27aafe1fc517a3ca2d03e30",
+    "purpose": "verify_email",
+    "userId": "user_1795608637103_w6fp",
+    "targetEmail": "courtier.rbac@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:37.532Z",
+    "expiresAt": "2026-11-26T12:10:37.532Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_c135365df49784f4",
+    "tokenHash": "3dbe92acecc9ce2d6f0be3d5d0b5008feb1034065cb96f90d331f83561c78738",
+    "purpose": "verify_email",
+    "userId": "user_1795608636622_idx9",
+    "targetEmail": "client.rbac@kinimmo.cd",
+    "createdAt": "2026-11-25T12:10:37.090Z",
+    "expiresAt": "2026-11-26T12:10:37.090Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_b7b873cdd686e5c4",
+    "tokenHash": "86418e6936cfb6bc24afb5be7cdcb590ccee002f8c5b538b83cde7ceef5e91f0",
+    "purpose": "verify_email",
+    "userId": "user_1795510501634_ksrm",
+    "targetEmail": "agence360@kinimmo.cd",
+    "createdAt": "2026-11-24T08:55:02.044Z",
+    "expiresAt": "2026-11-25T08:55:02.044Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_32b8dcdc8bda2346",
+    "tokenHash": "ec0e11541a171dc131662b414ac69eddbbb11760060ba71c7b3f5917cbbabfb6",
+    "purpose": "verify_email",
+    "userId": "user_1795510490745_vg27",
+    "targetEmail": "boost360@kinimmo.cd",
+    "createdAt": "2026-11-24T08:54:51.194Z",
+    "expiresAt": "2026-11-25T08:54:51.194Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_8d27975569201ac3",
+    "tokenHash": "d75ea00072731d10cb8a544cecd04612660cb3ce534d8fbd5448f177e6acfda8",
+    "purpose": "verify_email",
+    "userId": "user_1795510445955_v53c",
+    "targetEmail": "hack.admin@kinimmo.cd",
+    "createdAt": "2026-11-24T08:54:06.405Z",
+    "expiresAt": "2026-11-25T08:54:06.405Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_1a8f46071e1175ea",
+    "tokenHash": "213223f7903c8ace1862163ef063cf6de71fd9569676c2435e4e185c867e3229",
+    "purpose": "verify_email",
+    "userId": "user_1795510445498_ppog",
+    "targetEmail": "bob.sec@kinimmo.cd",
+    "createdAt": "2026-11-24T08:54:05.933Z",
+    "expiresAt": "2026-11-25T08:54:05.933Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_bcbe196f503b8e8b",
+    "tokenHash": "f02ad71701930c1e62f323561fed5389558ce4a74fdda3c07d5c6e857ddb5f98",
+    "purpose": "verify_email",
+    "userId": "user_1795510445014_6cjg",
+    "targetEmail": "alice.sec@kinimmo.cd",
+    "createdAt": "2026-11-24T08:54:05.487Z",
+    "expiresAt": "2026-11-25T08:54:05.487Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_e23f56da4e5077e4",
+    "tokenHash": "bc92f8a712f78ca61b373a573f8a9ab8a3cd5fbe47321546bf21dcfe6aff054c",
+    "purpose": "verify_email",
+    "userId": "user_1795510442336_7s1z",
+    "targetEmail": "dir.agence.b@kinimmo.cd",
+    "createdAt": "2026-11-24T08:54:02.774Z",
+    "expiresAt": "2026-11-25T08:54:02.774Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_8b1cbbb68c06cb0c",
+    "tokenHash": "9c48971eebae3b6adbdb7cc30074b74b2b50a283ca3e18d893ac56dbc41a30cc",
+    "purpose": "verify_email",
+    "userId": "user_1795510441867_i100",
+    "targetEmail": "dir.agence.a@kinimmo.cd",
+    "createdAt": "2026-11-24T08:54:02.325Z",
+    "expiresAt": "2026-11-25T08:54:02.325Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_f4fce66fef5161cb",
+    "tokenHash": "1e63d1c2da9e7f36f9febf14ab5877b66d697f46c3821edb294e0c3464ca89c8",
+    "purpose": "verify_email",
+    "userId": "user_1795510438638_hkp8",
+    "targetEmail": "agence.rbac@kinimmo.cd",
+    "createdAt": "2026-11-24T08:53:59.082Z",
+    "expiresAt": "2026-11-25T08:53:59.082Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_6af04918c97a23d5",
+    "tokenHash": "4da6f99d3193e67f4a050fe0f1a68088214cbeafce8336418901c5c2135dd835",
+    "purpose": "verify_email",
+    "userId": "user_1795510438189_jkx3",
+    "targetEmail": "courtier.rbac@kinimmo.cd",
+    "createdAt": "2026-11-24T08:53:58.628Z",
+    "expiresAt": "2026-11-25T08:53:58.628Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_f7129ed0c8406c96",
+    "tokenHash": "7a76b1bac26d7a6540136d4d23da81ebed673119513a553acc450cb474f9e780",
+    "purpose": "verify_email",
+    "userId": "user_1795510437709_mopf",
+    "targetEmail": "client.rbac@kinimmo.cd",
+    "createdAt": "2026-11-24T08:53:58.176Z",
+    "expiresAt": "2026-11-25T08:53:58.176Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_2da4166daf968b85",
+    "tokenHash": "51f86471d76c44d35ac91ccd7293da677c411034eec9f5f3a2e7318248a8351d",
+    "purpose": "verify_email",
+    "userId": "user_1795509498452_m3gd",
+    "targetEmail": "agence360@kinimmo.cd",
+    "createdAt": "2026-11-24T08:38:18.879Z",
+    "expiresAt": "2026-11-25T08:38:18.879Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_d3b361a0901b9cdd",
+    "tokenHash": "6f8812582f89d2e6415caffc45b6d088778678ef6281bdb28f3c721d1b3b031b",
+    "purpose": "verify_email",
+    "userId": "user_1795509482420_wwkp",
+    "targetEmail": "boost360@kinimmo.cd",
+    "createdAt": "2026-11-24T08:38:02.875Z",
+    "expiresAt": "2026-11-25T08:38:02.875Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_f63e7620a62b80a0",
+    "tokenHash": "80cc543cfdffd6da51eda1d8716b2a3ebebe994f11cb9dde364e62697c49cf16",
+    "purpose": "verify_email",
+    "userId": "user_1795509375776_h1zx",
+    "targetEmail": "hack.admin@kinimmo.cd",
+    "createdAt": "2026-11-24T08:36:16.196Z",
+    "expiresAt": "2026-11-25T08:36:16.196Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_84a6ef23b9076213",
+    "tokenHash": "e78f1aeb9f504254f33be1db8e3becb3d6626681cab31fa482212d37240bf202",
+    "purpose": "verify_email",
+    "userId": "user_1795509375331_a6sa",
+    "targetEmail": "bob.sec@kinimmo.cd",
+    "createdAt": "2026-11-24T08:36:15.758Z",
+    "expiresAt": "2026-11-25T08:36:15.758Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_314f303530ceb663",
+    "tokenHash": "ac54341645a5b79fe0fdf256e75f8e31faf56b8dcdc4a5bfaf2cae2a8d329b63",
+    "purpose": "verify_email",
+    "userId": "user_1795509374806_xkpg",
+    "targetEmail": "alice.sec@kinimmo.cd",
+    "createdAt": "2026-11-24T08:36:15.321Z",
+    "expiresAt": "2026-11-25T08:36:15.321Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_9bf07af250770644",
+    "tokenHash": "f6f94a9e81acec1963cb97c80d62296fdcbe731da145e77d43d76ad54ad0a314",
+    "purpose": "verify_email",
+    "userId": "user_1795509333663_rvj1",
+    "targetEmail": "hack.admin@kinimmo.cd",
+    "createdAt": "2026-11-24T08:35:34.075Z",
+    "expiresAt": "2026-11-25T08:35:34.075Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_a19e77d47416d37e",
+    "tokenHash": "ab5dc16de655b9813354ad6fc8ce0f2d74d52a4b512dc979503bd9bb668b40a3",
+    "purpose": "verify_email",
+    "userId": "user_1795509333228_4j62",
+    "targetEmail": "bob.sec@kinimmo.cd",
+    "createdAt": "2026-11-24T08:35:33.645Z",
+    "expiresAt": "2026-11-25T08:35:33.645Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_1085eba971e0082d",
+    "tokenHash": "9dbeead852fd83e29f3abb10cf58f8bc6b689326ac3f78eb89bdb3a57f5b5629",
+    "purpose": "verify_email",
+    "userId": "user_1795509332743_9ef4",
+    "targetEmail": "alice.sec@kinimmo.cd",
+    "createdAt": "2026-11-24T08:35:33.218Z",
+    "expiresAt": "2026-11-25T08:35:33.218Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_ee63f5bc7c088469",
+    "tokenHash": "917e05b8f24778c03f5e455012485951c0903a91f0c2e7cb3ff5d99817636df4",
+    "purpose": "verify_email",
+    "userId": "user_1795509274559_qadd",
+    "targetEmail": "hack.admin@kinimmo.cd",
+    "createdAt": "2026-11-24T08:34:34.982Z",
+    "expiresAt": "2026-11-25T08:34:34.982Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_f4ba21f6dc5311c8",
+    "tokenHash": "c2ce0e0736791513eaa053ab03c54c610db8cb81e4a59dd379d7bf44adf828dd",
+    "purpose": "verify_email",
+    "userId": "user_1795509274119_vlpc",
+    "targetEmail": "bob.sec@kinimmo.cd",
+    "createdAt": "2026-11-24T08:34:34.539Z",
+    "expiresAt": "2026-11-25T08:34:34.539Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_99de47c6e7c8af64",
+    "tokenHash": "f11766838331348ecacc6eb0d7a075ac5bd1e77942765f59e153722cc6d56dcf",
+    "purpose": "verify_email",
+    "userId": "user_1795509273636_8uxt",
+    "targetEmail": "alice.sec@kinimmo.cd",
+    "createdAt": "2026-11-24T08:34:34.105Z",
+    "expiresAt": "2026-11-25T08:34:34.105Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_5d79eb566042e1d4",
+    "tokenHash": "c9df8b76e1f162af1eac3ba9f871e40b0af42e441b924e08ddd87ebcaa10fe81",
+    "purpose": "verify_email",
+    "userId": "user_1795509270847_mqfj",
+    "targetEmail": "dir.agence.b@kinimmo.cd",
+    "createdAt": "2026-11-24T08:34:31.296Z",
+    "expiresAt": "2026-11-25T08:34:31.296Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_808b7827ce7b861c",
+    "tokenHash": "29ebd4afebf01eb48b4fd38dfc9e1cadeeecfd6469ece37a88a7ffb23262b4be",
+    "purpose": "verify_email",
+    "userId": "user_1795509270394_paf6",
+    "targetEmail": "dir.agence.a@kinimmo.cd",
+    "createdAt": "2026-11-24T08:34:30.833Z",
+    "expiresAt": "2026-11-25T08:34:30.833Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_b854ddac5480bf06",
+    "tokenHash": "66c25c897f8256ecfaf89526afa2f22c57fcb06c40c003cc3167e46569e0e3a0",
+    "purpose": "verify_email",
+    "userId": "user_1795509243545_fyt4",
+    "targetEmail": "dir.agence.b@kinimmo.cd",
+    "createdAt": "2026-11-24T08:34:03.970Z",
+    "expiresAt": "2026-11-25T08:34:03.970Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_78abc78f14f55a9b",
+    "tokenHash": "304f30662bc3c95d2a9d29f9627a2116189804d2138a8cbe688fb6b046e860fd",
+    "purpose": "verify_email",
+    "userId": "user_1795509243084_fhd8",
+    "targetEmail": "dir.agence.a@kinimmo.cd",
+    "createdAt": "2026-11-24T08:34:03.534Z",
+    "expiresAt": "2026-11-25T08:34:03.534Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_26cfc1841524351e",
+    "tokenHash": "c774893e63f978de6585e0f82484f06bc999b91abbd007cbdf2ce6207a369dcc",
+    "purpose": "verify_email",
+    "userId": "user_1795509203489_iiy1",
+    "targetEmail": "dir.agence.b@kinimmo.cd",
+    "createdAt": "2026-11-24T08:33:23.914Z",
+    "expiresAt": "2026-11-25T08:33:23.914Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_3311907153e69341",
+    "tokenHash": "ad6ddd97c8dd4d0718f5b8ab2bcb49bfac94e5cf669f4e71b91d9767b33fd31a",
+    "purpose": "verify_email",
+    "userId": "user_1795509202981_7vud",
+    "targetEmail": "dir.agence.a@kinimmo.cd",
+    "createdAt": "2026-11-24T08:33:23.477Z",
+    "expiresAt": "2026-11-25T08:33:23.477Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_0c466b06690f1765",
+    "tokenHash": "c376abde0fdfb6678f25510da771217affe357c91ef509a1c8951dd2b2f61ca2",
+    "purpose": "verify_email",
+    "userId": "user_1795509191052_aq46",
+    "targetEmail": "agence.rbac@kinimmo.cd",
+    "createdAt": "2026-11-24T08:33:11.490Z",
+    "expiresAt": "2026-11-25T08:33:11.490Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_6300f59c828529f2",
+    "tokenHash": "cf5d2d3b832887abeda7e74de2c8afadb7644eb04aad0399b4ff83264a094eb1",
+    "purpose": "verify_email",
+    "userId": "user_1795509190606_w6lo",
+    "targetEmail": "courtier.rbac@kinimmo.cd",
+    "createdAt": "2026-11-24T08:33:11.039Z",
+    "expiresAt": "2026-11-25T08:33:11.039Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_298a24d3ffe5c9c0",
+    "tokenHash": "09de4e9ced79104fe07feae72dfab8e73b2237b3e947037431ad8b377ae0c8d0",
+    "purpose": "verify_email",
+    "userId": "user_1795509190054_tktb",
+    "targetEmail": "client.rbac@kinimmo.cd",
+    "createdAt": "2026-11-24T08:33:10.595Z",
+    "expiresAt": "2026-11-25T08:33:10.595Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_6078b5c51bdd66d0",
+    "tokenHash": "c88c0985d366b0afb41db1fd09c7756dd75be72506792c26d738043d2bbecbfe",
+    "purpose": "verify_email",
+    "userId": "user_1795508759942_za2h",
+    "targetEmail": "client.rbac@kinimmo.cd",
+    "createdAt": "2026-11-24T08:26:00.429Z",
+    "expiresAt": "2026-11-25T08:26:00.429Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_b8aa613001ddb742",
+    "tokenHash": "b77ae4c84b546a282855de1e25f2a6372b477d73d30b259e4bf98a9452aeaf9c",
+    "purpose": "verify_email",
+    "userId": "user_1795507643161_p0ko",
+    "targetEmail": "agent.boost.e2e5@kinimmo.cd",
+    "createdAt": "2026-11-24T08:07:23.593Z",
+    "expiresAt": "2026-11-25T08:07:23.593Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_066dcd5548c919b7",
+    "tokenHash": "04422be78405068c2644447ea53f3e220a3b910bb272a216de63d630abff9ad1",
+    "purpose": "verify_email",
+    "userId": "user_1795507613384_d1ks",
+    "targetEmail": "agent.boost.e2e4@kinimmo.cd",
+    "createdAt": "2026-11-24T08:06:53.859Z",
+    "expiresAt": "2026-11-25T08:06:53.859Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_d34f0e25d385f07f",
+    "tokenHash": "049a947d5b40567c61540be39819b9ec932a38e6e3b31cee2ac64e9e12aaec1a",
+    "purpose": "verify_email",
+    "userId": "user_1795507585463_x8d3",
+    "targetEmail": "agent.boost.e2e3@kinimmo.cd",
+    "createdAt": "2026-11-24T08:06:25.891Z",
+    "expiresAt": "2026-11-25T08:06:25.891Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_7a8c1103dc9432f7",
+    "tokenHash": "8f7e4d3098a1e2891d084ff2b4abb6578e09de3a270fb5361245c3044e5d846a",
+    "purpose": "verify_email",
+    "userId": "user_1795507558277_h867",
+    "targetEmail": "agent.boost.e2e2@kinimmo.cd",
+    "createdAt": "2026-11-24T08:05:58.783Z",
+    "expiresAt": "2026-11-25T08:05:58.783Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_bb5bf9c58a210f10",
+    "tokenHash": "4033295121eee23ccdfa04a2afbc885346002b54af780e081c08d72c656889b8",
+    "purpose": "verify_email",
+    "userId": "user_1795507537210_2tni",
+    "targetEmail": "agent.boost.e2e@kinimmo.cd",
+    "createdAt": "2026-11-24T08:05:37.630Z",
+    "expiresAt": "2026-11-25T08:05:37.630Z",
+    "usedAt": null
+  }
+]

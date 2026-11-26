@@ -23,8 +23,9 @@ import { AdminAgentsAgenciesControl } from '../Admin/AdminAgentsAgenciesControl'
 import { AdminAllListingsManager } from '../Admin/AdminAllListingsManager';
 import { AdminHeroShowcaseManager } from '../Admin/AdminHeroShowcaseManager';
 import { AdminMonetizationManager } from '../Admin/AdminMonetizationManager';
-import { VisibilityBoostModal } from '../Monetization/VisibilityBoostModal';
 import { AdminFraudModerationManager } from '../Admin/AdminFraudModerationManager';
+import { buildBoostPath, dispatchAppNavigate } from '../../utils/navigation';
+import { getActiveBoostDisplay } from '../../utils/boostHelpers';
 import { AdminVideosModerationManager } from '../Admin/AdminVideosModerationManager';
 import {
   saveUserToFirestore,
@@ -1080,9 +1081,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4">
             {myProperties.map((prop) => {
-              const isBoostActive = Boolean(prop.boostExpiresAt && new Date(prop.boostExpiresAt).getTime() > Date.now());
+              const boostDisplay = getActiveBoostDisplay(prop);
+              const isBoostActive = boostDisplay.isActive;
               const pendingBoostInvoice = invoices.find(
-                (inv) => ((inv as any).property_id === prop.id || inv.propertyId === prop.id || inv.targetId === prop.id) && inv.status === 'pending'
+                (inv) => ((inv as any).property_id === prop.id || inv.propertyId === prop.id || inv.targetId === prop.id) && (inv.status === 'pending' || inv.status === 'awaiting_validation')
               );
 
               return (
@@ -1113,11 +1115,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
                         {isBoostActive && (
                           <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-black text-[10px] flex items-center gap-1">
                             <Zap className="w-3 h-3 fill-amber-400" />
-                            <span>Boost Actif (jusqu'au {new Date(prop.boostExpiresAt!).toLocaleDateString('fr-FR')})</span>
+                            <span>
+                              {boostDisplay.primaryLabel || 'Boost actif'}
+                              {boostDisplay.expiresAt ? ` (jusqu'au ${new Date(boostDisplay.expiresAt).toLocaleDateString('fr-FR')})` : ''}
+                            </span>
                           </span>
                         )}
                         {pendingBoostInvoice && !isBoostActive && (
-                          <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] flex items-center gap-1 animate-pulse">
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] flex items-center gap-1">
                             <Clock className="w-3 h-3 text-amber-400" />
                             <span>Boost en attente validation admin</span>
                           </span>
@@ -1127,15 +1132,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
-                    {/* Bouton Booster l'annonce */}
+                    {/* Bouton Booster l'annonce -> Page dédiée /pro/boost/:id */}
                     <button
                       type="button"
-                      onClick={() => setBoostingProperty(prop)}
-                      className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all"
+                      onClick={() => dispatchAppNavigate(buildBoostPath(prop.id))}
+                      className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
                       title="Propulser l'annonce en tête des résultats avec un boost"
                     >
                       <Zap className="w-3.5 h-3.5 fill-slate-950" />
-                      <span>{isBoostActive ? 'Prolonger Boost' : 'Booster'}</span>
+                      <span>{isBoostActive ? 'Prolonger' : 'Booster'}</span>
                     </button>
 
                     {/* Bouton Vendu Toggle */}
@@ -1445,12 +1450,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onReturnHome }) =>
         />
       )}
 
-      {/* Visibility Boost Modal */}
-      <VisibilityBoostModal
-        isOpen={Boolean(boostingProperty)}
-        onClose={() => setBoostingProperty(null)}
-        property={boostingProperty}
-      />
     </div>
   );
 };

@@ -162,8 +162,13 @@ export function initGoogleTagManager(containerId: string = DEFAULT_GTM_ID) {
     // Ignore buffer push error
   }
 
-  // Only inject external script if valid and not already present
-  if (validId && validId.startsWith('GTM-') && validId !== 'GTM-KINSHASA') {
+  const isLocalHttpOrigin =
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname === 'localhost' ||
+    window.location.protocol !== 'https:';
+
+  // Only inject external script on public HTTPS origins if valid and not already present
+  if (!isLocalHttpOrigin && validId && validId.startsWith('GTM-') && validId !== 'GTM-KINSHASA') {
     let script = document.getElementById('gtm-official-tag') as HTMLScriptElement | null;
     if (!script) {
       script = document.createElement('script');
@@ -217,8 +222,13 @@ export function initGoogleAnalytics(measurementId: string = DEFAULT_GA_ID, googl
     // Ignore
   }
 
-  // Only load real external GA4 script if it is not the placeholder ID
-  if (validId && validId.startsWith('G-') && validId !== 'G-KINSHASA2026') {
+  const isLocalHttpOrigin =
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname === 'localhost' ||
+    window.location.protocol !== 'https:';
+
+  // Only load real external GA4 script on public HTTPS origins (avoids local/3P cookie warnings)
+  if (!isLocalHttpOrigin && validId && validId.startsWith('G-') && validId !== 'G-KINSHASA2026') {
     let script = document.getElementById('ga4-official-tag') as HTMLScriptElement | null;
     if (!script) {
       script = document.createElement('script');

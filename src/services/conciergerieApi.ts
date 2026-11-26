@@ -2,20 +2,7 @@ import { ConciergeRequest, ConciergerieRequest, ConciergeRequestStatus, Property
 import { validateConciergerieRequest } from '../utils/conciergerieValidation';
 import { findMatchingProperties, PropertyMatchResult } from '../utils/propertyMatching';
 import { initialProperties } from '../data/mockData';
-import { getStoredToken } from './mysqlApi';
-import { getApiBaseUrl } from '../utils/mediaUrl';
-
-function getAuthHeaders(includeJson = true): Record<string, string> {
-  const headers: Record<string, string> = {};
-  if (includeJson) {
-    headers['Content-Type'] = 'application/json';
-  }
-  const token = getStoredToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
-}
+import { secureFetch } from './secureFetch';
 
 export interface SubmitConciergerieResponse {
   success: boolean;
@@ -297,9 +284,8 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
   // 3. Appel de l'API Express (Aperçu ou Hostinger MySQL)
   let shouldFallbackOffline = false;
   try {
-    const res = await fetch(`${getApiBaseUrl()}/concierge-requests`, {
+    const res = await secureFetch('/concierge-requests', {
       method: 'POST',
-      headers: getAuthHeaders(true),
       body: JSON.stringify({
         ...clientValidation.sanitized,
         matched_properties: matches.map((m) => ({
@@ -403,14 +389,8 @@ export async function submitConciergerieRequest(formData: any): Promise<SubmitCo
  * Récupération de l'historique des demandes de conciergerie
  */
 export async function fetchConciergeRequests(): Promise<ConciergerieRequest[]> {
-  const token = getStoredToken();
-  if (!token) {
-    return getLocalStoredRequests();
-  }
   try {
-    const res = await fetch(`${getApiBaseUrl()}/concierge-requests`, {
-      headers: getAuthHeaders(false)
-    });
+    const res = await secureFetch('/concierge-requests');
     if (res.ok) {
       const json = await safeParseJson(res);
       if (json.success && Array.isArray(json.data)) {
@@ -434,9 +414,8 @@ export async function updateConciergeRequestFull(
   updateData: Partial<ConciergeRequest>
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/concierge-requests/${encodeURIComponent(id)}`, {
+    const res = await secureFetch(`/concierge-requests/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      headers: getAuthHeaders(true),
       body: JSON.stringify(updateData)
     });
     const json = await safeParseJson(res);
@@ -488,9 +467,8 @@ export async function updateConciergeRequestStatus(
   if (assignedAgentId !== undefined) payload.assigned_agent_id = assignedAgentId;
 
   try {
-    const res = await fetch(`${getApiBaseUrl()}/concierge-requests/${encodeURIComponent(id)}`, {
+    const res = await secureFetch(`/concierge-requests/${encodeURIComponent(id)}`, {
       method: 'PATCH',
-      headers: getAuthHeaders(true),
       body: JSON.stringify(payload)
     });
     const json = await safeParseJson(res);
@@ -528,18 +506,11 @@ export async function updateConciergeRequestStatus(
  * Récupération des visites immobilières (property_visits)
  */
 export async function fetchPropertyVisits(requestId?: string): Promise<PropertyVisitRecord[]> {
-  const token = getStoredToken();
-  if (!token) {
-    const local = getLocalStoredVisits();
-    return requestId ? local.filter((v) => v.request_id === requestId) : local;
-  }
   try {
-    const url = requestId
-      ? `${getApiBaseUrl()}/property-visits?request_id=${encodeURIComponent(requestId)}`
-      : `${getApiBaseUrl()}/property-visits`;
-    const res = await fetch(url, {
-      headers: getAuthHeaders(false)
-    });
+    const path = requestId
+      ? `/property-visits?request_id=${encodeURIComponent(requestId)}`
+      : '/property-visits';
+    const res = await secureFetch(path);
     if (res.ok) {
       const json = await safeParseJson(res);
       if (json.success && Array.isArray(json.data)) {
@@ -573,9 +544,8 @@ export async function schedulePropertyVisit(
   });
 
   try {
-    const res = await fetch(`${getApiBaseUrl()}/property-visits`, {
+    const res = await secureFetch('/property-visits', {
       method: 'POST',
-      headers: getAuthHeaders(true),
       body: JSON.stringify(record)
     });
     const json = await safeParseJson(res);
@@ -603,9 +573,8 @@ export async function updatePropertyVisitStatus(
   notes?: string
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/property-visits/${encodeURIComponent(visitId)}`, {
+    const res = await secureFetch(`/property-visits/${encodeURIComponent(visitId)}`, {
       method: 'PATCH',
-      headers: getAuthHeaders(true),
       body: JSON.stringify({ status, notes })
     });
     if (res.ok) return true;
@@ -632,9 +601,8 @@ export async function updatePropertyVisitStatus(
  */
 export async function deletePropertyVisit(visitId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/property-visits/${encodeURIComponent(visitId)}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders(false)
+    const res = await secureFetch(`/property-visits/${encodeURIComponent(visitId)}`, {
+      method: 'DELETE'
     });
     if (res.ok) return true;
     return false;

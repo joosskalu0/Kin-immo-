@@ -1,23 +1,20 @@
-import { User, Agent, Agency } from '../types';
-import { initialAgents, initialAgencies } from '../data/mockData';
+import { User, Agent } from '../types';
+import { purgeLegacyAuthStorage } from '../services/secureFetch';
 
 export interface StoredUserAccount extends User {
   password?: string;
 }
 
-// In-memory registry for initial demo seed accounts only (isolated, never overwriting agent passwords)
+// Registre uniquement en mémoire vive : aucun mot de passe ni jeton n'est jamais écrit dans localStorage
 let inMemoryAccounts: StoredUserAccount[] = [];
 
-/**
- * Clean phone numbers to digits only with country code standard
- */
+// Purger immédiatement d'éventuelles anciennes clés d'authentification locales
+purgeLegacyAuthStorage();
+
 export const normalizePhone = (phoneStr: string): string => {
   return phoneStr.replace(/[^\d+]/g, '').trim();
 };
 
-/**
- * Helper to identify and purge demo accounts
- */
 export const isDemoAccount = (email?: string, id?: string, name?: string): boolean => {
   const e = (email || '').toLowerCase().trim();
   const i = (id || '').toLowerCase().trim();
@@ -48,123 +45,42 @@ export const isDemoAccount = (email?: string, id?: string, name?: string): boole
   return false;
 };
 
-/**
- * Pre-seed standard admin account
- */
-const getInitialSeedAccounts = (): StoredUserAccount[] => {
-  return [];
-};
+function stripSensitiveFields(user: User): StoredUserAccount {
+  const { password: _p, accessPin: _ap, ...safe } = user as any;
+  return safe;
+}
 
-const LOCAL_STORAGE_ACCOUNTS_KEY = 'estatik_local_registered_accounts';
-
-const getStoredLocalAccounts = (): StoredUserAccount[] => {
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_ACCOUNTS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        // Filter out any lingering demo accounts from browser storage
-        const cleaned = parsed.filter((acc) => !isDemoAccount(acc.email, acc.id, acc.name));
-        if (cleaned.length !== parsed.length) {
-          saveStoredLocalAccounts(cleaned);
-        }
-        return cleaned;
-      }
-    }
-  } catch (_) {}
-  return [];
-};
-
-const saveStoredLocalAccounts = (accounts: StoredUserAccount[]) => {
-  try {
-    const cleaned = accounts.filter((acc) => !isDemoAccount(acc.email, acc.id, acc.name));
-    localStorage.setItem(LOCAL_STORAGE_ACCOUNTS_KEY, JSON.stringify(cleaned));
-  } catch (_) {}
-};
-
-/**
- * Retrieve all registered accounts with local storage persistence
- */
 export const getRegisteredAccounts = (): StoredUserAccount[] => {
-  if (inMemoryAccounts.length === 0) {
-    const seed = getInitialSeedAccounts();
-    const local = getStoredLocalAccounts();
-    const map = new Map<string, StoredUserAccount>();
-    seed.forEach((s) => {
-      if (!isDemoAccount(s.email, s.id, s.name)) {
-        map.set(s.email.toLowerCase(), s);
-      }
-    });
-    local.forEach((l) => {
-      if (l.email && !isDemoAccount(l.email, l.id, l.name)) {
-        map.set(l.email.toLowerCase(), { ...map.get(l.email.toLowerCase()), ...l });
-      }
-    });
-    inMemoryAccounts = Array.from(map.values()).filter((a) => !isDemoAccount(a.email, a.id, a.name));
-  }
   return inMemoryAccounts;
 };
 
-/**
- * Synchroniser les utilisateurs dans le magasin local d'authentification
- */
-export const syncFirestoreUsersToAuthStore = (firestoreUsers: User[]): StoredUserAccount[] => {
-  const currentAccounts = getRegisteredAccounts();
+export const syncFirestoreUsersToAuthStore = (users: User[]): StoredUserAccount[] => {
   const accountsMap = new Map<string, StoredUserAccount>();
-
-  // 1. Keep initial accounts
-  currentAccounts.forEach((acc) => {
-    if (acc.id) accountsMap.set(acc.id, acc);
-    if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
+  users.forEach((u) => {
+    if (!u || isDemoAccount(u.email, u.id, u.name)) return;
+    const safe = stripSensitiveFields(u);
+    if (safe.id) accountsMap.set(safe.id, safe);
   });
-
-  // 2. Fusionner les utilisateurs (sans assigner le mot de passe admin, en excluant les comptes démo)
-  firestoreUsers.forEach((fu) => {
-    if (!fu || isDemoAccount(fu.email, fu.id, fu.name)) return;
-    const existing = (fu.id ? accountsMap.get(fu.id) : undefined) || (fu.email ? accountsMap.get(fu.email.toLowerCase()) : undefined);
-    const resolvedPassword = fu.password || fu.accessPin || existing?.password || undefined;
-    const merged: StoredUserAccount = {
-      ...existing,
-      ...fu,
-      password: resolvedPassword,
-      accessPin: resolvedPassword,
-    };
-    if (fu.id) accountsMap.set(fu.id, merged);
-    if (fu.email) accountsMap.set(fu.email.toLowerCase(), merged);
-  });
-
-  const mergedList = Array.from(new Set(Array.from(accountsMap.values()))).filter((a) => !isDemoAccount(a.email, a.id, a.name));
-  inMemoryAccounts = mergedList;
-  saveStoredLocalAccounts(mergedList);
-  return mergedList;
+  inMemoryAccounts = Array.from(accountsMap.values());
+  return inMemoryAccounts;
 };
 
-/**
- * Synchroniser les agents dans le magasin d'authentification
- */
-export const syncFirestoreAgentsToAuthStore = (firestoreAgents: Agent[]): StoredUserAccount[] => {
-  const currentAccounts = getRegisteredAccounts();
+export const syncFirestoreAgentsToAuthStore = (agents: Agent[]): StoredUserAccount[] => {
   const accountsMap = new Map<string, StoredUserAccount>();
-
-  currentAccounts.forEach((acc) => {
-    if (!isDemoAccount(acc.email, acc.id, acc.name)) {
-      if (acc.id) accountsMap.set(acc.id, acc);
-      if (acc.email) accountsMap.set(acc.email.toLowerCase(), acc);
-    }
+  inMemoryAccounts.forEach((acc) => {
+    if (acc.id) accountsMap.set(acc.id, acc);
   });
 
-  firestoreAgents.forEach((agt) => {
-    if (!agt || !agt.email || isDemoAccount(agt.email, agt.id, agt.name)) return;
-    const cleanEmail = agt.email.toLowerCase().trim();
-    const existing = (agt.id ? accountsMap.get(agt.id) : undefined) || accountsMap.get(cleanEmail);
+  agents.forEach((agt) => {
+    if (!agt || isDemoAccount(agt.email, agt.id, agt.name)) return;
     const merged: StoredUserAccount = {
       id: agt.id,
       name: agt.name,
-      email: cleanEmail,
+      email: (agt.email || '').toLowerCase().trim(),
       phone: agt.phone || '',
       whatsapp: agt.whatsapp || agt.phone || '',
       role: 'agent',
-      avatar: agt.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&auto=format&fit=crop&q=80',
+      avatar: agt.avatar || '',
       agentId: agt.id,
       agencyId: agt.agencyId,
       agencyName: agt.agencyName || 'Kinshasa Immobilier',
@@ -172,244 +88,52 @@ export const syncFirestoreAgentsToAuthStore = (firestoreAgents: Agent[]): Stored
       subscriptionStatus: 'Active',
       isVerified: agt.isVerified !== false,
       verificationStatus: agt.verificationStatus || 'verified',
-      emailVerified: true,
-      password: existing?.password,
+      emailVerified: Boolean(agt.email),
       createdAt: new Date().toISOString(),
     };
     accountsMap.set(agt.id, merged);
-    accountsMap.set(cleanEmail, merged);
   });
 
-  const mergedList = Array.from(new Set(Array.from(accountsMap.values()))).filter((a) => !isDemoAccount(a.email, a.id, a.name));
-  inMemoryAccounts = mergedList;
-  return mergedList;
+  inMemoryAccounts = Array.from(accountsMap.values());
+  return inMemoryAccounts;
 };
 
-/**
- * Enregistrer un compte utilisateur dans le magasin d'authentification Kinimmo
- */
-export const registerUserAccount = (user: User, password?: string): StoredUserAccount => {
-  const accounts = getRegisteredAccounts();
-  const cleanEmail = user.email.toLowerCase().trim();
-  const cleanPhone = normalizePhone(user.phone || '');
-
-  const existingIdx = accounts.findIndex(
-    (a) =>
-      a.id === user.id ||
-      (a.email && a.email.toLowerCase() === cleanEmail) ||
-      (cleanPhone && a.phone && normalizePhone(a.phone) === cleanPhone)
-  );
-
-  const accountToSave: StoredUserAccount = {
-    ...user,
-    email: cleanEmail,
-    password: password ? password.trim() : undefined,
-  };
-
-  if (existingIdx >= 0) {
-    accounts[existingIdx] = {
-      ...accounts[existingIdx],
-      ...accountToSave,
-    };
+export const registerUserAccount = (user: User, _password?: string): StoredUserAccount => {
+  const safe = stripSensitiveFields(user);
+  const idx = inMemoryAccounts.findIndex((a) => a.id === safe.id);
+  if (idx >= 0) {
+    inMemoryAccounts[idx] = { ...inMemoryAccounts[idx], ...safe };
   } else {
-    accounts.push(accountToSave);
+    inMemoryAccounts.push(safe);
   }
-
-  inMemoryAccounts = [...accounts];
-  saveStoredLocalAccounts(inMemoryAccounts);
-
-  return accountToSave;
+  return safe;
 };
 
-/**
- * Strict Credentials Verification for seed / fallback accounts
- */
-export const authenticateUser = (
-  identifier: string,
-  inputPassword: string,
-  method: 'email' | 'phone'
-): { success: boolean; user?: StoredUserAccount; error?: string } => {
-  const trimmedId = identifier.trim().toLowerCase();
-  const trimmedPwd = inputPassword.trim();
-
-  if (!trimmedId) {
-    return {
-      success: false,
-      error: method === 'email' ? 'Veuillez saisir votre adresse e-mail.' : 'Veuillez saisir votre numéro de téléphone.',
-    };
-  }
-
-  if (!trimmedPwd) {
-    return {
-      success: false,
-      error: 'Veuillez renseigner votre mot de passe.',
-    };
-  }
-
-  // Vérification stricte des comptes enregistrés
-  const accounts = getRegisteredAccounts();
-  const matchedAccount = accounts.find((acc) => {
-    if (method === 'email') {
-      return acc.email?.toLowerCase() === trimmedId;
-    } else {
-      const cleanInputPhone = normalizePhone(trimmedId);
-      const cleanAccPhone = normalizePhone(acc.phone || '');
-      return cleanAccPhone && cleanInputPhone && (cleanAccPhone === cleanInputPhone || cleanAccPhone.endsWith(cleanInputPhone) || cleanInputPhone.endsWith(cleanAccPhone));
-    }
-  });
-
-  if (!matchedAccount) {
-    return {
-      success: false,
-      error: `Aucun compte ${method === 'email' ? 'avec cet e-mail' : 'avec ce numéro de téléphone'} n'a été trouvé. Veuillez cliquer sur "S'Inscrire" pour créer votre compte.`,
-    };
-  }
-
-  // 3. Compare with account's own password
-  if (!matchedAccount.password) {
-    if (trimmedPwd.length < 6) {
-      return {
-        success: false,
-        error: 'Le mot de passe doit contenir au moins 6 caractères.',
-      };
-    }
-    // Bind password for this session & persist locally
-    matchedAccount.password = trimmedPwd;
-    saveStoredLocalAccounts(accounts);
-    return {
-      success: true,
-      user: matchedAccount,
-    };
-  }
-
-  if (trimmedPwd !== matchedAccount.password) {
-    const roleLabel =
-      matchedAccount.role === 'agency'
-        ? "d'agence"
-        : matchedAccount.role === 'agent'
-        ? "d'agent"
-        : 'utilisateur';
-    return {
-      success: false,
-      error: `Mot de passe incorrect pour le compte ${roleLabel} (${matchedAccount.name}). Veuillez vérifier votre mot de passe ou vous connecter en 1 clic avec Google.`,
-    };
-  }
-
+export const authenticateUser = (): { success: boolean; user?: StoredUserAccount; error?: string } => {
   return {
-    success: true,
-    user: matchedAccount,
+    success: false,
+    error: 'Authentification locale désactivée : utilisez la connexion sécurisée du serveur.',
   };
 };
 
-/**
- * Authenticate or register a Google user directly
- */
-export const authenticateOrRegisterGoogleUser = (
-  googleEmail: string,
-  googleName?: string
-): StoredUserAccount => {
-  const cleanEmail = googleEmail.trim().toLowerCase();
-  const accounts = getRegisteredAccounts();
-  const existing = accounts.find((a) => a.email?.toLowerCase() === cleanEmail);
-
-  if (existing) {
-    return existing;
-  }
-
-  const displayName = googleName?.trim() || cleanEmail.split('@')[0];
-  const newGoogleUser: StoredUserAccount = {
-    id: `user_google_${Date.now()}`,
-    name: displayName,
-    email: cleanEmail,
-    phone: '+243 81 000 0000',
-    whatsapp: '+243 81 000 0000',
-    role: 'user',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300&auto=format&fit=crop&q=80',
-    planId: 'starter',
-    provider: 'google',
-    isVerified: true,
-    emailVerified: true,
-    phoneVerified: false,
-    twoFactorEnabled: false,
-    kinshasaBadgeVerified: false,
-    lastLoginLocation: 'Kinshasa (Gombe), RDC',
-    createdAt: new Date().toISOString(),
-  };
-
-  registerUserAccount(newGoogleUser);
-  return newGoogleUser;
+export const authenticateOrRegisterGoogleUser = (): StoredUserAccount => {
+  throw new Error('Connexion locale désactivée pour des raisons de sécurité.');
 };
 
-/**
- * Update password for an existing account in memory
- */
-export const updateAccountPassword = (
-  userId: string,
-  oldPassword: string,
-  newPassword: string
-): { success: boolean; error?: string } => {
-  const accounts = getRegisteredAccounts();
-  const idx = accounts.findIndex((a) => a.id === userId || a.email?.toLowerCase() === userId.toLowerCase());
-
-  if (idx < 0) {
-    return { success: false, error: 'Compte introuvable.' };
-  }
-
-  const account = accounts[idx];
-  const currentPass = account.password;
-
-  if (currentPass && oldPassword.trim() !== currentPass) {
-    return { success: false, error: 'Le mot de passe actuel est incorrect.' };
-  }
-
-  accounts[idx] = {
-    ...account,
-    password: newPassword.trim(),
+export const updateAccountPassword = (): { success: boolean; error?: string } => {
+  return {
+    success: false,
+    error: 'Utilisez /compte/securite pour modifier votre mot de passe sur le serveur.',
   };
-  inMemoryAccounts = [...accounts];
-  saveStoredLocalAccounts(inMemoryAccounts);
-
-  return { success: true };
 };
 
-/**
- * Réinitialiser le mot de passe d'un utilisateur
- */
-export const adminResetUserPassword = async (
-  userIdOrEmail: string,
-  newPassword: string
-): Promise<{ success: boolean; error?: string }> => {
-  const cleanKey = userIdOrEmail.trim().toLowerCase();
-  const accounts = getRegisteredAccounts();
-  const idx = accounts.findIndex(
-    (a) => a.id.toLowerCase() === cleanKey || (a.email && a.email.toLowerCase() === cleanKey)
-  );
-
-  if (idx < 0) {
-    return { success: false, error: "Utilisateur introuvable." };
-  }
-
-  const account = accounts[idx];
-  const updatedAccount: StoredUserAccount = {
-    ...account,
-    password: newPassword.trim(),
-    accessPin: newPassword.trim(),
+export const adminResetUserPassword = async (): Promise<{ success: boolean; error?: string }> => {
+  return {
+    success: false,
+    error: 'Utilisez la console d’administration sécurisée pour réinitialiser un mot de passe.',
   };
-
-  accounts[idx] = updatedAccount;
-  inMemoryAccounts = [...accounts];
-  saveStoredLocalAccounts(inMemoryAccounts);
-
-  return { success: true };
 };
 
-/**
- * Admin creates or updates a user/agent account with custom credentials
- */
-export const adminCreateOrUpdateUserAccount = async (
-  user: User,
-  password?: string
-): Promise<StoredUserAccount> => {
-  const account = registerUserAccount(user, password);
-  return account;
+export const adminCreateOrUpdateUserAccount = async (user: User): Promise<StoredUserAccount> => {
+  return registerUserAccount(user);
 };

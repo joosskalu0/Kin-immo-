@@ -306,8 +306,8 @@ export const AgencyRegistrationModal: React.FC<AgencyRegistrationModalProps> = (
       addAgent(chiefAgent);
       setUser(agencyUser);
 
-      // Save user & password to authStore
-      registerUserAccount(agencyUser, password);
+      // Enregistrer le profil en mémoire applicative uniquement
+      registerUserAccount(agencyUser);
 
       setIsLoading(false);
       setSuccess(true);

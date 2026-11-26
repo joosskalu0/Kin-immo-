@@ -144,10 +144,18 @@ export interface Property {
   featured: boolean;
   isPremium?: boolean;
   isUrgent?: boolean;
+  isSponsored?: boolean;
+  boostSuspended?: boolean;
   listingTier?: 'free' | 'standard' | 'premium' | 'featured';
+  boostStartedAt?: string;
   boostExpiresAt?: string;
+  boostType?: BoostType | string;
+  boostLabel?: string;
+  boostBadgeText?: string;
   refreshBumpAt?: string;
   published: boolean;
+  isSuspended?: boolean;
+  suspended?: boolean;
   softHiddenByPlan?: boolean;
   softHiddenAt?: string;
 
@@ -320,7 +328,12 @@ export interface User {
   verifiedBy?: string;
   rejectionReason?: string;
   emailVerified?: boolean;
+  emailVerifiedAt?: string;
+  pendingEmail?: string;
   phoneVerified?: boolean;
+  termsAcceptedVersion?: string;
+  termsAcceptedAt?: string;
+  passwordUpdatedAt?: string;
   twoFactorEnabled?: boolean;
   twoFactorMethod?: 'authenticator' | 'sms' | 'email';
   kinshasaBadgeVerified?: boolean;
@@ -483,7 +496,7 @@ export interface PaymentMethodConfig {
   display_order?: number;
 }
 
-export type BoostType = 'featured' | 'premium' | 'urgent' | 'refresh' | 'social_blast';
+export type BoostType = 'featured' | 'premium' | 'urgent' | 'sponsorise' | 'refresh' | 'social_blast';
 
 export interface VisibilityOption {
   id: string;
@@ -497,6 +510,7 @@ export interface VisibilityOption {
   price?: number;
   priceCDF?: number;
   badge_text?: string;
+  label_type?: 'À la une' | 'Sponsorisé';
   icon: string;
   is_active: boolean;
 }
@@ -507,14 +521,20 @@ export interface ListingBoost {
   user_id: string;
   option_id: string;
   invoice_id?: string;
-  status: 'pending' | 'active' | 'expired' | 'canceled';
+  status: 'pending' | 'awaiting_validation' | 'active' | 'expired' | 'suspended' | 'rejected' | 'refunded' | 'canceled';
+  computed_status?: string;
   starts_at?: string;
   expires_at?: string;
   created_at: string;
   option_name?: string;
   boost_type?: BoostType;
+  boost_label?: string;
   duration_days?: number;
   badge_text?: string;
+  views_before?: number;
+  contacts_before?: number;
+  views_during?: number;
+  contacts_during?: number;
   property_title?: string;
   property_price?: number;
   property_commune?: string;
@@ -656,6 +676,15 @@ export interface Invoice {
   periodEnd?: string;
   period_start?: string;
   period_end?: string;
+  starts_at?: string;
+  expires_at?: string;
+  boost_type?: string;
+  boost_label?: string;
+  views_before?: number;
+  contacts_before?: number;
+  views_during_acc?: number;
+  contacts_during_acc?: number;
+  extends_boost_id?: string;
   invoice_type?: 'subscription' | 'boost' | 'advertisement';
   invoiceType?: 'subscription' | 'boost' | 'advertisement';
 }
@@ -712,6 +741,7 @@ export interface SiteContactSettings {
   adminUrl?: string;
   requireCertifiedBadge?: boolean;
   autoApproveProperties?: boolean;
+  featuredSlotsLimit?: number;
   virtualTourAllowedDomains?: string[];
   vipConcierge: VipConciergeSettings;
 }

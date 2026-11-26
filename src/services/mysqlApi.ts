@@ -1,7 +1,16 @@
 import { Advertisement, AdSenseConfig, SiteContactSettings, VipConciergeSettings, VisibilityOption, PropertyVideo, PropertyVideoStatus, PropertyUserReport, PaymentMethodConfig } from '../types';
 import { getDefaultPlans, normalizePlan, DEFAULT_PAYMENT_METHODS_LIST } from '../utils/billingHelpers';
+import { DEFAULT_FEATURED_SLOTS_LIMIT, parseFeaturedSlotsLimit, resolveBoostPrimaryLabel } from '../utils/boostHelpers';
 import { getApiBaseUrl, getCandidateApiBaseUrls, setResolvedApiBaseUrl, resolvePropertyMedia } from '../utils/mediaUrl';
 import { DEFAULT_VIRTUAL_TOUR_DOMAINS, normalizeAllowedDomains } from '../utils/mediaTools';
+import {
+  secureFetch,
+  ensureCsrfToken,
+  refreshSessionSingleFlight,
+  setInMemoryCsrfToken,
+  clearInMemoryAuth,
+  purgeLegacyAuthStorage,
+} from './secureFetch';
 
 /**
  * Service Client API MySQL REST pour Kinimmo
@@ -111,79 +120,99 @@ const PAYMENT_METHODS_STORAGE_KEY = 'kinimmo_payment_methods_v1';
 // Formules d'abonnement par défaut certifiées Kinshasa (Grand Public + Agence actifs, Promoteur/Entreprise en brouillon)
 const DEFAULT_PRICING_PLANS = getDefaultPlans(2850);
 
-const DEFAULT_VISIBILITY_OPTIONS = [
+const DEFAULT_VISIBILITY_OPTIONS: VisibilityOption[] = [
   {
     id: 'opt_featured_7d',
-    name: 'Mise en Avant 7 jours',
+    name: 'À la une — 7 jours',
     slug: 'mise_en_avant_7d',
-    description: 'Positionnement en tête de page d\'accueil et carrousel prioritaire pendant 7 jours.',
-    boost_type: 'featured' as const,
+    description: 'Positionnement en tête d\'accueil et de recherche pendant 7 jours avec étiquette « À la une ».',
+    boost_type: 'featured',
     duration_days: 7,
     price_usd: 10.0,
     price_cdf: 28500.0,
     price: 10.0,
     priceCDF: 28500.0,
-    badge_text: 'En Vedette ⭐',
+    badge_text: 'À la une',
+    label_type: 'À la une',
     icon: 'Sparkles',
     is_active: true
   },
   {
+    id: 'opt_sponsorise_14d',
+    name: 'Annonce Sponsorisée — 14 jours',
+    slug: 'annonce_sponsorisee_14d',
+    description: 'Mise en avant ciblée dans les résultats et vitrine pendant 14 jours avec étiquette « Sponsorisé ».',
+    boost_type: 'sponsorise',
+    duration_days: 14,
+    price_usd: 15.0,
+    price_cdf: 42750.0,
+    price: 15.0,
+    priceCDF: 42750.0,
+    badge_text: 'Sponsorisé',
+    label_type: 'Sponsorisé',
+    icon: 'Rocket',
+    is_active: true
+  },
+  {
     id: 'opt_premium_30d',
-    name: 'Pack Annonce Premium 30 jours',
+    name: 'Pack À la une — 30 jours',
     slug: 'annonce_premium_30d',
-    description: 'Affichage permanent avec cadre doré, badge Premium, priorité maximale et 3x plus d\'appels.',
-    boost_type: 'premium' as const,
+    description: 'Affichage prioritaire continu pendant 30 jours avec étiquette « À la une » et portée maximale.',
+    boost_type: 'premium',
     duration_days: 30,
     price_usd: 25.0,
     price_cdf: 71250.0,
     price: 25.0,
     priceCDF: 71250.0,
-    badge_text: '👑 Annonce Premium',
+    badge_text: 'À la une',
+    label_type: 'À la une',
     icon: 'Crown',
     is_active: true
   },
   {
     id: 'opt_urgent_14d',
-    name: 'Badge Vente / Location Urgente',
+    name: 'Badge Urgent — 14 jours',
     slug: 'badge_urgent_14d',
-    description: 'Bandeau rouge d\'urgence pour attirer immédiatement les acheteurs et locataires sérieux.',
-    boost_type: 'urgent' as const,
+    description: 'Étiquette visible « Urgent » pour attirer immédiatement les acheteurs et locataires prêts à visiter.',
+    boost_type: 'urgent',
     duration_days: 14,
     price_usd: 8.0,
     price_cdf: 22800.0,
     price: 8.0,
     priceCDF: 22800.0,
-    badge_text: '⚡ Urgent',
+    badge_text: 'Urgent',
     icon: 'Zap',
     is_active: true
   },
   {
     id: 'opt_refresh_bump',
-    name: 'Remontée Immédiate en Tête',
+    name: 'Remontée Immédiate (24h)',
     slug: 'remontee_tete',
-    description: 'Actualise la date de votre annonce pour la replacer tout en haut des résultats de recherche récents.',
-    boost_type: 'refresh' as const,
+    description: 'Replace votre annonce en tête des résultats récents pendant 24h avec étiquette « Sponsorisé ».',
+    boost_type: 'refresh',
     duration_days: 1,
     price_usd: 5.0,
     price_cdf: 14250.0,
     price: 5.0,
     priceCDF: 14250.0,
-    badge_text: 'Top Liste',
+    badge_text: 'Sponsorisé',
+    label_type: 'Sponsorisé',
     icon: 'ArrowUpCircle',
     is_active: true
   },
   {
     id: 'opt_social_blast',
-    name: 'Diffusion Réseaux & WhatsApp Kinimmo',
+    name: 'Diffusion Multi-Canal — 14 jours',
     slug: 'diffusion_reseaux',
-    description: 'Publication sponsorisée sur la communauté Facebook Kinimmo et diffusion WhatsApp VIP.',
-    boost_type: 'social_blast' as const,
+    description: 'Annonce « Sponsorisé » sur Kinimmo et relais sur nos réseaux communautaires pendant 14 jours.',
+    boost_type: 'social_blast',
     duration_days: 14,
     price_usd: 35.0,
     price_cdf: 99750.0,
     price: 35.0,
     priceCDF: 99750.0,
-    badge_text: 'Multi-Canal VIP',
+    badge_text: 'Sponsorisé',
+    label_type: 'Sponsorisé',
     icon: 'Share2',
     is_active: true
   }
@@ -191,127 +220,75 @@ const DEFAULT_VISIBILITY_OPTIONS = [
 
 const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = DEFAULT_PAYMENT_METHODS_LIST;
 
-// Clé unique canonique pour le stockage du jeton d'authentification
+// Aucun jeton d'authentification stocké dans localStorage (sessions via cookies HttpOnly + CSRF)
 export const AUTH_TOKEN_KEY = 'kinimmo_token';
 
-// Récupérer le token d'authentification stocké (avec migration douce des anciennes clés)
 export const getStoredToken = (): string | null => {
-  try {
-    const canonical = localStorage.getItem(AUTH_TOKEN_KEY);
-    if (canonical) return canonical;
-
-    const legacy =
-      localStorage.getItem('kinimmo_jwt_token') ||
-      localStorage.getItem('kinimmo_auth_token') ||
-      localStorage.getItem('token');
-    if (legacy) {
-      localStorage.setItem(AUTH_TOKEN_KEY, legacy);
-      localStorage.removeItem('kinimmo_jwt_token');
-      localStorage.removeItem('kinimmo_auth_token');
-      localStorage.removeItem('token');
-      return legacy;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  purgeLegacyAuthStorage();
+  return null;
 };
 
-// Sauvegarder le token sous la clé unique canonique
-export const setStoredToken = (token: string): void => {
-  try {
-    localStorage.setItem(AUTH_TOKEN_KEY, token);
-    localStorage.removeItem('kinimmo_jwt_token');
-    localStorage.removeItem('kinimmo_auth_token');
-    localStorage.removeItem('token');
-  } catch (e) {
-    console.error('Impossible de stocker le token', e);
-  }
+export const setStoredToken = (_token: string): void => {
+  purgeLegacyAuthStorage();
 };
 
-// Supprimer le token (Déconnexion)
 export const clearStoredToken = (): void => {
-  try {
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-    localStorage.removeItem('kinimmo_jwt_token');
-    localStorage.removeItem('kinimmo_auth_token');
-    localStorage.removeItem('token');
-  } catch (e) {
-    console.error('Erreur suppression token', e);
-  }
+  clearInMemoryAuth();
 };
 
-// Wrapper générique fetch pour les requêtes à l'API
-async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}): Promise<{ success: boolean; status?: number; data?: T; message?: string; error?: string; [key: string]: any }> {
-  const token = getStoredToken();
-
-  const headers: Record<string, string> = {
-    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-    ...(options.headers as Record<string, string> || {})
-  };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const candidates = getCandidateApiBaseUrls();
-  let lastErrorMessage = '';
-
-  for (const baseUrl of candidates) {
-    try {
-      const response = await fetch(`${baseUrl}${endpoint}`, {
-        ...options,
-        headers
-      });
-
-      const contentType = (response.headers.get('content-type') || '').toLowerCase();
-      const isHtmlResponse = contentType.includes('text/html');
-
-      // Si Apache/Hostinger renvoie index.html ou une page HTML 404 au lieu du JSON API, tester la base suivante (ex: https://api.kinimmo.com/api)
-      if (isHtmlResponse) {
-        lastErrorMessage = `Réponse HTML inattendue sur ${baseUrl}${endpoint} (HTTP ${response.status})`;
-        continue;
-      }
-
-      let data: any = {};
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      // Si le serveur répond JSON (succès ou erreur applicative 400/401/403), verrouiller cette base API
-      setResolvedApiBaseUrl(baseUrl);
-
-      if (!response.ok) {
-        return {
-          ...data,
-          success: false,
-          status: response.status,
-          message: data.message || data.error || `Erreur serveur HTTP ${response.status}`,
-          error: data.error || data.message
-        };
-      }
-
+// Wrapper générique fetch sécurisé (cookies HttpOnly + CSRF + rafraîchissement transparent)
+async function apiRequest<T = any>(
+  endpoint: string,
+  options: RequestInit & { skipAutoRefresh?: boolean } = {}
+): Promise<{ success: boolean; status?: number; data?: T; message?: string; error?: string; [key: string]: any }> {
+  try {
+    const response = await secureFetch(endpoint, options);
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (contentType.includes('text/html')) {
       return {
-        success: true,
+        success: false,
         status: response.status,
-        data,
-        ...data
+        message: `Réponse HTML inattendue sur ${endpoint} (HTTP ${response.status})`,
       };
-    } catch (error: any) {
-      lastErrorMessage = error?.message || 'Erreur réseau';
-      // Continuer vers l'URL candidate suivante (ex: api.kinimmo.com)
     }
-  }
 
-  const isNetworkFailure = /load failed|failed to fetch|networkerror|network request failed/i.test(lastErrorMessage);
-  return {
-    success: false,
-    message: isNetworkFailure
-      ? `Impossible de joindre le serveur API Kinimmo (${lastErrorMessage}). Vérifiez que le backend Node.js est actif et configuré dans kinimmo-config.js.`
-      : (lastErrorMessage || 'Impossible de joindre le serveur API MySQL Kinimmo.')
-  };
+    let data: any = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+
+    if (data?.csrfToken) {
+      setInMemoryCsrfToken(String(data.csrfToken));
+    }
+
+    if (!response.ok) {
+      return {
+        ...data,
+        success: false,
+        status: response.status,
+        message: data.message || data.error || `Erreur serveur HTTP ${response.status}`,
+        error: data.error || data.message,
+      };
+    }
+
+    return {
+      success: true,
+      status: response.status,
+      data,
+      ...data,
+    };
+  } catch (error: any) {
+    const msg = error?.message || 'Erreur réseau';
+    const isNetworkFailure = /load failed|failed to fetch|networkerror|network request failed/i.test(msg);
+    return {
+      success: false,
+      message: isNetworkFailure
+        ? `Impossible de joindre le serveur API Kinimmo (${msg}). Vérifiez que le backend Node.js est actif.`
+        : msg,
+    };
+  }
 }
 
 export const mysqlApi = {
@@ -320,46 +297,125 @@ export const mysqlApi = {
     return apiRequest('/health');
   },
 
-  // 2. Authentification (Passage direct par /auth/register et /auth/login)
-  async register(userData: { name: string; email: string; password: string; phone?: string; role?: string; agencyName?: string }) {
+  // 2. Authentification & Sécurité des sessions (Cookies HttpOnly + CSRF)
+  async getCsrfToken() {
+    return ensureCsrfToken(true);
+  },
+
+  async refreshSession() {
+    return refreshSessionSingleFlight();
+  },
+
+  async register(userData: {
+    name: string;
+    email?: string;
+    password: string;
+    phone?: string;
+    role?: string;
+    agencyName?: string;
+    rccmOrNif?: string;
+    termsAccepted?: boolean;
+    termsVersion?: string;
+  }) {
     const res = await apiRequest('/auth/register', {
       method: 'POST',
-      body: JSON.stringify(userData)
+      body: JSON.stringify(userData),
+      skipAutoRefresh: true,
     });
-    const token = res.token || res.data?.token;
-    if (res.success && token) {
-      setStoredToken(token);
+    if (res.csrfToken) {
+      setInMemoryCsrfToken(String(res.csrfToken));
     }
+    purgeLegacyAuthStorage();
     return res;
   },
 
-  async login(credentials: { email: string; password: string }) {
+  async login(credentials: { identifier?: string; email?: string; phone?: string; password: string }) {
     const res = await apiRequest('/auth/login', {
       method: 'POST',
-      body: JSON.stringify(credentials)
+      body: JSON.stringify(credentials),
+      skipAutoRefresh: true,
     });
-    const token = res.token || res.data?.token;
-    if (res.success && token) {
-      setStoredToken(token);
+    if (res.csrfToken) {
+      setInMemoryCsrfToken(String(res.csrfToken));
     }
+    purgeLegacyAuthStorage();
     return res;
+  },
+
+  async logout() {
+    try {
+      await apiRequest('/auth/logout', { method: 'POST', body: JSON.stringify({}), skipAutoRefresh: true });
+    } catch {}
+    clearInMemoryAuth();
+    return { success: true };
   },
 
   async getMe() {
     return apiRequest('/auth/me');
   },
 
+  async getSession() {
+    return apiRequest('/auth/session', { skipAutoRefresh: true });
+  },
+
   async updateProfile(profileData: any) {
     return apiRequest('/auth/profile', {
       method: 'PUT',
-      body: JSON.stringify(profileData)
+      body: JSON.stringify(profileData),
     });
   },
 
   async changePassword(oldPassword: string, newPassword: string) {
     return apiRequest('/auth/change-password', {
       method: 'PUT',
-      body: JSON.stringify({ oldPassword, newPassword })
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+  },
+
+  async verifyEmail(token: string) {
+    return apiRequest('/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async resendVerification(email?: string) {
+    return apiRequest('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify(email ? { email } : {}),
+    });
+  },
+
+  async forgotPassword(identifier: string) {
+    return apiRequest('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+      skipAutoRefresh: true,
+    });
+  },
+
+  async resetPassword(token: string, newPassword: string) {
+    return apiRequest('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+      skipAutoRefresh: true,
+    });
+  },
+
+  async requestEmailChange(currentPassword: string, newEmail: string) {
+    return apiRequest('/auth/request-email-change', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newEmail }),
+    });
+  },
+
+  async getSessions() {
+    return apiRequest('/auth/sessions');
+  },
+
+  async revokeSession(sessionId: string) {
+    return apiRequest(`/auth/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
     });
   },
 
@@ -570,13 +626,14 @@ export const mysqlApi = {
 
   async adminCreateUser(userData: {
     name: string;
-    email: string;
+    email?: string;
     password: string;
     role: string;
     phone?: string;
     whatsapp?: string;
     agencyName?: string;
     isVerified?: boolean;
+    emailVerified?: boolean;
   }) {
     return apiRequest('/admin/users', {
       method: 'POST',
@@ -862,7 +919,8 @@ export const mysqlApi = {
             price_cdf: priceCdf,
             price: priceUsd,
             priceCDF: priceCdf,
-            duration_days: Number(opt.duration_days || 7)
+            duration_days: Number(opt.duration_days || 7),
+            label_type: opt.boost_type === 'urgent' ? undefined : resolveBoostPrimaryLabel(opt.boost_type, opt.badge_text, opt.label_type)
           };
         });
         this.saveLocalOptions(normalized);
@@ -1010,10 +1068,16 @@ export const mysqlApi = {
     });
   },
 
-  async createBoostOrder(propertyId: string, optionId: string, paymentMethodId?: string, paymentGateway = 'manual_mobile_money') {
+  async createBoostOrder(
+    propertyId: string,
+    optionId: string,
+    paymentMethodId?: string,
+    paymentGateway = 'manual_mobile_money',
+    extendsBoostId?: string
+  ) {
     return apiRequest('/billing/boost-order', {
       method: 'POST',
-      body: JSON.stringify({ propertyId, optionId, paymentMethodId, paymentGateway })
+      body: JSON.stringify({ propertyId, optionId, paymentMethodId, paymentGateway, extendsBoostId })
     });
   },
 
@@ -1384,6 +1448,7 @@ export const mysqlApi = {
           workingHours: s.working_hours || DEFAULT_CONTACT_SETTINGS.workingHours,
           exchangeRate: Number(s.exchange_rate_usd_cdf) || 2850,
           autoApproveProperties: s.auto_approve_properties === 'true',
+          featuredSlotsLimit: parseFeaturedSlotsLimit(s.featured_slots_limit),
           virtualTourAllowedDomains: normalizeAllowedDomains(s.virtual_tour_allowed_domains),
           vipConcierge: {
             enabled: s.vip_enabled !== 'false',
@@ -1427,6 +1492,7 @@ export const mysqlApi = {
       working_hours: normalizedSettings.workingHours,
       exchange_rate_usd_cdf: String(normalizedSettings.exchangeRate),
       auto_approve_properties: String(normalizedSettings.autoApproveProperties ?? false),
+      featured_slots_limit: String(parseFeaturedSlotsLimit(normalizedSettings.featuredSlotsLimit)),
       virtual_tour_allowed_domains: JSON.stringify(normalizedSettings.virtualTourAllowedDomains || DEFAULT_VIRTUAL_TOUR_DOMAINS),
       vip_enabled: String(normalizedSettings.vipConcierge?.enabled ?? true),
       vip_title: normalizedSettings.vipConcierge?.title || '',
@@ -1646,6 +1712,7 @@ export const DEFAULT_CONTACT_SETTINGS: SiteContactSettings = {
   workingHours: 'Lundi - Samedi : 08h00 - 18h30 | Urgences VIP 24h/7j',
   exchangeRate: 2850,
   autoApproveProperties: false,
+  featuredSlotsLimit: DEFAULT_FEATURED_SLOTS_LIMIT,
   virtualTourAllowedDomains: DEFAULT_VIRTUAL_TOUR_DOMAINS,
   vipConcierge: {
     enabled: true,

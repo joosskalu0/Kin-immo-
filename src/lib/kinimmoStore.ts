@@ -30,8 +30,12 @@ import {
   authenticateOrRegisterGoogleUser,
   getRegisteredAccounts
 } from './authStore';
-import { mysqlApi, getStoredToken, clearStoredToken } from '../services/mysqlApi';
+import { mysqlApi, clearStoredToken } from '../services/mysqlApi';
 import { getApiBaseUrl, resolvePropertyMedia } from '../utils/mediaUrl';
+import { secureFetch, purgeLegacyAuthStorage } from '../services/secureFetch';
+
+let inMemorySessionUser: User | null = null;
+purgeLegacyAuthStorage();
 
 // Database & Auth Mock/Proxy Objects to maintain full interface compatibility
 export const db = null as any;
@@ -119,11 +123,7 @@ export function subscribeToProperties(callback: (properties: Property[]) => void
     callback([]);
   }
 
-  const token = getStoredToken();
-  const headers: Record<string, string> = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  fetch(`${getApiBaseUrl()}/properties`, { headers })
+  secureFetch('/properties')
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => {
       const items = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.properties) ? json.properties : null);
@@ -176,11 +176,8 @@ export function subscribeToLeads(callback: (leads: LeadRequest[]) => void): () =
     callback([]);
   }
 
-  const token = getStoredToken();
-  if (token) {
-    fetch(`${getApiBaseUrl()}/leads`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+  if (inMemorySessionUser) {
+    secureFetch('/leads', { skipAutoRefresh: true })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         const items = Array.isArray(json?.leads) ? json.leads : (Array.isArray(json?.data) ? json.data : null);
@@ -259,11 +256,8 @@ export function subscribeToInvoices(callback: (invoices: Invoice[]) => void): ()
     callback([]);
   }
 
-  const token = getStoredToken();
-  if (token) {
-    fetch(`${getApiBaseUrl()}/invoices`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+  if (inMemorySessionUser) {
+    secureFetch('/invoices', { skipAutoRefresh: true })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         const items = Array.isArray(json?.invoices) ? json.invoices : (Array.isArray(json?.data) ? json.data : null);
@@ -279,37 +273,14 @@ export function subscribeToInvoices(callback: (invoices: Invoice[]) => void): ()
 }
 
 export function subscribeToUsers(callback: (users: User[]) => void): () => void {
-  try {
-    const raw = localStorage.getItem('kinimmo_users');
-    if (raw) {
-      callback(JSON.parse(raw));
-    } else {
-      callback([]);
-    }
-  } catch {
-    callback([]);
-  }
+  callback([]);
 
-  const token = getStoredToken();
-  let isAdmin = false;
-  try {
-    const rawUser = localStorage.getItem('kinimmo_user');
-    const rawAdmin = localStorage.getItem('kinimmo_admin_session');
-    isAdmin = Boolean(
-      (rawUser && JSON.parse(rawUser)?.role === 'admin') ||
-      (rawAdmin && JSON.parse(rawAdmin)?.role === 'admin')
-    );
-  } catch {}
-
-  if (token && isAdmin) {
-    fetch(`${getApiBaseUrl()}/users`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+  if (inMemorySessionUser?.role === 'admin') {
+    secureFetch('/users')
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         const items = Array.isArray(json?.users) ? json.users : (Array.isArray(json?.data) ? json.data : null);
         if (json?.success && items) {
-          localStorage.setItem('kinimmo_users', JSON.stringify(items));
           callback(items);
         }
       })
@@ -373,14 +344,8 @@ export async function savePropertyToStore(property: Property, skipRemoteSync = f
 
   // Sync with Express backend
   try {
-    const token = getStoredToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    await fetch(`${getApiBaseUrl()}/properties/${resolvedProp.id}`, {
+    await secureFetch(`/properties/${resolvedProp.id}`, {
       method: 'PUT',
-      headers,
       body: JSON.stringify(resolvedProp)
     });
   } catch {}
@@ -412,10 +377,7 @@ export async function deletePropertyFromStore(id: string) {
   } catch {}
 
   try {
-    const token = getStoredToken();
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    await fetch(`${getApiBaseUrl()}/properties/${id}`, { method: 'DELETE', headers });
+    await secureFetch(`/properties/${id}`, { method: 'DELETE' });
   } catch {}
 }
 export const deletePropertyFromFirestore = deletePropertyFromStore;
@@ -479,59 +441,29 @@ export async function deleteLeadFromStore(id: string) {
 export const deleteLeadFromFirestore = deleteLeadFromStore;
 
 export async function saveUserToStore(user: User) {
+  inMemorySessionUser = user;
   try {
-    const raw = localStorage.getItem('kinimmo_users');
-    let list: User[] = raw ? JSON.parse(raw) : [...initialUsersSeed];
-    const idx = list.findIndex((u) => u.id === user.id || u.email?.toLowerCase() === user.email?.toLowerCase());
-    if (idx >= 0) {
-      list[idx] = { ...list[idx], ...user };
-    } else {
-      list.unshift(user);
-    }
-    localStorage.setItem('kinimmo_users', JSON.stringify(list));
-    localStorage.setItem('kinimmo_user', JSON.stringify(user));
-    notifyListeners('users', list);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('kinimmo_auth_change', { detail: user }));
     }
   } catch {}
 
   try {
-    const token = getStoredToken();
-    if (token) {
-      await fetch(`${getApiBaseUrl()}/users/${user.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(user)
-      });
-    }
+    await secureFetch(`/users/${user.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(user)
+    });
   } catch {}
 }
 export const saveUserToFirestore = saveUserToStore;
 
-export async function deleteUserFromStore(id: string) {
-  try {
-    const raw = localStorage.getItem('kinimmo_users');
-    if (raw) {
-      let list: User[] = JSON.parse(raw);
-      list = list.filter((u) => u.id !== id);
-      localStorage.setItem('kinimmo_users', JSON.stringify(list));
-      notifyListeners('users', list);
-    }
-  } catch {}
+export async function deleteUserFromStore(_id: string) {
+  return;
 }
 export const deleteUserFromFirestore = deleteUserFromStore;
 
 export async function adminUpdateUserPasswordInStore(userId: string, newPassword: string): Promise<void> {
-  const accounts = getRegisteredAccounts();
-  const found = accounts.find((a) => a.id === userId);
-  if (found) {
-    found.password = newPassword.trim();
-    localStorage.setItem('kinimmo_stored_accounts', JSON.stringify(accounts));
-  }
+  await mysqlApi.adminResetUserPassword(userId, newPassword);
 }
 export const adminUpdateUserPasswordInFirestore = adminUpdateUserPasswordInStore;
 
@@ -679,15 +611,12 @@ export const savePricingConfigToFirestore = savePricingConfigToStore;
 // Authentication Methods (MySQL & Secure Local Auth)
 // -------------------------------------------------------------
 
-export async function signInWithGoogleAuth(roleOverride?: string, agencyNameOverride?: string): Promise<User> {
-  const account = authenticateOrRegisterGoogleUser('client.google@kin-immobilier.cd', 'Utilisateur Google RDC');
-  if (roleOverride) account.role = roleOverride as UserRole;
-  if (agencyNameOverride) account.agencyName = agencyNameOverride;
-  return account;
+export async function signInWithGoogleAuth(): Promise<User> {
+  throw new Error('Connexion directe requise par e-mail ou numéro +243 et mot de passe.');
 }
 
 export async function registerWithEmailPassword(params: {
-  email: string;
+  email?: string;
   password: string;
   name: string;
   phone?: string;
@@ -696,98 +625,67 @@ export async function registerWithEmailPassword(params: {
   agencyName?: string;
   avatarUrl?: string;
   rccmOrNif?: string;
+  termsAccepted?: boolean;
 }): Promise<User> {
-  const { email, password, name, phone, whatsapp, role, agencyName, avatarUrl, rccmOrNif } = params;
-  const cleanEmail = email.trim().toLowerCase();
+  const { email, password, name, phone, whatsapp, role, agencyName, avatarUrl, rccmOrNif, termsAccepted } = params;
+  const cleanEmail = email ? email.trim().toLowerCase() : '';
 
-  // Inscription DIRECTE dans la base de données MySQL
   const res = await mysqlApi.register({
-    name: name || cleanEmail.split('@')[0],
-    email: cleanEmail,
+    name: name || (cleanEmail ? cleanEmail.split('@')[0] : phone || 'Membre Kinimmo'),
+    email: cleanEmail || undefined,
     password: password.trim(),
     phone: phone || '',
     role: role || 'user',
-    agencyName: (role === 'agent' || role === 'agency') ? agencyName : undefined
+    agencyName: (role === 'agent' || role === 'agency') ? agencyName : undefined,
+    rccmOrNif,
+    termsAccepted: termsAccepted ?? true,
   });
 
   if (res.success && (res.user || res.data?.user)) {
     const rawUser = res.user || res.data?.user;
     const user: User = {
-      id: rawUser.id,
-      name: rawUser.name,
-      email: rawUser.email,
-      phone: rawUser.phone || phone || '',
-      whatsapp: rawUser.whatsapp || whatsapp || phone || '',
-      role: rawUser.role || role || 'user',
-      agencyName: rawUser.agency_name || rawUser.agencyName || agencyName,
-      rccmOrNif: rawUser.rccm_nif || rawUser.rccmOrNif || rccmOrNif,
-      avatar: avatarUrl || rawUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      planId: rawUser.plan_id || (role === 'agency' ? 'agency' : role === 'agent' ? 'pro' : 'starter'),
-      isVerified: Boolean(rawUser.is_verified ?? rawUser.isVerified ?? false),
-      emailVerified: true,
-      phoneVerified: Boolean(phone),
-      twoFactorEnabled: false,
-      kinshasaBadgeVerified: Boolean(rawUser.kinshasa_badge_verified ?? false),
-      lastLoginLocation: 'Kinshasa, RDC',
-      createdAt: rawUser.created_at || new Date().toISOString()
+      ...rawUser,
+      whatsapp: rawUser.whatsapp || whatsapp || rawUser.phone || '',
+      avatar: avatarUrl || rawUser.avatar || '',
     };
-    saveUserToStore(user);
+    inMemorySessionUser = user;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kinimmo_auth_change', { detail: user }));
+    }
     return user;
   }
 
-  throw new Error(res.message || "Échec de l'inscription dans la base de données MySQL.");
+  throw new Error(res.message || res.error || "Échec de l'inscription.");
 }
 export const registerWithFirebaseEmailPassword = registerWithEmailPassword;
 
 export async function loginWithEmailPassword(
-  email: string,
-  password: string,
-  expectedRole?: UserRole,
-  agencyName?: string
+  identifier: string,
+  password: string
 ): Promise<User> {
-  const cleanEmail = email.trim().toLowerCase();
-  const trimmedPassword = password.trim();
-
-  // Connexion DIRECTE et EXCLUSIVE via la base de données MySQL
   const res = await mysqlApi.login({
-    email: cleanEmail,
-    password: trimmedPassword
+    identifier: identifier.trim(),
+    password: password.trim(),
   });
 
   if (res.success && (res.user || res.data?.user)) {
-    const rawUser = res.user || res.data?.user;
-    const user: User = {
-      id: rawUser.id,
-      name: rawUser.name,
-      email: rawUser.email,
-      phone: rawUser.phone || '',
-      whatsapp: rawUser.whatsapp || rawUser.phone || '',
-      role: rawUser.role || 'user',
-      avatar: rawUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      agencyName: rawUser.agency_name || rawUser.agencyName,
-      rccmOrNif: rawUser.rccm_nif || rawUser.rccmOrNif,
-      planId: rawUser.plan_id || 'starter',
-      isVerified: Boolean(rawUser.is_verified ?? rawUser.isVerified ?? false),
-      emailVerified: Boolean(rawUser.email_verified ?? rawUser.emailVerified ?? true),
-      phoneVerified: Boolean(rawUser.phone_verified ?? rawUser.phoneVerified ?? false),
-      twoFactorEnabled: false,
-      kinshasaBadgeVerified: Boolean(rawUser.kinshasa_badge_verified ?? false),
-      lastLoginLocation: 'Kinshasa, RDC',
-      createdAt: rawUser.created_at || new Date().toISOString()
-    };
-    saveUserToStore(user);
+    const user = (res.user || res.data?.user) as User;
+    inMemorySessionUser = user;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kinimmo_auth_change', { detail: user }));
+    }
     return user;
   }
 
-  throw new Error(res.message || "Identifiants incorrects. Veuillez vérifier votre adresse e-mail et mot de passe.");
+  throw new Error(res.message || res.error || "Identifiants incorrects. Veuillez vérifier vos informations.");
 }
 export const loginWithFirebaseEmailPassword = loginWithEmailPassword;
 
 export async function logOutFromStore(): Promise<void> {
+  inMemorySessionUser = null;
+  await mysqlApi.logout();
+  clearStoredToken();
   try {
-    localStorage.removeItem('kinimmo_user');
-    clearStoredToken();
-    localStorage.removeItem('kinimmo_session_user');
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('kinimmo_auth_change', { detail: null }));
     }
@@ -796,43 +694,20 @@ export async function logOutFromStore(): Promise<void> {
 export const logOutFromFirebase = logOutFromStore;
 
 export function listenToAuthChanges(callback: (user: User | null) => void): () => void {
-  const readCurrent = () => {
-    try {
-      const raw = localStorage.getItem('kinimmo_user');
-      if (raw) {
-        callback(JSON.parse(raw));
-      } else {
-        callback(null);
-      }
-    } catch {
-      callback(null);
-    }
-  };
+  callback(inMemorySessionUser);
 
-  // 1. Invocation immédiate dès l'initialisation
-  readCurrent();
-
-  // 2. Écouteur des changements dans la même fenêtre / onglet
   const handleCustom = (e: any) => {
-    callback(e.detail ?? null);
-  };
-
-  // 3. Écouteur des changements multi-onglets (storage standard)
-  const handleStorage = (e: StorageEvent) => {
-    if (!e.key || e.key === 'kinimmo_user' || e.key === 'kinimmo_token') {
-      readCurrent();
-    }
+    inMemorySessionUser = e.detail ?? null;
+    callback(inMemorySessionUser);
   };
 
   if (typeof window !== 'undefined') {
     window.addEventListener('kinimmo_auth_change', handleCustom as any);
-    window.addEventListener('storage', handleStorage);
   }
 
   return () => {
     if (typeof window !== 'undefined') {
       window.removeEventListener('kinimmo_auth_change', handleCustom as any);
-      window.removeEventListener('storage', handleStorage);
     }
   };
 }

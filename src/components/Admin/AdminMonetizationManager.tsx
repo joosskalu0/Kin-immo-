@@ -8,6 +8,12 @@ import {
   isLaunchAudience,
   mapCategoryToAudience
 } from '../../utils/billingHelpers';
+import {
+  DEFAULT_FEATURED_SLOTS_LIMIT,
+  evaluateBoostRequestStatus,
+  parseFeaturedSlotsLimit,
+  resolveBoostPrimaryLabel,
+} from '../../utils/boostHelpers';
 import { generatePaymentReceiptPDF } from '../../utils/pdfGenerator';
 import {
   DollarSign,
@@ -49,6 +55,8 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
     updateInvoiceStatus,
     setActivePropertyModalId,
     cdfExchangeRate,
+    contactSettings,
+    updateContactSettings,
     approveManualInvoice,
     rejectManualInvoice,
     refundManualInvoice
@@ -58,8 +66,17 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<'all' | 'awaiting_validation' | 'pending' | 'paid' | 'rejected' | 'refunded'>('all');
   const [stats, setStats] = useState<MonetizationStats | null>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [boostRequests, setBoostRequests] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [options, setOptions] = useState<VisibilityOption[]>([]);
+  const [featuredSlotsLimit, setFeaturedSlotsLimit] = useState<number>(() =>
+    parseFeaturedSlotsLimit(contactSettings?.featuredSlotsLimit ?? DEFAULT_FEATURED_SLOTS_LIMIT)
+  );
+  const [activeSlotsCount, setActiveSlotsCount] = useState<number>(0);
+  const [slotsLimitDraft, setSlotsLimitDraft] = useState<number>(() =>
+    parseFeaturedSlotsLimit(contactSettings?.featuredSlotsLimit ?? DEFAULT_FEATURED_SLOTS_LIMIT)
+  );
+  const [isSavingSlotsLimit, setIsSavingSlotsLimit] = useState<boolean>(false);
   
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
@@ -128,12 +145,19 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
     setTimeout(() => setMessage(null), 4500);
   };
 
+  useEffect(() => {
+    const nextLimit = parseFeaturedSlotsLimit(contactSettings?.featuredSlotsLimit ?? DEFAULT_FEATURED_SLOTS_LIMIT);
+    setFeaturedSlotsLimit(nextLimit);
+    setSlotsLimitDraft(nextLimit);
+  }, [contactSettings?.featuredSlotsLimit]);
+
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [statsRes, invRes, plansRes, optRes] = await Promise.all([
+      const [statsRes, invRes, boostsRes, plansRes, optRes] = await Promise.all([
         mysqlApi.adminGetMonetizationStats(),
         mysqlApi.adminGetInvoices(),
+        mysqlApi.adminGetBoostRequests('all').catch(() => null),
         mysqlApi.getPricingPlans(undefined, true),
         mysqlApi.getVisibilityOptions()
       ]);
@@ -143,6 +167,17 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
       }
       if (invRes.success && invRes.data?.invoices) {
         setInvoices(invRes.data.invoices);
+      }
+      if (boostsRes && Array.isArray(boostsRes.boosts)) {
+        setBoostRequests(boostsRes.boosts);
+        if (boostsRes.featured_slots_limit) {
+          const parsed = parseFeaturedSlotsLimit(boostsRes.featured_slots_limit);
+          setFeaturedSlotsLimit(parsed);
+          setSlotsLimitDraft(parsed);
+        }
+        if (typeof boostsRes.active_slots_count === 'number') {
+          setActiveSlotsCount(boostsRes.active_slots_count);
+        }
       }
       if (plansRes.success && plansRes.plans) {
         setPlans(plansRes.plans);
@@ -154,6 +189,47 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
       showMsg('error', 'Erreur chargement monétisation: ' + (err.message || 'Réseau'));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveSlotsLimit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseFeaturedSlotsLimit(slotsLimitDraft);
+    setIsSavingSlotsLimit(true);
+    try {
+      const res = await updateContactSettings({ featuredSlotsLimit: parsed });
+      if (res.success) {
+        setFeaturedSlotsLimit(parsed);
+        setSlotsLimitDraft(parsed);
+        showMsg('success', `Plafond d'emplacements en tête mis à jour (${parsed} places max).`);
+        await loadData();
+      } else {
+        showMsg('error', res.message || 'Impossible de mettre à jour le plafond.');
+      }
+    } catch (err: any) {
+      showMsg('error', err?.message || 'Erreur lors de la sauvegarde du plafond.');
+    } finally {
+      setIsSavingSlotsLimit(false);
+    }
+  };
+
+  const handleSuspendOrResumeBoost = async (boostId: string, currentlySuspended: boolean) => {
+    setIsProcessing(boostId);
+    try {
+      const res = currentlySuspended
+        ? await mysqlApi.adminResumeBoost(boostId)
+        : await mysqlApi.adminSuspendBoost(boostId);
+      if (res?.success) {
+        showMsg('success', res.message || (currentlySuspended ? 'Mise en avant réactivée.' : 'Mise en avant suspendue.'));
+        await loadData();
+        if (onRefreshStats) onRefreshStats();
+      } else {
+        showMsg('error', res?.message || 'Action impossible sur cette mise en avant.');
+      }
+    } catch (err: any) {
+      showMsg('error', err?.message || 'Erreur réseau.');
+    } finally {
+      setIsProcessing(null);
     }
   };
 
@@ -515,22 +591,30 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
 
       {/* Calculs spécifiques des demandes de boost & validation */}
       {(() => {
-        const boostInvoices = invoices.filter(
-          (inv) => inv.invoice_type === 'boost' || inv.invoiceType === 'boost' || inv.property_id || inv.propertyId || inv.option_id
-        );
+        const rawBoostInvoices = boostRequests.length > 0
+          ? boostRequests
+          : invoices.filter(
+              (inv) => inv.invoice_type === 'boost' || inv.invoiceType === 'boost' || inv.property_id || inv.propertyId || inv.option_id
+            );
+        const boostInvoices = rawBoostInvoices.map((inv) => {
+          const propId = inv.property_id || inv.propertyId;
+          const targetProp = properties.find((p) => p.id === propId);
+          const computed = inv.computed_status || evaluateBoostRequestStatus(inv, targetProp);
+          return { ...inv, computed_status: computed };
+        });
         const awaitingInvoicesAll = invoices.filter((inv) => inv.status === 'awaiting_validation');
-        const pendingBoosts = boostInvoices.filter((inv) => inv.status === 'pending' || inv.status === 'awaiting_validation');
-        const awaitingBoosts = boostInvoices.filter((inv) => inv.status === 'awaiting_validation');
-        const activeBoosts = boostInvoices.filter((inv) => inv.status === 'paid');
-        const rejectedBoosts = boostInvoices.filter((inv) => inv.status === 'failed' || inv.status === 'cancelled' || inv.status === 'rejected');
-        const refundedBoosts = boostInvoices.filter((inv) => inv.status === 'refunded');
+        const pendingBoosts = boostInvoices.filter((inv) => inv.computed_status === 'pending' || inv.computed_status === 'awaiting_validation');
+        const awaitingBoosts = boostInvoices.filter((inv) => inv.computed_status === 'awaiting_validation');
+        const activeBoosts = boostInvoices.filter((inv) => inv.computed_status === 'active' || inv.computed_status === 'expired' || inv.computed_status === 'suspended');
+        const rejectedBoosts = boostInvoices.filter((inv) => inv.computed_status === 'rejected');
+        const refundedBoosts = boostInvoices.filter((inv) => inv.computed_status === 'refunded');
 
         const filteredBoosts = boostInvoices.filter((inv) => {
-          if (boostStatusFilter === 'to_validate') return inv.status === 'pending' || inv.status === 'awaiting_validation';
-          if (boostStatusFilter === 'awaiting_validation') return inv.status === 'awaiting_validation';
-          if (boostStatusFilter === 'paid') return inv.status === 'paid';
-          if (boostStatusFilter === 'failed') return inv.status === 'failed' || inv.status === 'cancelled' || inv.status === 'rejected';
-          if (boostStatusFilter === 'refunded') return inv.status === 'refunded';
+          if (boostStatusFilter === 'to_validate') return inv.computed_status === 'pending' || inv.computed_status === 'awaiting_validation';
+          if (boostStatusFilter === 'awaiting_validation') return inv.computed_status === 'awaiting_validation';
+          if (boostStatusFilter === 'paid') return inv.computed_status === 'active' || inv.computed_status === 'expired' || inv.computed_status === 'suspended' || inv.status === 'paid';
+          if (boostStatusFilter === 'failed') return inv.computed_status === 'rejected';
+          if (boostStatusFilter === 'refunded') return inv.computed_status === 'refunded';
           return true;
         });
 
@@ -675,22 +759,60 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
             {/* Sub-Tab 0: Demandes de Boost & Validation manuelle des paiements */}
             {activeSubTab === 'boosts' && (
               <div className="space-y-5">
+                {/* Plafond d'emplacements en tête paramétrable par l'admin */}
+                <form
+                  onSubmit={handleSaveSlotsLimit}
+                  className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1">
+                    <div className="text-xs font-black text-white uppercase tracking-wider">
+                      Emplacements prioritaires en tête de liste
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Actuellement{' '}
+                      <strong className="text-amber-400 font-mono tabular-nums">
+                        {activeSlotsCount} / {featuredSlotsLimit}
+                      </strong>{' '}
+                      emplacements occupés (par défaut : 6 places). L'expiration est calculée automatiquement à la lecture.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={slotsLimitDraft}
+                      onChange={(e) => setSlotsLimitDraft(parseInt(e.target.value, 10) || DEFAULT_FEATURED_SLOTS_LIMIT)}
+                      aria-label="Nombre maximum d'emplacements en tête"
+                      className="w-20 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-mono font-bold text-center tabular-nums focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSavingSlotsLimit}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSavingSlotsLimit ? 'Enregistrement...' : 'Enregistrer plafond'}
+                    </button>
+                  </div>
+                </form>
+
                 {/* Notice de gouvernance */}
                 <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
                   <div className="flex items-start gap-3">
                     <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                     <div>
                       <div className="font-black text-amber-300 text-sm">
-                        Règle de Contrôle Strict : Autorisation & Validation Manuelle des Boosts
+                        Validation Manuelle & Activation avec Dates de Début / Fin
                       </div>
                       <p className="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
-                        Aucun boost ne s'active automatiquement. L'administrateur doit vérifier la réception effective des fonds sur les comptes Mobile Money (M-Pesa, Airtel Money, Orange Money) ou Banque (Rawbank), puis cliquer sur <strong>« Valider le Paiement & Activer »</strong>. Le calcul de la durée d'expiration prend effet immédiatement après validation.
+                        Après vérification du paiement Mobile Money, cliquez sur <strong>« Examiner & Valider »</strong>. Les dates de début et de fin démarrent immédiatement et les statistiques avant/pendant le boost sont suivies automatiquement.
                       </p>
                     </div>
                   </div>
                   <button
+                    type="button"
                     onClick={loadData}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shrink-0 flex items-center gap-1.5 transition-all"
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shrink-0 flex items-center gap-1.5 transition-all cursor-pointer"
                   >
                     <Clock className="w-3.5 h-3.5" />
                     <span>Rafraîchir les flux</span>
@@ -758,10 +880,22 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                       const durationDays = Number(inv.duration_days) || 7;
                       const amountUsd = Number(inv.amount || inv.amount_usd || inv.total_amount || 0);
                       const amountCdf = Number(inv.amount_cdf || inv.total_amount_cdf || Math.round(amountUsd * cdfExchangeRate));
-                      const isPendingOrAwaiting = inv.status === 'pending' || inv.status === 'awaiting_validation';
-                      const isPaid = inv.status === 'paid';
+                      const isPendingOrAwaiting = inv.computed_status === 'pending' || inv.computed_status === 'awaiting_validation';
+                      const isActiveBoost = inv.computed_status === 'active';
+                      const isExpiredBoost = inv.computed_status === 'expired';
+                      const isSuspendedBoost = inv.computed_status === 'suspended';
+                      const isPaid = inv.status === 'paid' || isActiveBoost || isExpiredBoost || isSuspendedBoost;
                       const isRefunded = inv.status === 'refunded';
-                      const statusMeta = formatInvoiceStatusInfo(inv.status);
+                      const statusMeta = isExpiredBoost
+                        ? { label: 'Expiré (lecture)', tone: 'bg-slate-800 text-slate-300 border border-slate-700' }
+                        : isSuspendedBoost
+                        ? { label: 'Suspendu', tone: 'bg-purple-500/20 text-purple-300 border border-purple-500/30' }
+                        : formatInvoiceStatusInfo(inv.status);
+                      const boostLabel =
+                        inv.boost_label ||
+                        (inv.boost_type === 'urgent'
+                          ? 'Urgent'
+                          : resolveBoostPrimaryLabel(inv.boost_type, inv.badge_text));
 
                       return (
                         <div
@@ -771,7 +905,7 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                               ? 'border-sky-500/40'
                               : inv.status === 'pending'
                               ? 'border-amber-500/40'
-                              : isPaid
+                              : isActiveBoost
                               ? 'border-emerald-500/30'
                               : 'border-slate-800'
                           }`}
@@ -790,6 +924,17 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                                   </span>
                                   <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${statusMeta.tone}`}>
                                     {statusMeta.label}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                      boostLabel === 'Urgent'
+                                        ? 'bg-rose-600 text-white'
+                                        : boostLabel === 'Sponsorisé'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-amber-400 text-slate-950'
+                                    }`}
+                                  >
+                                    {boostLabel}
                                   </span>
                                 </div>
                                 <h4 className="font-bold text-white text-sm line-clamp-1">
@@ -832,23 +977,33 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                               </a>
                             </div>
 
-                            <div className="min-w-[170px] space-y-1 text-xs">
+                            <div className="min-w-[190px] space-y-1 text-xs">
                               <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                                Formule de Visibilité
+                                Formule & Période
                               </span>
                               <div className="font-black text-amber-300 flex items-center gap-1">
                                 <Zap className="w-3.5 h-3.5 fill-amber-400" />
-                                <span>{inv.option_name || 'Boost Vedette'}</span>
+                                <span>{inv.option_name || 'Mise en avant'}</span>
                               </div>
-                              <div className="text-[11px] text-slate-300 font-semibold">
+                              <div className="text-[11px] text-slate-300 font-semibold tabular-nums">
                                 Durée : <span className="text-white font-bold">{durationDays} jours</span>
                               </div>
+                              {inv.starts_at && inv.expires_at && (
+                                <div className="text-[11px] text-emerald-300 font-mono tabular-nums">
+                                  {new Date(inv.starts_at).toLocaleDateString('fr-FR')} → {new Date(inv.expires_at).toLocaleDateString('fr-FR')}
+                                </div>
+                              )}
                               <div className="font-black text-white text-sm font-mono tabular-nums">
                                 {amountUsd} USD{' '}
                                 <span className="text-[11px] text-slate-400 font-normal">
                                   (~{amountCdf.toLocaleString()} CDF)
                                 </span>
                               </div>
+                              {isPaid && (inv.views_before !== undefined || inv.views_during !== undefined) && (
+                                <div className="text-[10px] text-slate-400 tabular-nums pt-0.5">
+                                  Avant: {Number(inv.views_before || 0)}v/{Number(inv.contacts_before || 0)}c • Pendant: +{Number(inv.views_during || 0)}v/+{Number(inv.contacts_during || 0)}c
+                                </div>
+                              )}
                             </div>
 
                             <div className="min-w-[210px] space-y-1.5 text-xs">
@@ -919,7 +1074,17 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                                     <FileText className="w-3.5 h-3.5" />
                                     <span>Reçu PDF</span>
                                   </button>
-                                  {isPaid && (
+                                  {(isActiveBoost || isSuspendedBoost) && (
+                                    <button
+                                      type="button"
+                                      disabled={isProcessing === inv.id}
+                                      onClick={() => handleSuspendOrResumeBoost(inv.id, isSuspendedBoost)}
+                                      className="w-full px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-purple-950/40 text-purple-300 border border-purple-500/30 font-bold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer"
+                                    >
+                                      <span>{isSuspendedBoost ? 'Réactiver boost' : 'Suspendre boost'}</span>
+                                    </button>
+                                  )}
+                                  {isPaid && !isRefunded && (
                                     <button
                                       onClick={() => {
                                         setRefundModalInv(inv);
@@ -1737,11 +1902,12 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                     onChange={(e) => setOptionForm({ ...optionForm, boost_type: e.target.value as any })}
                     className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
                   >
-                    <option value="featured">Vedette (Carrousel Accueil & Tête de liste)</option>
-                    <option value="premium">Pack Premium (Cadre doré VIP)</option>
-                    <option value="urgent">Urgent Flash (Bandeau rouge)</option>
-                    <option value="refresh">Remontée 24h (Top liste instantané)</option>
-                    <option value="social_blast">Multi-Canal (WhatsApp VIP & Réseaux)</option>
+                    <option value="featured">À la une (Tête d'accueil & Carrousel)</option>
+                    <option value="sponsorise">Sponsorisé (Étiquette « Sponsorisé »)</option>
+                    <option value="premium">Pack À la une Premium (Priorité maximale)</option>
+                    <option value="urgent">Urgent (Étiquette « Urgent »)</option>
+                    <option value="refresh">Remontée 24h (« Sponsorisé »)</option>
+                    <option value="social_blast">Multi-Canal (« Sponsorisé » + Réseaux)</option>
                   </select>
                 </div>
 

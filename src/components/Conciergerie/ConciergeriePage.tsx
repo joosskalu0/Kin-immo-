@@ -822,6 +822,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
                     <span className="text-[11px] text-slate-500 font-semibold block">Commune prioritaire</span>
                     <div className="relative">
                       <select
+                        aria-label="Commune prioritaire"
                         value={commune}
                         onChange={(e) => setCommune(e.target.value)}
                         className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white"
@@ -934,6 +935,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
                       <span>Chambres</span>
                     </span>
                     <select
+                      aria-label="Nombre de chambres souhaitées"
                       value={chambres}
                       onChange={(e) => setChambres(e.target.value)}
                       className="w-full h-10 px-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white"
@@ -953,6 +955,7 @@ export const ConciergeriePage: React.FC<ConciergeriePageProps> = ({
                       <span>Salles de bain</span>
                     </span>
                     <select
+                      aria-label="Nombre de salles de bain souhaitées"
                       value={sallesDeBain}
                       onChange={(e) => setSallesDeBain(e.target.value)}
                       className="w-full h-10 px-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white"

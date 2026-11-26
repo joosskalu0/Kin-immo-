@@ -314,6 +314,9 @@ export const ArchitecturalHeroSlider: React.FC<ArchitecturalHeroSliderProps> = (
             <img
               src={resolveMediaUrl(slide.image) || FALLBACK_PROPERTY_IMAGE}
               alt={slide.title}
+              loading={idx === currentIndex ? 'eager' : 'lazy'}
+              fetchPriority={idx === currentIndex ? 'high' : 'low'}
+              decoding="async"
               onError={(e) => handlePropertyImageError(e)}
               className="w-full h-full object-cover object-center"
             />

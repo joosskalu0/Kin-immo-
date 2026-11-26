@@ -1,7 +1,19 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
+import {registerSW} from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
+
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  try {
+    registerSW({
+      immediate: true,
+      onRegisterError() {
+        // Ne pas bloquer l'application si le navigateur restreint l'enregistrement SW (ex: navigation privée)
+      },
+    });
+  } catch {}
+}
 
 // Google Maps Platform Two-Tier Quota Defense
 (window as any).gm_authFailure = () => {

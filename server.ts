@@ -19,25 +19,121 @@ import {
   slugifyText,
 } from './src/data/contentSeed';
 import { getPropertySlug, resolvePropertyBySlugOrId } from './src/utils/shareUtils';
+import {
+  DEFAULT_FEATURED_SLOTS_LIMIT,
+  computeBoostMetrics,
+  evaluateBoostRequestStatus,
+  getActiveBoostDisplay,
+  isBoostWindowActive,
+  isPropertyPubliclyVisible,
+  parseFeaturedSlotsLimit,
+  resolveBoostPrimaryLabel,
+} from './src/utils/boostHelpers';
+import {
+  EMAIL_VERIFY_TTL_MS,
+  PASSWORD_RESET_TTL_MS,
+  TERMS_VERSION,
+  StoredAccountRecord,
+  appendAuthCookies,
+  canUserPublishListings,
+  clearAuthCookies,
+  consumeOneTimeActionToken,
+  createNewSessionPair,
+  createOneTimeActionToken,
+  csrfProtectionMiddleware,
+  dispatchAuthEmail,
+  getAuthenticatedUserFromCookies,
+  hashPasswordBcrypt,
+  isValidEmailAddress,
+  issueCsrfToken,
+  listActiveSessionsForUser,
+  markOneTimeActionTokenUsed,
+  migrateUsersToBcrypt,
+  normalizeAccountRole,
+  normalizeEmailAddress,
+  normalizePhoneRdc,
+  peekOneTimeActionToken,
+  resolveSiteOrigin,
+  revokeAllUserSessions,
+  revokeCurrentRequestSession,
+  revokeSessionById,
+  rotateRefreshSession,
+  sanitizePublicUser,
+  validatePasswordPolicy,
+  verifyPasswordBcrypt,
+} from './server/authSecurity';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT ? (isNaN(Number(process.env.PORT)) ? process.env.PORT : Number(process.env.PORT)) : 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
 // Parser JSON & URL-encoded (support des vidéos et photos haute définition)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use('/api', csrfProtectionMiddleware);
+app.use('/auth', csrfProtectionMiddleware);
 
-// Servir les fichiers téléversés et les images éditoriales OG
+// Limitation de débit (Rate Limiting) glissante en mémoire pour protéger auth et soumissions publiques
+function createSlidingRateLimiter(opts: { windowMs: number; max: number; message: string }) {
+  const buckets = new Map<string, number[]>();
+  return (req: Request, res: Response, next: express.NextFunction) => {
+    const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
+    const key = `${ip}:${req.path}`;
+    const now = Date.now();
+    const cutoff = now - opts.windowMs;
+    const recent = (buckets.get(key) || []).filter((ts) => ts > cutoff);
+    if (recent.length >= opts.max) {
+      const retryAfterSec = Math.max(1, Math.ceil((recent[0] + opts.windowMs - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({
+        success: false,
+        code: 'RATE_LIMITED',
+        message: opts.message,
+        error: opts.message,
+      });
+    }
+    recent.push(now);
+    buckets.set(key, recent);
+    if (buckets.size > 5000) {
+      for (const [bKey, hits] of buckets.entries()) {
+        if (!hits.some((ts) => ts > cutoff)) buckets.delete(bKey);
+      }
+    }
+    return next();
+  };
+}
+
+const authLoginRateLimiter = createSlidingRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.KINIMMO_LOGIN_RATE_LIMIT || 25),
+  message: 'Trop de tentatives de connexion. Veuillez patienter avant de réessayer.',
+});
+
+const authSensitiveRateLimiter = createSlidingRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.KINIMMO_AUTH_SENSITIVE_RATE_LIMIT || 10),
+  message: 'Trop de requêtes sensibles effectuées. Veuillez réessayer dans quelques minutes.',
+});
+
+const publicSubmissionRateLimiter = createSlidingRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: Number(process.env.KINIMMO_PUBLIC_SUBMISSION_RATE_LIMIT || 25),
+  message: 'Limite d’envoi atteinte. Veuillez patienter quelques minutes avant un nouvel envoi.',
+});
+
+// Servir les fichiers téléversés et les images éditoriales OG (blocage fichiers cachés)
 const devUploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(devUploadsDir)) {
   try { fs.mkdirSync(devUploadsDir, { recursive: true }); } catch {}
 }
-app.use('/uploads', express.static(devUploadsDir));
-app.use('/og-images', express.static(path.join(__dirname, 'src/assets/images')));
+app.use('/uploads', express.static(devUploadsDir, { dotfiles: 'deny', index: false }));
+app.use('/uploads', (_req, res) => res.status(404).json({ success: false, message: 'Fichier introuvable.' }));
+app.use('/og-images', express.static(path.join(__dirname, 'src/assets/images'), { dotfiles: 'deny', index: false }));
+app.use('/og-images', (_req, res) => res.status(404).json({ success: false, message: 'Image introuvable.' }));
 
 // Fichier local de secours pour persistance robuste
 const LOCAL_LEADS_FILE = path.join(__dirname, 'concierge_requests.json');
@@ -317,76 +413,96 @@ const INITIAL_PLANS = [
 const INITIAL_VISIBILITY_OPTIONS = [
   {
     id: 'opt_featured_7d',
-    name: 'Mise en Avant 7 jours',
+    name: 'À la une 7 jours',
     slug: 'mise_en_avant_7d',
-    description: 'Positionnement en tête de page d\'accueil et carrousel prioritaire pendant 7 jours.',
+    description: 'Positionnement en tête d\'accueil et de recherche avec l\'étiquette « À la une » pendant 7 jours.',
     boost_type: 'featured',
     duration_days: 7,
     price_usd: 10.0,
     price_cdf: 28500.0,
     price: 10.0,
     priceCDF: 28500.0,
-    badge_text: 'En Vedette ⭐',
+    label_type: 'À la une',
+    badge_text: 'À la une',
     icon: 'Sparkles',
     is_active: true
   },
   {
+    id: 'opt_sponsorise_14d',
+    name: 'Annonce Sponsorisée 14 jours',
+    slug: 'annonce_sponsorisee_14d',
+    description: 'Mise en avant prioritaire dans les résultats de recherche avec l\'étiquette « Sponsorisé » pendant 14 jours.',
+    boost_type: 'sponsorise',
+    duration_days: 14,
+    price_usd: 15.0,
+    price_cdf: 42750.0,
+    price: 15.0,
+    priceCDF: 42750.0,
+    label_type: 'Sponsorisé',
+    badge_text: 'Sponsorisé',
+    icon: 'Megaphone',
+    is_active: true
+  },
+  {
     id: 'opt_premium_30d',
-    name: 'Pack Annonce Premium 30 jours',
+    name: 'Pack À la une 30 jours',
     slug: 'annonce_premium_30d',
-    description: 'Affichage permanent avec cadre doré, badge Premium, priorité maximale et 3x plus d\'appels.',
+    description: 'Affichage prioritaire « À la une » pendant 30 jours complets avec mise en valeur maximale.',
     boost_type: 'premium',
     duration_days: 30,
     price_usd: 25.0,
     price_cdf: 71250.0,
     price: 25.0,
     priceCDF: 71250.0,
-    badge_text: '👑 Annonce Premium',
+    label_type: 'À la une',
+    badge_text: 'À la une',
     icon: 'Crown',
     is_active: true
   },
   {
     id: 'opt_urgent_14d',
-    name: 'Badge Vente / Location Urgente',
+    name: 'Badge Urgent 14 jours',
     slug: 'badge_urgent_14d',
-    description: 'Bandeau rouge d\'urgence pour attirer immédiatement les acheteurs et locataires sérieux.',
+    description: 'Signalétique « Urgent » pour attirer immédiatement les acheteurs et locataires sérieux.',
     boost_type: 'urgent',
     duration_days: 14,
     price_usd: 8.0,
     price_cdf: 22800.0,
     price: 8.0,
     priceCDF: 22800.0,
-    badge_text: '⚡ Urgent',
+    badge_text: 'Urgent',
     icon: 'Zap',
     is_active: true
   },
   {
     id: 'opt_refresh_bump',
-    name: 'Remontée Immédiate en Tête',
+    name: 'Sponsorisé Flash 24h',
     slug: 'remontee_tete',
-    description: 'Actualise la date de votre annonce pour la replacer tout en haut des résultats de recherche récents.',
+    description: 'Replacer votre annonce en tête des résultats pendant 24h avec l\'étiquette « Sponsorisé ».',
     boost_type: 'refresh',
     duration_days: 1,
     price_usd: 5.0,
     price_cdf: 14250.0,
     price: 5.0,
     priceCDF: 14250.0,
-    badge_text: 'Top Liste',
+    label_type: 'Sponsorisé',
+    badge_text: 'Sponsorisé',
     icon: 'ArrowUpCircle',
     is_active: true
   },
   {
     id: 'opt_social_blast',
-    name: 'Diffusion Réseaux & WhatsApp Kinimmo',
+    name: 'Pack Sponsorisé Multi-Canal 14 jours',
     slug: 'diffusion_reseaux',
-    description: 'Publication sponsorisée sur la communauté Facebook Kinimmo et diffusion WhatsApp VIP.',
+    description: 'Annonce « Sponsorisé » en tête de liste + diffusion sur la communauté Kinimmo.',
     boost_type: 'social_blast',
     duration_days: 14,
     price_usd: 35.0,
     price_cdf: 99750.0,
     price: 35.0,
     priceCDF: 99750.0,
-    badge_text: 'Multi-Canal VIP',
+    label_type: 'Sponsorisé',
+    badge_text: 'Sponsorisé',
     icon: 'Share2',
     is_active: true
   }
@@ -630,7 +746,20 @@ function loadLocalOptions(): any[] {
     if (fs.existsSync(LOCAL_OPTIONS_FILE)) {
       const content = fs.readFileSync(LOCAL_OPTIONS_FILE, 'utf-8');
       const parsed = JSON.parse(content);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const list = parsed.map((opt) => ({
+          ...opt,
+          label_type:
+            opt.boost_type === 'urgent'
+              ? undefined
+              : resolveBoostPrimaryLabel(opt.boost_type, opt.badge_text, opt.label_type),
+        }));
+        const sponsorOpt = INITIAL_VISIBILITY_OPTIONS.find((o) => o.id === 'opt_sponsorise_14d');
+        if (sponsorOpt && !list.some((o) => o.id === 'opt_sponsorise_14d')) {
+          list.splice(1, 0, sponsorOpt);
+        }
+        return list;
+      }
     }
   } catch (e) {
     console.error('Erreur lecture visibility_options.json', e);
@@ -996,6 +1125,27 @@ function ensurePendingVideoModerationInMemory({ prop, user, videoUrl }: { prop: 
   return vidStatus;
 }
 
+function getFeaturedSlotsLimitServer(): number {
+  return parseFeaturedSlotsLimit(inMemorySettings?.featured_slots_limit ?? DEFAULT_FEATURED_SLOTS_LIMIT);
+}
+
+function getLivePropertyMetrics(prop: any) {
+  const analyticsRow = prop?.id ? inMemoryAnalytics[prop.id] : undefined;
+  const views = Math.max(Number(prop?.viewsCount || 0), Number(analyticsRow?.views || 0));
+  const whatsapp = Math.max(Number(prop?.whatsappClicks || 0), Number(analyticsRow?.whatsapp || 0));
+  const phone = Math.max(Number(prop?.phoneCalls || 0), Number(analyticsRow?.phone || 0));
+  const leads = Number(prop?.leadsCount || 0);
+  return {
+    views,
+    contacts: whatsapp + phone + leads,
+    analyticsRow,
+  };
+}
+
+function countActiveBoostSlotsServer(nowMs = Date.now()): number {
+  return inMemoryProperties.filter((p) => getActiveBoostDisplay(p, nowMs).isActive).length;
+}
+
 function sanitizePropertyForViewer(prop: any, authUser: AuthUser | null) {
   const normalized = normalizePropertyRecord(prop);
   const matchingVideo = inMemoryVideos.find((v) => v.propertyId === normalized.id && v.videoUrl === normalized.videoUrl)
@@ -1003,15 +1153,33 @@ function sanitizePropertyForViewer(prop: any, authUser: AuthUser | null) {
   const videoModStatus = matchingVideo?.status || normalized.videoModerationStatus;
   const isOwnerOrAdmin = Boolean(authUser && canManageProperty(authUser, normalized));
 
+  // Évaluation dynamique du boost à la lecture (expiration immédiate sans tâche planifiée)
+  const nowMs = Date.now();
+  const boostDisplay = getActiveBoostDisplay(normalized, nowMs);
+  const boostSanitized = boostDisplay.isActive
+    ? normalized
+    : {
+        ...normalized,
+        featured: false,
+        isPremium: false,
+        isUrgent: false,
+        isSponsored: false,
+        boostLabel: undefined,
+        listingTier: normalized.listingTier === 'free' ? 'free' : 'standard',
+      };
+
+  const { privateFields: _pf, ...withoutPrivate } = boostSanitized;
+  const baseProp = isOwnerOrAdmin ? boostSanitized : withoutPrivate;
+
   if (videoModStatus && videoModStatus !== 'approved' && !isOwnerOrAdmin) {
     return {
-      ...normalized,
+      ...baseProp,
       videoUrl: undefined,
       videoModerationStatus: videoModStatus,
     };
   }
   return {
-    ...normalized,
+    ...baseProp,
     ...(videoModStatus ? { videoModerationStatus: videoModStatus } : {}),
   };
 }
@@ -1576,7 +1744,15 @@ function saveLocalSlides(list: any[]) {
 // Types et persistance des notifications backend
 export interface NotificationRecord {
   id: string;
-  event_type: 'client_request_confirmation' | 'agent_request_assigned' | 'visit_confirmation' | 'visit_reminder' | 'status_update';
+  event_type:
+    | 'client_request_confirmation'
+    | 'agent_request_assigned'
+    | 'visit_confirmation'
+    | 'visit_reminder'
+    | 'status_update'
+    | 'auth_email_verification'
+    | 'auth_email_change_verification'
+    | 'auth_password_reset';
   recipient_type: 'client' | 'agent' | 'admin' | 'user';
   recipient_id?: string | null;
   recipient_name: string;
@@ -1620,11 +1796,12 @@ let inMemoryAds: any[] = loadLocalAds();
 let inMemorySlides: any[] = loadLocalSlides();
 let inMemoryNotifications: NotificationRecord[] = loadLocalNotifications();
 
-// Helper de sécurité & Authentification Kinimmo (Node.js & MySQL)
+// Helper de sécurité & Authentification Kinimmo (Cookies HttpOnly, bcrypt, CSRF, Rotation)
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
+  pendingEmail?: string;
   phone?: string;
   whatsapp?: string;
   role: 'admin' | 'agent' | 'agency' | 'user' | 'owner';
@@ -1640,58 +1817,16 @@ export interface AuthUser {
   trialEndsAt?: string;
   includedBoostsRemaining?: number;
   isVerified?: boolean;
+  emailVerified?: boolean;
+  emailVerifiedAt?: string;
+  phoneVerified?: boolean;
+  termsAcceptedVersion?: string;
+  termsAcceptedAt?: string;
+  passwordUpdatedAt?: string;
   kinshasaBadgeVerified?: boolean;
 }
 
-interface StoredAccountRecord extends AuthUser {
-  password?: string;
-  createdAt: string;
-}
-
-const DEFAULT_USERS_SEED: StoredAccountRecord[] = [
-  {
-    id: 'admin_master',
-    name: 'Direction Kinimmo',
-    email: 'admin@kinimmo.cd',
-    password: 'AdminPassword2026!',
-    phone: '+243 84 529 4616',
-    role: 'admin',
-    agencyName: 'Kinimmo RDC',
-    isVerified: true,
-    kinshasaBadgeVerified: true,
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'agent_gombe_01',
-    name: 'Cabinet Immobilier Gombe',
-    email: 'agent.gombe@kinimmo.cd',
-    password: 'Password123!',
-    phone: '+243 81 000 0001',
-    role: 'agent',
-    agencyName: 'Cabinet Immobilier Gombe SARL',
-    rccmOrNif: 'CD/KIN/RCCM/26-B-08420',
-    isVerified: true,
-    kinshasaBadgeVerified: true,
-    avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'agency_prestige_01',
-    name: 'Agence Prestige Kinshasa',
-    email: 'agence@kinimmo.cd',
-    password: 'Password123!',
-    phone: '+243 82 123 4567',
-    role: 'agency',
-    agencyId: 'agency_prestige_01',
-    agencyName: 'Agence Prestige Kinshasa SARL',
-    rccmOrNif: 'CD/KIN/RCCM/24-B-01192',
-    isVerified: true,
-    kinshasaBadgeVerified: true,
-    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-    createdAt: new Date().toISOString()
-  }
-];
+const DEFAULT_USERS_SEED: StoredAccountRecord[] = [];
 
 function loadLocalUsers(): StoredAccountRecord[] {
   try {
@@ -1710,211 +1845,312 @@ function loadLocalUsers(): StoredAccountRecord[] {
 
 function saveLocalUsers(users: StoredAccountRecord[]): void {
   try {
-    fs.writeFileSync(LOCAL_USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+    const cleaned = users.map((u) => {
+      const { password: _plain, ...rest } = u;
+      return rest;
+    });
+    fs.writeFileSync(LOCAL_USERS_FILE, JSON.stringify(cleaned, null, 2), 'utf-8');
   } catch (err) {
     console.warn('[Users Store] Erreur lors de la sauvegarde des comptes:', err);
   }
 }
 
 let inMemoryUsers: StoredAccountRecord[] = loadLocalUsers();
-
-// Génération d'un jeton d'authentification unique canonique
-const createAuthToken = (user: AuthUser): string => {
-  const payload = {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    phone: user.phone || '',
-    agencyId: user.agencyId || (user.role === 'agency' ? user.id : undefined),
-    agencyName: user.agencyName || '',
-    iat: Date.now(),
-    exp: Date.now() + 30 * 24 * 60 * 60 * 1000 // 30 jours
-  };
-  return Buffer.from(JSON.stringify(payload)).toString('base64');
-};
+migrateUsersToBcrypt(inMemoryUsers, saveLocalUsers).catch((err) => {
+  console.warn('[Auth Migration] Erreur migration bcrypt:', err);
+});
 
 const getAuthUser = (req: Request): AuthUser | null => {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || typeof authHeader !== 'string') return null;
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
-  if (!token) return null;
-
-  try {
-    const decodedStr = Buffer.from(token, 'base64').toString('utf-8');
-    if (!decodedStr.startsWith('{')) return null;
-
-    const parsed = JSON.parse(decodedStr);
-    if (!parsed || !parsed.id || !parsed.role) return null;
-    if (parsed.exp && Number(parsed.exp) < Date.now()) {
-      return null;
-    }
-
-    const storedUser = inMemoryUsers.find(u => u.id === parsed.id);
-    if (storedUser) {
-      const { password: _pwd, ...safeUser } = storedUser;
-      if (safeUser.role === 'agency' && !safeUser.agencyId) {
-        safeUser.agencyId = safeUser.id;
-      }
-      return safeUser;
-    }
-
-    // Rejeter toute usurpation de rôle admin si le compte n'existe pas dans inMemoryUsers
-    if (parsed.role === 'admin') {
-      return null;
-    }
-
-    return {
-      id: String(parsed.id),
-      name: String(parsed.name || 'Utilisateur Kinimmo'),
-      email: String(parsed.email || ''),
-      phone: parsed.phone,
-      whatsapp: parsed.whatsapp,
-      role: parsed.role,
-      agencyId: parsed.agencyId || (parsed.role === 'agency' ? parsed.id : undefined),
-      agencyName: parsed.agencyName,
-      rccmOrNif: parsed.rccmOrNif,
-      avatar: parsed.avatar,
-      planId: parsed.planId,
-      isVerified: Boolean(parsed.isVerified),
-      kinshasaBadgeVerified: Boolean(parsed.kinshasaBadgeVerified)
-    };
-  } catch {
-    return null;
+  const authed = getAuthenticatedUserFromCookies(req, inMemoryUsers);
+  if (!authed) return null;
+  const safeUser = sanitizePublicUser(authed.user) as AuthUser;
+  if (safeUser.role === 'agency' && !safeUser.agencyId) {
+    safeUser.agencyId = safeUser.id;
   }
+  return safeUser;
 };
 
-// Handlers d'authentification (/auth/register, /auth/login, /auth/me)
-const handleRegister = (req: Request, res: Response) => {
+function findUserByIdentifier(identifier: string): StoredAccountRecord | undefined {
+  const trimmed = String(identifier || '').trim();
+  if (!trimmed) return undefined;
+  if (trimmed.includes('@')) {
+    const cleanEmail = normalizeEmailAddress(trimmed);
+    return inMemoryUsers.find((u) => u.email && normalizeEmailAddress(u.email) === cleanEmail);
+  }
+  const phoneCheck = normalizePhoneRdc(trimmed);
+  const targetPhone = phoneCheck.valid
+    ? phoneCheck.normalized
+    : trimmed.replace(/[\s().-]/g, '');
+  return inMemoryUsers.find((u) => {
+    const p = (u.phone || '').replace(/[\s().-]/g, '');
+    return Boolean(p && (p === targetPhone || (phoneCheck.valid && p.endsWith(targetPhone.slice(-9)))));
+  });
+}
+
+async function sendVerificationLinkEmail(req: Request, user: StoredAccountRecord, targetEmail: string, purpose: 'verify_email' | 'change_email') {
+  const { rawToken } = createOneTimeActionToken({
+    purpose,
+    userId: user.id,
+    targetEmail,
+    ttlMs: EMAIL_VERIFY_TTL_MS,
+  });
+  const origin = resolveSiteOrigin(req);
+  const actionUrl = `${origin}/confirmer-email?token=${encodeURIComponent(rawToken)}`;
+  const isChange = purpose === 'change_email';
+  const subject = isChange
+    ? '[Kinimmo] Confirmez votre nouvelle adresse e-mail'
+    : '[Kinimmo] Confirmez votre adresse e-mail';
+  const text = `Bonjour ${user.name},\n\nCliquez sur ce lien pour confirmer votre adresse e-mail sur Kinimmo :\n${actionUrl}\n\nCe lien est valable 24 heures et à usage unique.`;
+  const html = `<p>Bonjour <strong>${user.name}</strong>,</p><p>Cliquez sur le bouton ci-dessous pour confirmer votre adresse e-mail sur Kinimmo :</p><p><a href="${actionUrl}" style="display:inline-block;padding:12px 20px;background:#1D4ED8;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Confirmer mon e-mail</a></p><p>Ce lien est valable 24 heures.</p>`;
+
+  const dispatchResult = await dispatchAuthEmail({
+    to: targetEmail,
+    subject,
+    text,
+    html,
+    actionUrl,
+  });
+
+  enqueueNotification({
+    event_type: isChange ? 'auth_email_change_verification' : 'auth_email_verification',
+    recipient_type: 'user',
+    recipient_id: user.id,
+    recipient_name: user.name,
+    recipient_email: targetEmail,
+    channel: 'email',
+    status: dispatchResult.delivered ? 'sent' : 'queued',
+    title: subject,
+    content_text: `Lien de confirmation généré pour ${targetEmail} (expiration 24h).`,
+    metadata: { purpose, userId: user.id, channel: dispatchResult.channel },
+  });
+
+  return dispatchResult;
+}
+
+const handleGetCsrfToken = (req: Request, res: Response) => {
+  const csrfToken = issueCsrfToken(req, res);
+  return res.json({ success: true, csrfToken });
+};
+
+// Handlers d'authentification
+const handleRegister = async (req: Request, res: Response) => {
   try {
-    const { name, email, password, phone, role, agencyName, rccmOrNif, avatarUrl } = req.body;
+    const {
+      name,
+      email,
+      password,
+      phone,
+      whatsapp,
+      role,
+      agencyName,
+      rccmOrNif,
+      avatarUrl,
+      termsAccepted,
+      termsVersion,
+    } = req.body || {};
 
-    if (!email || !email.includes('@')) {
+    const cleanName = String(name || '').trim();
+    if (cleanName.length < 2) {
       return res.status(400).json({
         success: false,
-        message: 'Une adresse e-mail valide est requise.'
+        message: 'Veuillez renseigner votre nom complet (au moins 2 caractères).',
       });
     }
 
-    if (!password || password.length < 6) {
+    if (termsAccepted !== true) {
       return res.status(400).json({
         success: false,
-        message: 'Le mot de passe doit comporter au moins 6 caractères.'
+        message: "Vous devez accepter les conditions d'utilisation pour créer un compte.",
       });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-    const existing = inMemoryUsers.find(u => u.email.toLowerCase() === cleanEmail);
-    if (existing) {
-      return res.status(409).json({
+    const cleanEmail = email ? normalizeEmailAddress(email) : '';
+    if (cleanEmail && !isValidEmailAddress(cleanEmail)) {
+      return res.status(400).json({
         success: false,
-        message: 'Un compte est déjà enregistré avec cette adresse e-mail. Veuillez vous connecter.'
+        message: "L'adresse e-mail saisie n'est pas valide.",
       });
     }
 
-    const userRole = (role === 'agency' || role === 'agent' || role === 'owner') ? role : 'user';
+    const rawPhone = String(phone || '').trim();
+    let normalizedPhone = '';
+    if (rawPhone && rawPhone !== '+243') {
+      const phoneRes = normalizePhoneRdc(rawPhone);
+      if (!phoneRes.valid) {
+        return res.status(400).json({
+          success: false,
+          message: phoneRes.error,
+        });
+      }
+      normalizedPhone = phoneRes.normalized;
+    }
+
+    if (!cleanEmail && !normalizedPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Renseignez au moins une adresse e-mail ou un numéro de téléphone (+243).',
+      });
+    }
+
+    const pwdCheck = validatePasswordPolicy(String(password || ''), {
+      email: cleanEmail,
+      name: cleanName,
+      phone: normalizedPhone,
+    });
+    if (!pwdCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: pwdCheck.error || 'Mot de passe non conforme.',
+      });
+    }
+
+    if (cleanEmail) {
+      const emailTaken = inMemoryUsers.some(
+        (u) =>
+          (u.email && normalizeEmailAddress(u.email) === cleanEmail) ||
+          (u.pendingEmail && normalizeEmailAddress(u.pendingEmail) === cleanEmail)
+      );
+      if (emailTaken) {
+        return res.status(409).json({
+          success: false,
+          message: 'Un compte existe déjà avec cette adresse e-mail. Connectez-vous ou réinitialisez votre mot de passe.',
+        });
+      }
+    }
+
+    if (normalizedPhone) {
+      const phoneTaken = inMemoryUsers.some(
+        (u) => u.phone && u.phone.replace(/[\s().-]/g, '') === normalizedPhone
+      );
+      if (phoneTaken) {
+        return res.status(409).json({
+          success: false,
+          message: 'Un compte existe déjà avec ce numéro +243. Connectez-vous avec votre numéro.',
+        });
+      }
+    }
+
+    const userRole = normalizeAccountRole(role);
     const newId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const passwordHash = await hashPasswordBcrypt(String(password));
+
+    let normalizedWhatsapp = normalizedPhone;
+    if (whatsapp && String(whatsapp).trim() && String(whatsapp).trim() !== '+243') {
+      const waCheck = normalizePhoneRdc(String(whatsapp));
+      if (waCheck.valid) normalizedWhatsapp = waCheck.normalized;
+    }
+
     const newRecord: StoredAccountRecord = {
       id: newId,
-      name: (name && name.trim()) || cleanEmail.split('@')[0],
+      name: cleanName,
       email: cleanEmail,
-      password: password.trim(),
-      phone: phone || '',
+      passwordHash,
+      phone: normalizedPhone,
+      whatsapp: normalizedWhatsapp,
       role: userRole,
       agencyId: userRole === 'agency' ? newId : undefined,
-      agencyName: (userRole === 'agency' || userRole === 'agent') ? agencyName || 'Kinshasa Immobilier' : undefined,
-      rccmOrNif: rccmOrNif || undefined,
+      agencyName: (userRole === 'agency' || userRole === 'agent') ? String(agencyName || 'Kinshasa Immobilier').trim() : undefined,
+      rccmOrNif: rccmOrNif ? String(rccmOrNif).trim() : undefined,
       avatar: avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       planId: userRole === 'agency' ? 'agency' : userRole === 'agent' ? 'pro' : 'starter',
       isVerified: false,
+      emailVerified: false,
+      phoneVerified: false,
+      termsAcceptedVersion: String(termsVersion || TERMS_VERSION),
+      termsAcceptedAt: nowIso,
+      passwordUpdatedAt: nowIso,
       kinshasaBadgeVerified: false,
-      createdAt: new Date().toISOString()
+      createdAt: nowIso,
     };
 
     inMemoryUsers.unshift(newRecord);
     saveLocalUsers(inMemoryUsers);
 
-    const { password: _pwd, ...safeUser } = newRecord;
-    const token = createAuthToken(safeUser);
+    const { accessToken, refreshToken } = createNewSessionPair(req, newRecord);
+    appendAuthCookies(req, res, accessToken, refreshToken);
 
-    console.log(`[Auth] Inscription réussie pour ${cleanEmail} (${userRole})`);
+    let verificationPreviewUrl: string | undefined;
+    let emailChannel: string | undefined;
+    if (cleanEmail) {
+      const mailRes = await sendVerificationLinkEmail(req, newRecord, cleanEmail, 'verify_email');
+      verificationPreviewUrl = mailRes.previewUrl;
+      emailChannel = mailRes.channel;
+    }
 
+    const safeUser = sanitizePublicUser(newRecord);
     return res.status(201).json({
       success: true,
-      message: 'Inscription réussie.',
-      token,
+      message: cleanEmail
+        ? 'Compte créé avec succès ! Un lien de confirmation facultatif vient d’être envoyé à votre adresse e-mail.'
+        : 'Compte créé avec succès ! Vous pouvez rechercher, contacter et publier dès maintenant.',
       user: safeUser,
-      data: {
-        token,
-        user: safeUser
-      }
+      data: { user: safeUser },
+      verificationRequired: false,
+      verificationChannel: emailChannel,
+      ...(verificationPreviewUrl ? { verificationPreviewUrl } : {}),
     });
   } catch (err: any) {
     console.error('[Auth Register Error]:', err);
-    return res.status(500).json({ success: false, message: err?.message || 'Erreur interne lors de l\'inscription.' });
+    return res.status(500).json({ success: false, message: err?.message || "Erreur interne lors de l'inscription." });
   }
 };
 
-const handleLogin = (req: Request, res: Response) => {
+const handleLogin = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const body = req.body || {};
+    const rawIdentifier = String(body.identifier || body.email || body.phone || '').trim();
+    const rawPassword = String(body.password || '');
 
-    if (!email) {
+    if (!rawIdentifier) {
       return res.status(400).json({
         success: false,
-        message: 'Veuillez saisir votre adresse e-mail ou identifiant.'
+        message: 'Veuillez saisir votre adresse e-mail ou votre numéro +243.',
       });
     }
 
-    if (!password) {
+    if (!rawPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Veuillez saisir votre mot de passe.'
+        message: 'Veuillez saisir votre mot de passe.',
       });
     }
 
-    const cleanIdentifier = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
-
-    // 1. Chercher uniquement par e-mail exact ou téléphone exact
-    const found = inMemoryUsers.find(
-      u => u.email.toLowerCase() === cleanIdentifier || (u.phone && u.phone.replace(/\s+/g, '') === cleanIdentifier.replace(/\s+/g, ''))
-    );
-
+    const found = findUserByIdentifier(rawIdentifier);
     if (!found) {
       return res.status(401).json({
         success: false,
-        message: 'Identifiants incorrects. Veuillez vérifier votre adresse e-mail et mot de passe.'
+        message: 'Identifiant ou mot de passe incorrect.',
       });
     }
 
-    // Vérification stricte du mot de passe (aucun mot de passe maître ou bypass)
-    const isMatched = Boolean(found.password && found.password === cleanPassword);
-
-    if (!isMatched) {
+    const matched = await verifyPasswordBcrypt(rawPassword, found);
+    if (!matched) {
       return res.status(401).json({
         success: false,
-        message: 'Mot de passe incorrect pour cette adresse e-mail.'
+        message: 'Identifiant ou mot de passe incorrect.',
       });
     }
 
-    const { password: _pwd, ...safeUser } = found;
-    if (safeUser.role === 'agency' && !safeUser.agencyId) {
-      safeUser.agencyId = safeUser.id;
+    // Sauvegarder si une migration bcrypt à la volée a eu lieu
+    if (found.password !== undefined) {
+      delete found.password;
+      saveLocalUsers(inMemoryUsers);
     }
-    const token = createAuthToken(safeUser);
 
-    console.log(`[Auth] Connexion réussie pour ${safeUser.email} (${safeUser.role})`);
+    if (found.role === 'agency' && !found.agencyId) {
+      found.agencyId = found.id;
+    }
 
+    const { accessToken, refreshToken } = createNewSessionPair(req, found);
+    appendAuthCookies(req, res, accessToken, refreshToken);
+
+    const safeUser = sanitizePublicUser(found);
     return res.json({
       success: true,
       message: 'Connexion réussie.',
-      token,
       user: safeUser,
-      data: {
-        token,
-        user: safeUser
-      }
+      data: { user: safeUser },
     });
   } catch (err: any) {
     console.error('[Auth Login Error]:', err);
@@ -1922,19 +2158,285 @@ const handleLogin = (req: Request, res: Response) => {
   }
 };
 
+const handleRefreshSession = (req: Request, res: Response) => {
+  const result = rotateRefreshSession(req, inMemoryUsers);
+  if (!result.ok || !result.user || !result.accessToken || !result.refreshToken) {
+    clearAuthCookies(req, res);
+    return res.status(401).json({
+      success: false,
+      code: 'REFRESH_INVALID',
+      message: result.error || 'Session expirée. Veuillez vous reconnecter.',
+    });
+  }
+  appendAuthCookies(req, res, result.accessToken, result.refreshToken);
+  const safeUser = sanitizePublicUser(result.user);
+  return res.json({
+    success: true,
+    user: safeUser,
+    data: { user: safeUser },
+  });
+};
+
+const handleLogout = (req: Request, res: Response) => {
+  revokeCurrentRequestSession(req);
+  clearAuthCookies(req, res);
+  return res.json({ success: true, message: 'Déconnexion effectuée.' });
+};
+
 const handleGetMe = (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) {
     return res.status(401).json({
       success: false,
-      message: 'Session non authentifiée ou jeton expiré.'
+      code: 'ACCESS_EXPIRED',
+      message: 'Session non authentifiée ou jeton expiré.',
     });
   }
   return res.json({
     success: true,
     user,
-    data: { user }
+    data: { user },
   });
+};
+
+const handleGetSession = (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  return res.json({
+    success: true,
+    authenticated: Boolean(user),
+    user: user || null,
+    data: { authenticated: Boolean(user), user: user || null },
+  });
+};
+
+const handleVerifyEmail = (req: Request, res: Response) => {
+  const token = String(req.body?.token || req.query?.token || '').trim();
+  const check = consumeOneTimeActionToken(token, ['verify_email', 'change_email']);
+  if (!check.ok || !check.record) {
+    return res.status(400).json({
+      success: false,
+      code: check.code || 'TOKEN_INVALID',
+      message: check.error || 'Lien de confirmation invalide ou expiré.',
+    });
+  }
+
+  const idx = inMemoryUsers.findIndex((u) => u.id === check.record!.userId);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, message: 'Compte introuvable.' });
+  }
+
+  const targetEmail = normalizeEmailAddress(check.record.targetEmail);
+  if (check.record.purpose === 'change_email') {
+    const taken = inMemoryUsers.some(
+      (u) => u.id !== inMemoryUsers[idx].id && u.email && normalizeEmailAddress(u.email) === targetEmail
+    );
+    if (taken) {
+      return res.status(409).json({ success: false, message: 'Cette adresse e-mail est déjà utilisée par un autre compte.' });
+    }
+    inMemoryUsers[idx].email = targetEmail;
+    delete inMemoryUsers[idx].pendingEmail;
+  } else {
+    if (normalizeEmailAddress(inMemoryUsers[idx].email) !== targetEmail) {
+      return res.status(400).json({ success: false, message: "Ce lien ne correspond plus à l'adresse actuelle du compte." });
+    }
+  }
+
+  inMemoryUsers[idx].emailVerified = true;
+  inMemoryUsers[idx].emailVerifiedAt = new Date().toISOString();
+  saveLocalUsers(inMemoryUsers);
+
+  const safeUser = sanitizePublicUser(inMemoryUsers[idx]);
+  return res.json({
+    success: true,
+    message: 'Adresse e-mail confirmée avec succès.',
+    user: safeUser,
+    data: { user: safeUser },
+  });
+};
+
+const handleResendVerification = async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req);
+    const requestedEmail = req.body?.email ? normalizeEmailAddress(req.body.email) : '';
+
+    if (authUser) {
+      const idx = inMemoryUsers.findIndex((u) => u.id === authUser.id);
+      if (idx === -1) return res.status(404).json({ success: false, message: 'Compte introuvable.' });
+      const targetUser = inMemoryUsers[idx];
+
+      // Si le compte avait été créé par téléphone seul sans e-mail, permettre d'ajouter un e-mail maintenant
+      let targetEmail = targetUser.email ? normalizeEmailAddress(targetUser.email) : '';
+      if (!targetEmail) {
+        if (!requestedEmail || !isValidEmailAddress(requestedEmail)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Saisissez une adresse e-mail valide à associer et confirmer.',
+          });
+        }
+        const taken = inMemoryUsers.some(
+          (u) =>
+            u.id !== targetUser.id &&
+            ((u.email && normalizeEmailAddress(u.email) === requestedEmail) ||
+              (u.pendingEmail && normalizeEmailAddress(u.pendingEmail) === requestedEmail))
+        );
+        if (taken) {
+          return res.status(409).json({
+            success: false,
+            message: 'Cette adresse e-mail est déjà utilisée par un autre compte.',
+          });
+        }
+        targetUser.email = requestedEmail;
+        targetUser.emailVerified = false;
+        saveLocalUsers(inMemoryUsers);
+        targetEmail = requestedEmail;
+      } else if (targetUser.emailVerified && !targetUser.pendingEmail) {
+        return res.json({
+          success: true,
+          message: 'Votre adresse e-mail est déjà confirmée.',
+          user: sanitizePublicUser(targetUser),
+        });
+      }
+
+      const purpose = targetUser.pendingEmail && !targetUser.emailVerified ? 'verify_email' : targetUser.pendingEmail ? 'change_email' : 'verify_email';
+      const sendTo = purpose === 'change_email' && targetUser.pendingEmail ? targetUser.pendingEmail : targetEmail;
+      const mailRes = await sendVerificationLinkEmail(req, targetUser, sendTo, purpose);
+
+      return res.json({
+        success: true,
+        message: `Un lien de confirmation vient d'être envoyé à ${sendTo}.`,
+        user: sanitizePublicUser(targetUser),
+        ...(mailRes.previewUrl ? { verificationPreviewUrl: mailRes.previewUrl } : {}),
+      });
+    }
+
+    if (!requestedEmail || !isValidEmailAddress(requestedEmail)) {
+      return res.status(400).json({ success: false, message: 'Veuillez saisir une adresse e-mail valide.' });
+    }
+
+    const found = inMemoryUsers.find((u) => u.email && normalizeEmailAddress(u.email) === requestedEmail);
+    let previewUrl: string | undefined;
+    if (found && !found.emailVerified) {
+      const mailRes = await sendVerificationLinkEmail(req, found, found.email, 'verify_email');
+      previewUrl = mailRes.previewUrl;
+    }
+
+    return res.json({
+      success: true,
+      message: 'Si ce compte attend une confirmation, un nouveau lien vient d’être envoyé.',
+      ...(previewUrl ? { verificationPreviewUrl: previewUrl } : {}),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Erreur lors du renvoi.' });
+  }
+};
+
+const handleForgotPassword = async (req: Request, res: Response) => {
+  try {
+    const identifier = String(req.body?.identifier || req.body?.email || '').trim();
+    if (!identifier) {
+      return res.status(400).json({
+        success: false,
+        message: 'Veuillez saisir votre adresse e-mail ou numéro +243.',
+      });
+    }
+
+    const found = findUserByIdentifier(identifier);
+    let resetPreviewUrl: string | undefined;
+
+    if (found && found.email && isValidEmailAddress(found.email)) {
+      const { rawToken } = createOneTimeActionToken({
+        purpose: 'reset_password',
+        userId: found.id,
+        targetEmail: found.email,
+        ttlMs: PASSWORD_RESET_TTL_MS, // Strictement 1 heure
+      });
+      const origin = resolveSiteOrigin(req);
+      const actionUrl = `${origin}/reinitialiser-mot-de-passe?token=${encodeURIComponent(rawToken)}`;
+      const mailRes = await dispatchAuthEmail({
+        to: found.email,
+        subject: '[Kinimmo] Réinitialisation de votre mot de passe (valable 1 heure)',
+        text: `Bonjour ${found.name},\n\nUtilisez ce lien à usage unique (valable 1 heure) pour choisir un nouveau mot de passe :\n${actionUrl}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.`,
+        html: `<p>Bonjour <strong>${found.name}</strong>,</p><p>Cliquez ci-dessous pour réinitialiser votre mot de passe Kinimmo (lien à usage unique valable <strong>1 heure</strong>) :</p><p><a href="${actionUrl}" style="display:inline-block;padding:12px 20px;background:#1D4ED8;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Réinitialiser mon mot de passe</a></p>`,
+        actionUrl,
+      });
+
+      enqueueNotification({
+        event_type: 'auth_password_reset',
+        recipient_type: 'user',
+        recipient_id: found.id,
+        recipient_name: found.name,
+        recipient_email: found.email,
+        channel: 'email',
+        status: mailRes.delivered ? 'sent' : 'queued',
+        title: 'Réinitialisation de mot de passe (1h)',
+        content_text: `Lien de réinitialisation généré pour ${found.email} (validité 1 heure).`,
+        metadata: { userId: found.id, channel: mailRes.channel },
+      });
+
+      if (mailRes.previewUrl && process.env.NODE_ENV !== 'production') {
+        console.log(`[Auth Reset Preview] ${found.email}: ${mailRes.previewUrl}`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message:
+        'Si un compte avec une adresse e-mail associée existe, un lien à usage unique valable 1 heure vient d’être envoyé.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Erreur lors de la demande.' });
+  }
+};
+
+const handleResetPassword = async (req: Request, res: Response) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    const newPassword = String(req.body?.newPassword || '');
+
+    const peek = peekOneTimeActionToken(token, 'reset_password');
+    if (!peek.ok || !peek.record) {
+      return res.status(400).json({
+        success: false,
+        code: peek.code || 'TOKEN_INVALID',
+        message: peek.error || 'Ce lien de réinitialisation est invalide ou a expiré (validité 1 heure).',
+      });
+    }
+
+    const idx = inMemoryUsers.findIndex((u) => u.id === peek.record!.userId);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: 'Compte introuvable.' });
+    }
+
+    const userRecord = inMemoryUsers[idx];
+    const pwdCheck = validatePasswordPolicy(newPassword, {
+      email: userRecord.email,
+      name: userRecord.name,
+      phone: userRecord.phone,
+    });
+    if (!pwdCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: pwdCheck.error || 'Mot de passe non conforme.',
+      });
+    }
+
+    markOneTimeActionTokenUsed(peek.record);
+    userRecord.passwordHash = await hashPasswordBcrypt(newPassword);
+    delete userRecord.password;
+    userRecord.passwordUpdatedAt = new Date().toISOString();
+    saveLocalUsers(inMemoryUsers);
+
+    // Révoquer toutes les sessions existantes après réinitialisation
+    revokeAllUserSessions(userRecord.id, 'password_reset');
+    clearAuthCookies(req, res);
+
+    return res.json({
+      success: true,
+      message: 'Mot de passe réinitialisé avec succès. Connectez-vous avec votre nouveau mot de passe.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Erreur lors de la réinitialisation.' });
+  }
 };
 
 const handleUpdateProfile = (req: Request, res: Response) => {
@@ -1943,57 +2445,209 @@ const handleUpdateProfile = (req: Request, res: Response) => {
     return res.status(401).json({ success: false, message: 'Non autorisé.' });
   }
 
-  const idx = inMemoryUsers.findIndex(u => u.id === user.id);
+  const idx = inMemoryUsers.findIndex((u) => u.id === user.id);
   if (idx === -1) {
     return res.status(404).json({ success: false, message: 'Compte introuvable.' });
   }
 
-  const updates = { ...req.body };
-  delete updates.password;
-  delete updates.role;
-  delete updates.id;
-  delete updates.isVerified;
-  delete updates.kinshasaBadgeVerified;
+  const body = req.body || {};
+  const updates: Record<string, any> = {};
+
+  if (typeof body.name === 'string' && body.name.trim().length >= 2) {
+    updates.name = body.name.trim();
+  }
+  if (typeof body.phone === 'string' && body.phone.trim() && body.phone.trim() !== '+243') {
+    const phoneCheck = normalizePhoneRdc(body.phone);
+    if (!phoneCheck.valid) {
+      return res.status(400).json({ success: false, message: phoneCheck.error });
+    }
+    updates.phone = phoneCheck.normalized;
+  }
+  if (typeof body.whatsapp === 'string' && body.whatsapp.trim() && body.whatsapp.trim() !== '+243') {
+    const waCheck = normalizePhoneRdc(body.whatsapp);
+    if (!waCheck.valid) {
+      return res.status(400).json({ success: false, message: waCheck.error });
+    }
+    updates.whatsapp = waCheck.normalized;
+  }
+  if (typeof body.agencyName === 'string') updates.agencyName = body.agencyName.trim();
+  if (typeof body.rccmOrNif === 'string') updates.rccmOrNif = body.rccmOrNif.trim();
+  if (typeof body.avatar === 'string') updates.avatar = body.avatar;
+
   inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...updates };
   saveLocalUsers(inMemoryUsers);
 
-  const { password: _pwd, ...safeUser } = inMemoryUsers[idx];
+  const safeUser = sanitizePublicUser(inMemoryUsers[idx]);
   return res.json({ success: true, message: 'Profil mis à jour.', user: safeUser, data: { user: safeUser } });
 };
 
-const handleChangePassword = (req: Request, res: Response) => {
-  const user = getAuthUser(req);
-  if (!user) {
-    return res.status(401).json({ success: false, message: 'Non autorisé.' });
+const handleChangePassword = async (req: Request, res: Response) => {
+  try {
+    const authed = getAuthenticatedUserFromCookies(req, inMemoryUsers);
+    if (!authed) {
+      return res.status(401).json({ success: false, message: 'Non autorisé.' });
+    }
+
+    const { oldPassword, newPassword } = req.body || {};
+    if (!oldPassword) {
+      return res.status(400).json({ success: false, message: 'Saisissez votre mot de passe actuel.' });
+    }
+
+    const idx = inMemoryUsers.findIndex((u) => u.id === authed.user.id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: 'Compte introuvable.' });
+    }
+
+    const target = inMemoryUsers[idx];
+    const validOld = await verifyPasswordBcrypt(String(oldPassword), target);
+    if (!validOld) {
+      return res.status(400).json({ success: false, message: 'Le mot de passe actuel est incorrect.' });
+    }
+
+    const pwdCheck = validatePasswordPolicy(String(newPassword || ''), {
+      email: target.email,
+      name: target.name,
+      phone: target.phone,
+    });
+    if (!pwdCheck.valid) {
+      return res.status(400).json({ success: false, message: pwdCheck.error });
+    }
+
+    target.passwordHash = await hashPasswordBcrypt(String(newPassword));
+    delete target.password;
+    target.passwordUpdatedAt = new Date().toISOString();
+    saveLocalUsers(inMemoryUsers);
+
+    // Révoquer toutes les autres sessions actives par mesure de sécurité
+    revokeAllUserSessions(target.id, 'password_changed', authed.sessionId);
+
+    return res.json({
+      success: true,
+      message: 'Mot de passe modifié avec succès. Vos autres appareils ont été déconnectés.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Erreur lors du changement de mot de passe.' });
   }
+};
 
-  const { oldPassword, newPassword } = req.body;
-  if (!newPassword || newPassword.length < 6) {
-    return res.status(400).json({ success: false, message: 'Le nouveau mot de passe doit comporter au moins 6 caractères.' });
+const handleRequestEmailChange = async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    }
+
+    const { currentPassword, newEmail } = req.body || {};
+    const cleanNewEmail = normalizeEmailAddress(newEmail);
+    if (!isValidEmailAddress(cleanNewEmail)) {
+      return res.status(400).json({ success: false, message: 'Veuillez saisir une nouvelle adresse e-mail valide.' });
+    }
+
+    const idx = inMemoryUsers.findIndex((u) => u.id === user.id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Compte introuvable.' });
+    const target = inMemoryUsers[idx];
+
+    const validPwd = await verifyPasswordBcrypt(String(currentPassword || ''), target);
+    if (!validPwd) {
+      return res.status(400).json({ success: false, message: 'Mot de passe actuel incorrect.' });
+    }
+
+    if (target.email && normalizeEmailAddress(target.email) === cleanNewEmail && target.emailVerified) {
+      return res.status(400).json({ success: false, message: 'Cette adresse est déjà votre adresse e-mail confirmée.' });
+    }
+
+    const taken = inMemoryUsers.some(
+      (u) =>
+        u.id !== target.id &&
+        ((u.email && normalizeEmailAddress(u.email) === cleanNewEmail) ||
+          (u.pendingEmail && normalizeEmailAddress(u.pendingEmail) === cleanNewEmail))
+    );
+    if (taken) {
+      return res.status(409).json({ success: false, message: 'Cette adresse e-mail est déjà associée à un autre compte.' });
+    }
+
+    // Si le compte n'avait pas d'e-mail, ou s'il change d'e-mail : l'ancien e-mail reste actif jusqu'à confirmation
+    if (!target.email) {
+      target.pendingEmail = cleanNewEmail;
+      saveLocalUsers(inMemoryUsers);
+      const mailRes = await sendVerificationLinkEmail(req, target, cleanNewEmail, 'change_email');
+      return res.json({
+        success: true,
+        message: `Un lien de confirmation a été envoyé à ${cleanNewEmail}.`,
+        user: sanitizePublicUser(target),
+        ...(mailRes.previewUrl ? { verificationPreviewUrl: mailRes.previewUrl } : {}),
+      });
+    }
+
+    target.pendingEmail = cleanNewEmail;
+    saveLocalUsers(inMemoryUsers);
+    const mailRes = await sendVerificationLinkEmail(req, target, cleanNewEmail, 'change_email');
+
+    return res.json({
+      success: true,
+      message: `Un lien de confirmation a été envoyé à ${cleanNewEmail}. Votre adresse actuelle reste active jusqu'à validation.`,
+      user: sanitizePublicUser(target),
+      ...(mailRes.previewUrl ? { verificationPreviewUrl: mailRes.previewUrl } : {}),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || "Erreur lors du changement d'e-mail." });
   }
+};
 
-  const idx = inMemoryUsers.findIndex(u => u.id === user.id);
-  if (idx === -1) {
-    return res.status(404).json({ success: false, message: 'Compte introuvable.' });
+const handleListSessions = (req: Request, res: Response) => {
+  const authed = getAuthenticatedUserFromCookies(req, inMemoryUsers);
+  if (!authed) {
+    return res.status(401).json({ success: false, message: 'Authentification requise.' });
   }
+  const sessions = listActiveSessionsForUser(authed.user.id, authed.sessionId);
+  return res.json({ success: true, sessions });
+};
 
-  inMemoryUsers[idx].password = newPassword;
-  saveLocalUsers(inMemoryUsers);
-
-  return res.json({ success: true, message: 'Mot de passe modifié avec succès.' });
+const handleRevokeSession = (req: Request, res: Response) => {
+  const authed = getAuthenticatedUserFromCookies(req, inMemoryUsers);
+  if (!authed) {
+    return res.status(401).json({ success: false, message: 'Authentification requise.' });
+  }
+  const targetSessionId = String(req.params.sessionId || '');
+  const revoked = revokeSessionById(targetSessionId, authed.user.id, 'revoked_by_user');
+  if (!revoked) {
+    return res.status(404).json({ success: false, message: 'Session introuvable.' });
+  }
+  if (targetSessionId === authed.sessionId) {
+    clearAuthCookies(req, res);
+  }
+  return res.json({ success: true, message: 'Session fermée avec succès.' });
 };
 
 // Enregistrement des routes d'authentification (compatibilité avec et sans préfixe /api)
-app.post('/api/auth/register', handleRegister);
-app.post('/auth/register', handleRegister);
-app.post('/api/auth/login', handleLogin);
-app.post('/auth/login', handleLogin);
+app.get('/api/auth/csrf', handleGetCsrfToken);
+app.get('/auth/csrf', handleGetCsrfToken);
+app.post('/api/auth/register', authSensitiveRateLimiter, handleRegister);
+app.post('/auth/register', authSensitiveRateLimiter, handleRegister);
+app.post('/api/auth/login', authLoginRateLimiter, handleLogin);
+app.post('/auth/login', authLoginRateLimiter, handleLogin);
+app.post('/api/auth/refresh', handleRefreshSession);
+app.post('/auth/refresh', handleRefreshSession);
+app.post('/api/auth/logout', handleLogout);
+app.post('/auth/logout', handleLogout);
 app.get('/api/auth/me', handleGetMe);
 app.get('/auth/me', handleGetMe);
+app.get('/api/auth/session', handleGetSession);
+app.get('/auth/session', handleGetSession);
+app.post('/api/auth/verify-email', handleVerifyEmail);
+app.get('/api/auth/verify-email', handleVerifyEmail);
+app.post('/api/auth/resend-verification', authSensitiveRateLimiter, handleResendVerification);
+app.post('/api/auth/forgot-password', authSensitiveRateLimiter, handleForgotPassword);
+app.post('/auth/forgot-password', authSensitiveRateLimiter, handleForgotPassword);
+app.post('/api/auth/reset-password', authSensitiveRateLimiter, handleResetPassword);
 app.put('/api/auth/profile', handleUpdateProfile);
 app.put('/auth/profile', handleUpdateProfile);
 app.put('/api/auth/change-password', handleChangePassword);
 app.put('/auth/change-password', handleChangePassword);
+app.post('/api/auth/request-email-change', handleRequestEmailChange);
+app.post('/api/auth/confirm-email-change', handleVerifyEmail);
+app.get('/api/auth/sessions', handleListSessions);
+app.delete('/api/auth/sessions/:sessionId', handleRevokeSession);
 
 // Architecture Notifications : Dispatcher local sans API externe
 const enqueueNotification = (record: Omit<NotificationRecord, 'id' | 'created_at' | 'status'> & { id?: string; status?: NotificationRecord['status'] }): NotificationRecord => {
@@ -2124,9 +2778,9 @@ const handleCreateConciergeRequest = async (req: Request, res: Response) => {
   }
 };
 
-app.post('/api/concierge-requests', handleCreateConciergeRequest);
-app.post('/api/concierge/requests', handleCreateConciergeRequest);
-app.post('/api/conciergerie', handleCreateConciergeRequest);
+app.post('/api/concierge-requests', publicSubmissionRateLimiter, handleCreateConciergeRequest);
+app.post('/api/concierge/requests', publicSubmissionRateLimiter, handleCreateConciergeRequest);
+app.post('/api/conciergerie', publicSubmissionRateLimiter, handleCreateConciergeRequest);
 
 // Route de consultation des correspondances automatiques pour une demande
 app.get('/api/concierge-requests/:id/matches', async (req: Request, res: Response) => {
@@ -2392,9 +3046,33 @@ const handleGetPropertyVisits = async (req: Request, res: Response) => {
       list = list.filter((v) => v.request_id === String(request_id));
     }
 
-    // SÉCURITÉ : Contrôle des rôles - Un agent ne peut accéder qu'aux visites qui lui sont autorisées
+    // SÉCURITÉ : Contrôle des rôles & isolation organisationnelle
     if (user.role === 'agent') {
-      list = list.filter((v) => v.agent_id === user.id);
+      list = list.filter((v) => {
+        if (v.agent_id === user.id) return true;
+        if (v.property_id) {
+          const prop = inMemoryProperties.find((p) => p.id === v.property_id);
+          return Boolean(prop && canManageProperty(user, prop));
+        }
+        return false;
+      });
+    } else if (user.role === 'agency') {
+      const agencyKey = user.agencyId || user.id;
+      const agencyAgentIds = new Set(
+        [user.id, agencyKey]
+          .concat(inMemoryCollaborators.filter((c) => c.agencyId === agencyKey).map((c) => c.userId))
+          .concat(inMemoryUsers.filter((u) => u.agencyId === agencyKey).map((u) => u.id))
+          .filter(Boolean)
+      );
+      list = list.filter((v: any) => {
+        if (v.agency_id && v.agency_id === agencyKey) return true;
+        if (v.agent_id && agencyAgentIds.has(v.agent_id)) return true;
+        if (v.property_id) {
+          const prop = inMemoryProperties.find((p) => p.id === v.property_id);
+          return Boolean(prop && canManageProperty(user, prop));
+        }
+        return false;
+      });
     }
 
     return res.json({ success: true, count: list.length, data: list });
@@ -2526,9 +3204,26 @@ const handlePatchPropertyVisit = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Visite introuvable.' });
     }
 
-    // SÉCURITÉ : Un agent ne peut modifier que ses propres visites
+    // SÉCURITÉ : Un agent ou une agence ne peut modifier que ses propres visites
     if (user.role === 'agent' && visit.agent_id !== user.id) {
       return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez modifier que les visites qui vous sont attribuées.' });
+    }
+    if (user.role === 'agency') {
+      const agencyKey = user.agencyId || user.id;
+      const agencyAgentIds = new Set(
+        [user.id, agencyKey]
+          .concat(inMemoryCollaborators.filter((c) => c.agencyId === agencyKey).map((c) => c.userId))
+          .concat(inMemoryUsers.filter((u) => u.agencyId === agencyKey).map((u) => u.id))
+          .filter(Boolean)
+      );
+      const linkedProp = visit.property_id ? inMemoryProperties.find((p) => p.id === visit.property_id) : null;
+      const allowed =
+        (visit as any).agency_id === agencyKey ||
+        (visit.agent_id && agencyAgentIds.has(visit.agent_id)) ||
+        Boolean(linkedProp && canManageProperty(user, linkedProp));
+      if (!allowed) {
+        return res.status(403).json({ success: false, error: 'Accès interdit : visite hors de votre organisation.' });
+      }
     }
 
     if (status !== undefined) visit.status = status;
@@ -2568,6 +3263,23 @@ const handleDeletePropertyVisit = async (req: Request, res: Response) => {
     if (user.role === 'agent' && visit.agent_id !== user.id) {
       return res.status(403).json({ success: false, error: 'Accès interdit.' });
     }
+    if (user.role === 'agency') {
+      const agencyKey = user.agencyId || user.id;
+      const agencyAgentIds = new Set(
+        [user.id, agencyKey]
+          .concat(inMemoryCollaborators.filter((c) => c.agencyId === agencyKey).map((c) => c.userId))
+          .concat(inMemoryUsers.filter((u) => u.agencyId === agencyKey).map((u) => u.id))
+          .filter(Boolean)
+      );
+      const linkedProp = visit.property_id ? inMemoryProperties.find((p) => p.id === visit.property_id) : null;
+      const allowed =
+        (visit as any).agency_id === agencyKey ||
+        (visit.agent_id && agencyAgentIds.has(visit.agent_id)) ||
+        Boolean(linkedProp && canManageProperty(user, linkedProp));
+      if (!allowed) {
+        return res.status(403).json({ success: false, error: 'Accès interdit : visite hors de votre organisation.' });
+      }
+    }
 
     inMemoryVisits = inMemoryVisits.filter((v) => v.id !== id);
     saveLocalVisits(inMemoryVisits);
@@ -2597,11 +3309,12 @@ app.get('/api/notifications', (req: Request, res: Response) => {
 
     let list = inMemoryNotifications;
 
-    // SÉCURITÉ : Contrôle des rôles et isolation des données
+    // SÉCURITÉ : Contrôle des rôles et isolation strictement par organisation / destinataire
     if (user.role === 'agent') {
-      list = list.filter((n) => n.recipient_id === user.id || n.recipient_type === 'agent');
-    } else if (user.role === 'user') {
       list = list.filter((n) => n.recipient_id === user.id);
+    } else if (user.role !== 'admin') {
+      const agencyKey = user.agencyId || user.id;
+      list = list.filter((n) => n.recipient_id === user.id || n.recipient_id === agencyKey);
     }
 
     const { event_type, status } = req.query;
@@ -2625,8 +3338,11 @@ app.get('/api/notifications', (req: Request, res: Response) => {
 // GET /api/notifications/templates - Définition des 4 modèles
 app.get('/api/notifications/templates', (req: Request, res: Response) => {
   const user = getAuthUser(req);
-  if (!user || (user.role !== 'admin' && user.role !== 'agent')) {
+  if (!user) {
     return res.status(401).json({ success: false, error: 'Authentification requise.' });
+  }
+  if (user.role !== 'admin' && user.role !== 'agent' && user.role !== 'agency') {
+    return res.status(403).json({ success: false, error: 'Accès interdit.' });
   }
 
   return res.json({
@@ -2994,12 +3710,21 @@ app.put('/api/billing/visibility-options/:id', (req: Request, res: Response) => 
     const idx = inMemoryOptions.findIndex(o => o.id === id);
     if (idx !== -1) {
       const priceUsd = Number(req.body.price_usd !== undefined ? req.body.price_usd : (req.body.price !== undefined ? req.body.price : inMemoryOptions[idx].price_usd));
-      const priceCdf = Number(req.body.price_cdf !== undefined ? req.body.price_cdf : (req.body.priceCDF !== undefined ? req.body.priceCDF : (priceUsd * 2850)));
-      const durationDays = Number(req.body.duration_days !== undefined ? req.body.duration_days : inMemoryOptions[idx].duration_days);
+      const priceCdf = Number(req.body.price_cdf !== undefined ? req.body.price_cdf : (req.body.priceCDF !== undefined ? req.body.priceCDF : (priceUsd * (Number(inMemorySettings?.exchange_rate_usd_cdf) || 2850))));
+      const durationDays = Math.max(1, Number(req.body.duration_days !== undefined ? req.body.duration_days : inMemoryOptions[idx].duration_days));
+      const nextBoostType = req.body.boost_type ?? inMemoryOptions[idx].boost_type;
+      const nextBadgeText = req.body.badge_text !== undefined ? req.body.badge_text : inMemoryOptions[idx].badge_text;
+      const nextLabelType =
+        nextBoostType === 'urgent'
+          ? undefined
+          : resolveBoostPrimaryLabel(nextBoostType, nextBadgeText, req.body.label_type ?? inMemoryOptions[idx].label_type);
 
       inMemoryOptions[idx] = {
         ...inMemoryOptions[idx],
         ...req.body,
+        boost_type: nextBoostType,
+        badge_text: nextBadgeText,
+        label_type: nextLabelType,
         price_usd: priceUsd,
         price: priceUsd,
         price_cdf: priceCdf,
@@ -3024,20 +3749,23 @@ app.post('/api/billing/visibility-options', (req: Request, res: Response) => {
     if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
     const id = req.body.id || `opt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const priceUsd = Number(req.body.price_usd ?? req.body.price ?? 10);
-    const priceCdf = Number(req.body.price_cdf ?? req.body.priceCDF ?? (priceUsd * 2850));
+    const priceCdf = Number(req.body.price_cdf ?? req.body.priceCDF ?? (priceUsd * (Number(inMemorySettings?.exchange_rate_usd_cdf) || 2850)));
+    const boostType = req.body.boost_type || 'featured';
+    const badgeText = req.body.badge_text || (boostType === 'urgent' ? 'Urgent' : resolveBoostPrimaryLabel(boostType));
 
     const newOption = {
       id,
       name: req.body.name || 'Option de visibilité',
       slug: req.body.slug || `boost_${Date.now()}`,
       description: req.body.description || '',
-      boost_type: req.body.boost_type || 'featured',
-      duration_days: Number(req.body.duration_days || 7),
+      boost_type: boostType,
+      duration_days: Math.max(1, Number(req.body.duration_days || 7)),
       price_usd: priceUsd,
       price: priceUsd,
       price_cdf: priceCdf,
       priceCDF: priceCdf,
-      badge_text: req.body.badge_text || 'En Vedette',
+      badge_text: badgeText,
+      label_type: boostType === 'urgent' ? undefined : resolveBoostPrimaryLabel(boostType, badgeText, req.body.label_type),
       icon: req.body.icon || 'Sparkles',
       is_active: req.body.is_active !== false,
       created_at: new Date().toISOString()
@@ -3224,32 +3952,167 @@ app.post('/api/billing/invoices', (req: Request, res: Response) => {
   }
 });
 
+function activateBoostOnPropertyAndInvoice(inv: any, adminUser: AuthUser) {
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const matchedOption = inMemoryOptions.find((o) => o.id === inv.option_id);
+  const optionId = String(inv.option_id || '').toLowerCase();
+  const boostType = String(inv.boost_type || matchedOption?.boost_type || 'featured').toLowerCase();
+
+  let durationDays = Number(inv.duration_days ?? matchedOption?.duration_days ?? 7);
+  if (!Number.isFinite(durationDays) || durationDays < 1) {
+    if (optionId.includes('30')) durationDays = 30;
+    else if (optionId.includes('14')) durationDays = 14;
+    else durationDays = 7;
+  }
+
+  const boostLabel =
+    boostType === 'urgent'
+      ? 'Urgent'
+      : resolveBoostPrimaryLabel(boostType, matchedOption?.badge_text, inv.boost_label || matchedOption?.label_type);
+
+  const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
+  let propTitle = inv.property_title || 'Bien immobilier';
+  let startsAtIso = nowIso;
+  let expiresAtIso = new Date(nowMs + durationDays * 86400000).toISOString();
+
+  if (propIdx !== -1) {
+    const prop = inMemoryProperties[propIdx];
+    propTitle = prop.title || propTitle;
+    const liveMetrics = getLivePropertyMetrics(prop);
+
+    // Prolongation additive si le bien possède déjà un boost actif et non suspendu
+    const existingExpMs = prop.boostExpiresAt ? Date.parse(prop.boostExpiresAt) : NaN;
+    const hasRunningBoost = !prop.boostSuspended && !Number.isNaN(existingExpMs) && existingExpMs > nowMs;
+    if (hasRunningBoost) {
+      startsAtIso = new Date(existingExpMs).toISOString();
+      expiresAtIso = new Date(existingExpMs + durationDays * 86400000).toISOString();
+    }
+
+    inv.views_before = inv.views_before !== undefined ? Number(inv.views_before) : liveMetrics.views;
+    inv.contacts_before = inv.contacts_before !== undefined ? Number(inv.contacts_before) : liveMetrics.contacts;
+    inv.views_during_acc = inv.views_during_acc ?? 0;
+    inv.contacts_during_acc = inv.contacts_during_acc ?? 0;
+    inv.starts_at = startsAtIso;
+    inv.expires_at = expiresAtIso;
+    inv.boost_type = boostType;
+    inv.boost_label = boostLabel;
+    inv.duration_days = durationDays;
+
+    prop.boostStartedAt = hasRunningBoost && prop.boostStartedAt ? prop.boostStartedAt : startsAtIso;
+    prop.boostExpiresAt = expiresAtIso;
+    prop.boostSuspended = false;
+    prop.boostType = boostType;
+    prop.boostBadgeText = matchedOption?.badge_text || boostLabel;
+
+    if (boostType === 'urgent') {
+      prop.isUrgent = true;
+    } else if (boostType === 'premium') {
+      prop.isPremium = true;
+      prop.featured = true;
+      prop.listingTier = 'premium';
+      prop.boostLabel = boostLabel;
+    } else if (boostType === 'sponsorise' || boostType === 'social_blast' || boostType === 'refresh') {
+      prop.isSponsored = true;
+      prop.featured = true;
+      prop.listingTier = prop.listingTier === 'premium' ? 'premium' : 'featured';
+      prop.boostLabel = boostLabel;
+    } else {
+      prop.featured = true;
+      prop.listingTier = prop.listingTier === 'premium' ? 'premium' : 'featured';
+      prop.boostLabel = boostLabel;
+    }
+
+    prop.refreshBumpAt = nowIso;
+    prop.updatedAt = nowIso;
+    saveLocalProperties(inMemoryProperties);
+
+    // Synchronisation avec inMemorySlides pour la Vitrine
+    const existingSlideIdx = inMemorySlides.findIndex((s) => s.propertyId === prop.id);
+    const slideData = {
+      id: `slide_prop_${prop.id}`,
+      badgeCategory: prop.category?.toUpperCase() || 'PRESTIGE',
+      badgeLocation: `${(prop.commune || 'KINSHASA').toUpperCase()}`,
+      title: prop.title.toUpperCase(),
+      subTitle: `${(prop.type || 'RÉSIDENCE').toUpperCase()} D'EXCEPTION • KINSHASA`,
+      description: prop.description || "Bien immobilier d'exception validé en vitrine.",
+      image: prop.images?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=1600',
+      propertyType: prop.type || 'Résidence',
+      commune: prop.commune || 'Gombe',
+      propertyId: prop.id,
+      isActive: true,
+      order: 1,
+      contactName: prop.agencyName || 'Service Commercial',
+      contactPhone: prop.contactPhone || '+243 81 000 0001',
+      contactWhatsapp: prop.contactPhone || '+243 81 000 0001',
+      stats: {
+        units: prop.bedrooms ? `${prop.bedrooms} Chambres` : 'Standing',
+        parking: prop.bathrooms ? `${prop.bathrooms} Salles d'eau` : 'Parking',
+        surface: prop.area ? `${prop.area} m²` : '320 m²'
+      },
+      details: {
+        amenities: prop.amenities || ['Sécurité 24/7', 'Groupe & Forage', 'Titre foncier garanti'],
+        priceInfo: `$${Number(prop.price || 0).toLocaleString()} ${prop.period === 'month' ? '/ mois' : ''}`,
+        deliveryDate: 'Disponible immédiatement'
+      }
+    };
+
+    if (existingSlideIdx !== -1) {
+      inMemorySlides[existingSlideIdx] = { ...inMemorySlides[existingSlideIdx], ...slideData, isActive: true };
+    } else {
+      inMemorySlides.unshift(slideData);
+    }
+    saveLocalSlides(inMemorySlides);
+  } else {
+    inv.starts_at = startsAtIso;
+    inv.expires_at = expiresAtIso;
+    inv.boost_label = boostLabel;
+    inv.duration_days = durationDays;
+  }
+
+  inv.admin_id = adminUser.id;
+  inv.admin_name = adminUser.name || 'Administrateur Kinimmo';
+  inv.reviewed_at = nowIso;
+
+  return { propTitle, durationDays, startsAtIso, expiresAtIso, boostLabel };
+}
+
 // 5e. Commande de boost d'annonce à la carte (POST /api/billing/boost-order)
 app.post('/api/billing/boost-order', (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
-    const { propertyId, optionId, paymentMethodId, paymentGateway = 'manual_mobile_money', propertyTitle } = req.body;
+    const { propertyId, optionId, paymentMethodId, paymentGateway = 'manual_mobile_money', propertyTitle, extendsBoostId } = req.body;
 
-    // Règle stricte Kinimmo : Empêcher les nouveaux boosts incompatibles avec le statut RENTED, SOLD, ARCHIVED
+    let targetProperty: any = null;
     if (propertyId) {
-      const targetProperty = inMemoryProperties.find((p: any) => p.id === propertyId);
-      if (targetProperty) {
-        if (!canManageProperty(user, targetProperty)) {
-          return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez booster que vos propres annonces.' });
-        }
-        const rawStatus = String(targetProperty.listingStatus || targetProperty.status || '').toUpperCase();
-        if (rawStatus === 'RENTED' || rawStatus === 'SOLD' || rawStatus === 'ARCHIVED' || targetProperty.status === 'sold') {
-          return res.status(400).json({
-            success: false,
-            error: `Impossible de commander un boost pour un bien avec le statut « ${rawStatus} ». Seuls les biens disponibles et publiés peuvent faire l'objet d'un boost de visibilité.`
-          });
-        }
+      targetProperty = inMemoryProperties.find((p: any) => p.id === propertyId);
+      if (!targetProperty) {
+        return res.status(404).json({ success: false, error: 'Annonce introuvable.' });
+      }
+      if (!canManageProperty(user, targetProperty)) {
+        return res.status(403).json({ success: false, error: 'Accès interdit : vous ne pouvez booster que vos propres annonces.' });
+      }
+      if (!isPropertyPubliclyVisible(targetProperty)) {
+        const rawStatus = String(targetProperty.listingStatus || targetProperty.status || 'MASQUÉ').toUpperCase();
+        return res.status(400).json({
+          success: false,
+          error: `Impossible de commander un boost pour un bien non visible publiquement (${rawStatus}). Publiez et rendez le bien disponible avant de le mettre en avant.`
+        });
       }
     }
 
-    const targetOption = inMemoryOptions.find((o) => o.id === optionId) || inMemoryOptions[0];
+    const targetOption = inMemoryOptions.find((o) => o.id === optionId && o.is_active !== false)
+      || inMemoryOptions.find((o) => o.id === optionId)
+      || inMemoryOptions[0];
+    if (!targetOption) {
+      return res.status(400).json({ success: false, error: 'Aucune option de boost disponible.' });
+    }
     const targetPayment = inMemoryPaymentMethods.find((pm) => pm.id === paymentMethodId) || inMemoryPaymentMethods[0];
+    const boostLabel =
+      targetOption.boost_type === 'urgent'
+        ? 'Urgent'
+        : resolveBoostPrimaryLabel(targetOption.boost_type, targetOption.badge_text, targetOption.label_type);
 
     const invoiceNumber = `BST-KIN-${Math.floor(100000 + Math.random() * 900000)}`;
     const invoiceId = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -3262,17 +4125,19 @@ app.post('/api/billing/boost-order', (req: Request, res: Response) => {
       invoiceNumber,
       user_id: user.id,
       user_name: user.name || 'Bailleur / Courtier Partenaire',
-      user_email: user.email || 'partenaire@kinimmo.cd',
+      user_email: user.email || user.phone || 'partenaire@kinimmo.cd',
       target_name: user.name || 'Annonceur Kinshasa',
-      target_email: user.email || 'partenaire@kinimmo.cd',
+      target_email: user.email || user.phone || 'partenaire@kinimmo.cd',
       invoice_type: 'boost',
       invoiceType: 'boost',
       property_id: propertyId,
-      property_title: propertyTitle || 'Propriété Kinshasa',
+      property_title: targetProperty?.title || propertyTitle || 'Propriété Kinshasa',
       option_id: targetOption.id,
       option_name: targetOption.name,
       boost_type: targetOption.boost_type,
-      duration_days: targetOption.duration_days,
+      boost_label: boostLabel,
+      duration_days: Number(targetOption.duration_days || 7),
+      extends_boost_id: extendsBoostId || undefined,
       amount: targetOption.price_usd,
       amount_usd: targetOption.price_usd,
       currency: 'USD',
@@ -3293,7 +4158,9 @@ app.post('/api/billing/boost-order', (req: Request, res: Response) => {
     return res.status(201).json({
       success: true,
       message: 'Commande de visibilité créée avec succès.',
-      invoice: newInvoice
+      invoice: newInvoice,
+      featured_slots_limit: getFeaturedSlotsLimitServer(),
+      active_slots_count: countActiveBoostSlotsServer(),
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -3304,18 +4171,58 @@ app.post('/api/billing/boost-order', (req: Request, res: Response) => {
 app.get('/api/billing/my-invoices', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
-  const list = user.role === 'admin' ? inMemoryInvoices : inMemoryInvoices.filter((inv) => inv.user_id === user.id || inv.user_email === user.email);
+  const list = user.role === 'admin' ? inMemoryInvoices : inMemoryInvoices.filter((inv) => inv.user_id === user.id || (user.email && inv.user_email === user.email));
   return res.json({ success: true, count: list.length, invoices: list });
 });
 
-// 5g. Boosts actifs de l'utilisateur (GET /api/billing/my-boosts)
+// 5g. Boosts de l'utilisateur avec évaluation à la lecture et métriques avant / pendant (GET /api/billing/my-boosts)
 app.get('/api/billing/my-boosts', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
-  const boosts = inMemoryInvoices.filter(
-    (inv) => inv.invoice_type === 'boost' && (user.role === 'admin' || inv.user_id === user.id)
+  const nowMs = Date.now();
+  const rawBoosts = inMemoryInvoices.filter(
+    (inv) => (inv.invoice_type === 'boost' || inv.invoiceType === 'boost' || Boolean(inv.property_id))
+      && (user.role === 'admin' || inv.user_id === user.id || (user.email && inv.user_email === user.email))
   );
-  return res.json({ success: true, count: boosts.length, boosts });
+
+  const boosts = rawBoosts.map((inv) => {
+    const prop = inMemoryProperties.find((p: any) => p.id === inv.property_id);
+    const computedStatus = evaluateBoostRequestStatus(inv, prop, nowMs);
+    const liveMetrics = prop ? getLivePropertyMetrics(prop) : null;
+    const metrics = computeBoostMetrics(inv, prop, liveMetrics?.analyticsRow, computedStatus);
+    const matchedOpt = inMemoryOptions.find((o) => o.id === inv.option_id);
+    const boostLabel =
+      inv.boost_label ||
+      (inv.boost_type === 'urgent'
+        ? 'Urgent'
+        : resolveBoostPrimaryLabel(inv.boost_type || matchedOpt?.boost_type, matchedOpt?.badge_text, matchedOpt?.label_type));
+
+    return {
+      ...inv,
+      status: computedStatus,
+      computed_status: computedStatus,
+      invoice_status: inv.status,
+      boost_label: boostLabel,
+      starts_at: inv.starts_at || (computedStatus === 'active' ? prop?.boostStartedAt : undefined),
+      expires_at: inv.expires_at || (computedStatus === 'active' ? prop?.boostExpiresAt : undefined),
+      property_title: prop?.title || inv.property_title || 'Bien immobilier',
+      property_commune: prop?.commune || 'Kinshasa',
+      property_visible: prop ? isPropertyPubliclyVisible(prop) : false,
+      property_image: prop?.images?.[0] || '',
+      views_before: metrics.viewsBefore,
+      contacts_before: metrics.contactsBefore,
+      views_during: metrics.viewsDuring,
+      contacts_during: metrics.contactsDuring,
+    };
+  });
+
+  return res.json({
+    success: true,
+    count: boosts.length,
+    boosts,
+    featured_slots_limit: getFeaturedSlotsLimitServer(),
+    active_slots_count: countActiveBoostSlotsServer(nowMs),
+  });
 });
 
 // 5h. Transmission de la référence / preuve de paiement -> passe en "awaiting_validation" (PUT /api/billing/invoices/:id/pay)
@@ -3329,7 +4236,7 @@ app.put('/api/billing/invoices/:id/pay', (req: Request, res: Response) => {
     if (!inv) {
       return res.status(404).json({ success: false, error: 'Facture non trouvée' });
     }
-    if (user.role !== 'admin' && inv.user_id !== user.id && inv.user_email !== user.email) {
+    if (user.role !== 'admin' && inv.user_id !== user.id && (!user.email || inv.user_email !== user.email)) {
       return res.status(403).json({ success: false, error: 'Accès interdit.' });
     }
     const refValue = transactionReference || gatewayTransactionId || inv.transaction_reference;
@@ -3383,33 +4290,8 @@ app.put('/api/billing/invoices/:id/approve', (req: Request, res: Response) => {
     let restoredCount = 0;
 
     // Activation du boost sur la propriété si la facture est un boost
-    if (inv.invoice_type === 'boost' || inv.property_id) {
-      const propIdx = inMemoryProperties.findIndex((p) => p.id === inv.property_id);
-      if (propIdx !== -1) {
-        const optionId = String(inv.option_id || '').toLowerCase();
-        let durationDays = Number(inv.duration_days) || 7;
-        if (optionId.includes('30')) durationDays = 30;
-        else if (optionId.includes('14')) durationDays = 14;
-        else if (optionId.includes('7')) durationDays = 7;
-
-        const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
-        inMemoryProperties[propIdx].boostExpiresAt = expiresAt;
-
-        if (optionId.includes('premium')) {
-          inMemoryProperties[propIdx].isPremium = true;
-          inMemoryProperties[propIdx].featured = true;
-          inMemoryProperties[propIdx].listingTier = 'premium';
-        } else if (optionId.includes('featured')) {
-          inMemoryProperties[propIdx].featured = true;
-          inMemoryProperties[propIdx].listingTier = 'featured';
-        } else if (optionId.includes('urgent')) {
-          inMemoryProperties[propIdx].isUrgent = true;
-        }
-
-        inMemoryProperties[propIdx].refreshBumpAt = nowIso;
-        inMemoryProperties[propIdx].updatedAt = nowIso;
-        saveLocalProperties(inMemoryProperties);
-      }
+    if (inv.invoice_type === 'boost' || inv.invoiceType === 'boost' || inv.property_id) {
+      activateBoostOnPropertyAndInvoice(inv, user);
     } else if (inv.plan_id) {
       const targetPlan = normalizeServerPlan(inMemoryPlans.find((p) => p.id === inv.plan_id) || inMemoryPlans[1] || inMemoryPlans[0]);
       const cycle: 'monthly' | 'yearly' = inv.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
@@ -3420,13 +4302,17 @@ app.put('/api/billing/invoices/:id/approve', (req: Request, res: Response) => {
     }
 
     saveLocalInvoices(inMemoryInvoices);
+    const updatedProp = inv.property_id ? inMemoryProperties.find((p) => p.id === inv.property_id) : null;
     return res.json({
       success: true,
       message: restoredCount > 0
         ? `Facture ${inv.invoice_number} validée (${inv.receipt_number}). Plan activé et ${restoredCount} annonce(s) restaurée(s).`
         : `Facture ${inv.invoice_number} validée avec succès (${inv.receipt_number}).`,
       invoice: inv,
-      restoredListingsCount: restoredCount
+      property: updatedProp ? sanitizePropertyForViewer(updatedProp, user) : undefined,
+      restoredListingsCount: restoredCount,
+      featured_slots_limit: getFeaturedSlotsLimitServer(),
+      active_slots_count: countActiveBoostSlotsServer(),
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -3497,6 +4383,9 @@ app.put('/api/billing/invoices/:id/refund', (req: Request, res: Response) => {
           inMemoryProperties[propIdx].featured = false;
           inMemoryProperties[propIdx].isPremium = false;
           inMemoryProperties[propIdx].isUrgent = false;
+          inMemoryProperties[propIdx].isSponsored = false;
+          inMemoryProperties[propIdx].boostLabel = undefined;
+          inMemoryProperties[propIdx].boostStartedAt = undefined;
           inMemoryProperties[propIdx].boostExpiresAt = undefined;
           inMemoryProperties[propIdx].listingTier = 'standard';
           inMemoryProperties[propIdx].updatedAt = nowIso;
@@ -3561,16 +4450,28 @@ app.get('/api/billing/admin/boost-requests', (req: Request, res: Response) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
     if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
-    const boostInvoices = inMemoryInvoices.filter((inv) => inv.invoice_type === 'boost' || inv.property_id);
+    const nowMs = Date.now();
+    const boostInvoices = inMemoryInvoices.filter((inv) => inv.invoice_type === 'boost' || inv.invoiceType === 'boost' || inv.property_id);
     const enriched = boostInvoices.map((inv) => {
       const prop = inMemoryProperties.find((p: any) => p.id === inv.property_id);
+      const computedStatus = evaluateBoostRequestStatus(inv, prop, nowMs);
+      const liveMetrics = prop ? getLivePropertyMetrics(prop) : null;
+      const metrics = computeBoostMetrics(inv, prop, liveMetrics?.analyticsRow, computedStatus);
       return {
         id: inv.id,
         property_id: inv.property_id,
         user_id: inv.user_id,
         option_id: inv.option_id,
         invoice_id: inv.id,
-        status: inv.status === 'paid' ? 'active' : (inv.status === 'failed' || inv.status === 'cancelled' ? 'rejected' : 'pending'),
+        status: computedStatus,
+        computed_status: computedStatus,
+        starts_at: inv.starts_at,
+        expires_at: inv.expires_at || prop?.boostExpiresAt,
+        boost_label: inv.boost_label,
+        views_before: metrics.viewsBefore,
+        contacts_before: metrics.contactsBefore,
+        views_during: metrics.viewsDuring,
+        contacts_during: metrics.contactsDuring,
         admin_id: inv.admin_id || (inv.status === 'paid' ? 'admin' : null),
         admin_name: inv.admin_name || (inv.status === 'paid' ? 'Administrateur Kinimmo' : null),
         reviewed_at: inv.paid_at || inv.reviewed_at,
@@ -3582,7 +4483,7 @@ app.get('/api/billing/admin/boost-requests', (req: Request, res: Response) => {
         property_commune: prop?.commune || 'Kinshasa',
         property_type: prop?.type || 'Résidence',
         property_status: prop?.status || 'for-sale',
-        property_published: prop?.published !== false,
+        property_published: prop ? isPropertyPubliclyVisible(prop) : false,
         property_featured: prop?.featured === true,
         property_boost_expires_at: prop?.boostExpiresAt,
         property_image: prop?.images?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600',
@@ -3600,7 +4501,13 @@ app.get('/api/billing/admin/boost-requests', (req: Request, res: Response) => {
       };
     });
 
-    return res.json({ success: true, count: enriched.length, boosts: enriched });
+    return res.json({
+      success: true,
+      count: enriched.length,
+      boosts: enriched,
+      featured_slots_limit: getFeaturedSlotsLimitServer(),
+      active_slots_count: countActiveBoostSlotsServer(nowMs),
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
@@ -3618,77 +4525,35 @@ const handleApproveBoostAction = (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Demande de boost introuvable' });
     }
 
+    const nowIso = new Date().toISOString();
     inv.status = 'paid';
-    inv.admin_id = user.id;
-    inv.admin_name = user.name || 'Administrateur Kinimmo';
-    inv.paid_at = new Date().toISOString();
-    inv.reviewed_at = new Date().toISOString();
-    inv.updated_at = new Date().toISOString();
-
-    const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
-    let durationDays = Number(inv.duration_days) || 7;
-    let propTitle = inv.property_title || 'Bien';
-
-    if (propIdx !== -1) {
-      const prop = inMemoryProperties[propIdx];
-      propTitle = prop.title;
-      const expiresAt = new Date(Date.now() + durationDays * 86400000).toISOString();
-      prop.boostExpiresAt = expiresAt;
-      prop.featured = true;
-      prop.published = true;
-      if (inv.boost_type === 'premium') {
-        prop.isPremium = true;
-        prop.listingTier = 'premium';
-      } else {
-        prop.listingTier = 'featured';
-      }
-      prop.updatedAt = new Date().toISOString();
-      saveLocalProperties(inMemoryProperties);
-
-      // Synchronisation avec inMemorySlides pour la Vitrine
-      const existingSlideIdx = inMemorySlides.findIndex((s) => s.propertyId === prop.id);
-      const slideData = {
-        id: `slide_prop_${prop.id}`,
-        badgeCategory: prop.category?.toUpperCase() || 'PRESTIGE',
-        badgeLocation: `${(prop.commune || 'KINSHASA').toUpperCase()}`,
-        title: prop.title.toUpperCase(),
-        subTitle: `${(prop.type || 'RÉSIDENCE').toUpperCase()} D'EXCEPTION • KINSHASA`,
-        description: prop.description || 'Bien immobilier d\'exception validé en vitrine.',
-        image: prop.images?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=1600',
-        propertyType: prop.type || 'Résidence',
-        commune: prop.commune || 'Gombe',
-        propertyId: prop.id,
-        isActive: true,
-        order: 1,
-        contactName: prop.agencyName || 'Service Commercial',
-        contactPhone: prop.contactPhone || '+243 81 000 0001',
-        contactWhatsapp: prop.contactPhone || '+243 81 000 0001',
-        stats: {
-          units: prop.bedrooms ? `${prop.bedrooms} Chambres` : 'Standing',
-          parking: prop.bathrooms ? `${prop.bathrooms} Salles d'eau` : 'Parking',
-          surface: prop.area ? `${prop.area} m²` : '320 m²'
-        },
-        details: {
-          amenities: prop.amenities || ['Sécurité 24/7', 'Groupe & Forage', 'Titre foncier garanti'],
-          priceInfo: `$${Number(prop.price || 0).toLocaleString()} ${prop.period === 'month' ? '/ mois' : ''}`,
-          deliveryDate: 'Disponible immédiatement'
-        }
-      };
-
-      if (existingSlideIdx !== -1) {
-        inMemorySlides[existingSlideIdx] = { ...inMemorySlides[existingSlideIdx], ...slideData, isActive: true };
-      } else {
-        inMemorySlides.unshift(slideData);
-      }
-      saveLocalSlides(inMemorySlides);
+    inv.paid_at = nowIso;
+    inv.validated_at = nowIso;
+    inv.validated_by = user.name || 'Administrateur Kinimmo';
+    if (!inv.receipt_number) {
+      inv.receipt_number = `REC-KIN-${Math.floor(100000 + Math.random() * 900000)}`;
+      inv.receiptNumber = inv.receipt_number;
     }
+    inv.updated_at = nowIso;
 
+    const activation = activateBoostOnPropertyAndInvoice(inv, user);
     saveLocalInvoices(inMemoryInvoices);
 
     return res.json({
       success: true,
-      message: `Demande de mise en avant validée avec succès. L'annonce "${propTitle}" est désormais active en vitrine pour ${durationDays} jours.`,
-      boost: { id: inv.id, status: 'active', propertyId: inv.property_id, durationDays }
+      message: `Demande de mise en avant validée avec succès. L'annonce "${activation.propTitle}" est désormais active (${activation.boostLabel}) pour ${activation.durationDays} jours.`,
+      invoice: inv,
+      boost: {
+        id: inv.id,
+        status: 'active',
+        propertyId: inv.property_id,
+        durationDays: activation.durationDays,
+        startsAt: activation.startsAtIso,
+        expiresAt: activation.expiresAtIso,
+        boostLabel: activation.boostLabel,
+      },
+      featured_slots_limit: getFeaturedSlotsLimitServer(),
+      active_slots_count: countActiveBoostSlotsServer(),
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
@@ -3776,6 +4641,7 @@ const handleSuspendBoostAction = (req: Request, res: Response) => {
       const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
       if (propIdx !== -1) {
         inMemoryProperties[propIdx].featured = false;
+        inMemoryProperties[propIdx].boostSuspended = true;
         saveLocalProperties(inMemoryProperties);
       }
       const slideIdx = inMemorySlides.findIndex((s) => s.propertyId === inv.property_id);
@@ -3817,7 +4683,7 @@ const handleResumeBoostAction = (req: Request, res: Response) => {
     const newExpiresAt = new Date(now.getTime() + remainingSeconds * 1000);
 
     inv.status = 'paid';
-    inv.starts_at = now.toISOString();
+    inv.starts_at = inv.starts_at || now.toISOString();
     inv.expires_at = newExpiresAt.toISOString();
     inv.remaining_seconds_frozen = undefined;
     inv.reviewed_at = now.toISOString();
@@ -3827,7 +4693,7 @@ const handleResumeBoostAction = (req: Request, res: Response) => {
       const propIdx = inMemoryProperties.findIndex((p: any) => p.id === inv.property_id);
       if (propIdx !== -1) {
         inMemoryProperties[propIdx].featured = true;
-        inMemoryProperties[propIdx].published = true;
+        inMemoryProperties[propIdx].boostSuspended = false;
         inMemoryProperties[propIdx].boostExpiresAt = newExpiresAt.toISOString();
         saveLocalProperties(inMemoryProperties);
       }
@@ -4161,35 +5027,19 @@ app.get('/api/billing/admin/monetization-stats', (req: Request, res: Response) =
 // ==========================================
 app.get('/api/showcase', (_req: Request, res: Response) => {
   const now = Date.now();
-  // RÈGLES STRICTES : Affiche exclusivement les biens réels validés par l'administrateur
-  const validSlides = inMemorySlides.filter((slide) => {
-    if (!slide || slide.isActive === false) return false;
-    // Condition 1: Le bien doit exister
-    if (!slide.propertyId) return false;
-    const prop = inMemoryProperties.find((p: any) => p.id === slide.propertyId);
-    if (!prop) return false;
+  const limit = getFeaturedSlotsLimitServer();
+  // RÈGLES STRICTES : Affiche exclusivement les biens publics visibles et activement boostés (sans tâche planifiée)
+  const validSlides = inMemorySlides
+    .filter((slide) => {
+      if (!slide || slide.isActive === false || !slide.propertyId) return false;
+      const prop = inMemoryProperties.find((p: any) => p.id === slide.propertyId);
+      if (!prop) return false;
+      if (!isPropertyPubliclyVisible(prop)) return false;
+      return getActiveBoostDisplay(prop, now).isActive;
+    })
+    .slice(0, limit);
 
-    // Condition 2: Le bien doit être publié
-    if (prop.published === false) return false;
-
-    // Condition 3: Le bien ne doit pas être vendu, supprimé, archivé ou suspendu
-    const status = String(prop.status || '').toLowerCase();
-    if (status === 'sold' || status === 'archived' || status === 'draft' || status === 'rented') return false;
-
-    // Condition 4: Le bien doit avoir été validé par l'administrateur (featured)
-    const isFeatured = prop.featured === true || (Array.isArray(prop.labels) && prop.labels.includes('featured'));
-    if (!isFeatured) return false;
-
-    // Condition 5: La période de mise en avant doit être active
-    if (prop.boostExpiresAt) {
-      const expTime = new Date(prop.boostExpiresAt).getTime();
-      if (!isNaN(expTime) && expTime < now) return false;
-    }
-
-    return true;
-  });
-
-  return res.json({ success: true, count: validSlides.length, slides: validSlides });
+  return res.json({ success: true, count: validSlides.length, slides: validSlides, featured_slots_limit: limit });
 });
 
 app.get('/api/showcase/admin', (req: Request, res: Response) => {
@@ -4469,18 +5319,22 @@ function applyCloudinarySettings(cfg: CloudinaryServerConfig) {
 }
 applyCloudinarySettings(serverCloudinaryConfig);
 
+const ALLOWED_VIDEO_MIMES = new Set(['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v', 'video/ogg']);
+const ALLOWED_VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.m4v', '.ogg']);
+const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
+const ALLOWED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif']);
+
 // Configuration Multer pour téléversement vidéo direct (max 100 Mo)
 const videoMulter = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (
-      file.mimetype.startsWith('video/') ||
-      file.originalname.match(/\.(mp4|webm|mov|m4v|ogg|avi|mkv)$/i)
-    ) {
+    const ext = path.extname(String(file.originalname || '')).toLowerCase();
+    const mime = String(file.mimetype || '').toLowerCase();
+    if (ALLOWED_VIDEO_MIMES.has(mime) && ALLOWED_VIDEO_EXTS.has(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Format vidéo non valide. Veuillez choisir un fichier MP4, WebM ou MOV.'));
+      cb(new Error('Format vidéo interdit ou non supporté (MP4, WebM, MOV, M4V uniquement).'));
     }
   }
 });
@@ -4589,8 +5443,13 @@ app.post('/api/cloudinary/test', async (req: Request, res: Response) => {
 app.post('/api/cloudinary/upload', (req: Request, res: Response, next) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ success: false, error: 'Authentification requise pour téléverser une vidéo.' });
-  return next();
-}, videoMulter.single('video'), async (req: Request, res: Response) => {
+  videoMulter.single('video')(req, res, (err: any) => {
+    if (err) {
+      return res.status(400).json({ success: false, error: err?.message || 'Fichier vidéo refusé.' });
+    }
+    return next();
+  });
+}, async (req: Request, res: Response) => {
   try {
     serverCloudinaryConfig = loadCloudinaryConfig();
     applyCloudinarySettings(serverCloudinaryConfig);
@@ -4703,7 +5562,16 @@ app.post('/api/cloudinary/upload', (req: Request, res: Response, next) => {
 
 const imageMulter = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 }
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(String(file.originalname || '')).toLowerCase();
+    const mime = String(file.mimetype || '').toLowerCase();
+    if (ALLOWED_IMAGE_MIMES.has(mime) && ALLOWED_IMAGE_EXTS.has(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format image interdit ou non supporté (JPG, PNG, WebP, GIF, AVIF uniquement).'));
+    }
+  }
 });
 
 // Générer une signature Cloudinary sécurisée pour upload direct navigateur (photos & vidéos)
@@ -4811,7 +5679,12 @@ app.post('/api/cloudinary/upload-image', (req: Request, res: Response, next) => 
   if (!user) return res.status(401).json({ success: false, error: 'Authentification requise pour téléverser une photo.' });
   const contentType = String(req.headers['content-type'] || '').toLowerCase();
   if (contentType.includes('multipart/form-data')) {
-    return imageMulter.single('image')(req, res, next);
+    return imageMulter.single('image')(req, res, (err: any) => {
+      if (err) {
+        return res.status(400).json({ success: false, error: err?.message || 'Fichier image refusé.' });
+      }
+      return next();
+    });
   }
   return next();
 }, async (req: Request, res: Response) => {
@@ -5134,6 +6007,13 @@ app.post('/api/videos', (req: Request, res: Response) => {
       return res.status(401).json({ success: false, error: 'Authentification requise pour publier une vidéo.' });
     }
     const { propertyId, videoUrl, thumbnailUrl, description, duration, status = 'pending' } = req.body;
+    if (status !== 'draft') {
+      const storedUser = inMemoryUsers.find((u) => u.id === authUser.id) || null;
+      const pubCheck = canUserPublishListings(storedUser);
+      if (!pubCheck.allowed) {
+        return res.status(403).json({ success: false, code: 'EMAIL_VERIFICATION_REQUIRED', error: pubCheck.reason });
+      }
+    }
 
     if (!propertyId || !videoUrl) {
       return res.status(400).json({ success: false, error: 'L\'ID de l\'annonce et l\'URL de la vidéo sont obligatoires.' });
@@ -5211,6 +6091,14 @@ app.put('/api/videos/:id', (req: Request, res: Response) => {
       ? reqStatus
       : (reqStatus === 'draft' || reqStatus === 'pending' ? reqStatus : inMemoryVideos[idx].status);
 
+    if (nextStatus !== 'draft') {
+      const storedUser = inMemoryUsers.find((u) => u.id === authUser.id) || null;
+      const pubCheck = canUserPublishListings(storedUser);
+      if (!pubCheck.allowed) {
+        return res.status(403).json({ success: false, code: 'EMAIL_VERIFICATION_REQUIRED', error: pubCheck.reason });
+      }
+    }
+
     inMemoryVideos[idx] = {
       ...inMemoryVideos[idx],
       ...safeBody,
@@ -5267,22 +6155,25 @@ app.post('/api/videos/:id/view', (req: Request, res: Response) => {
   }
 });
 
-// 9.7-bis Signaler une vidéo
-app.post('/api/videos/:id/report', (req: Request, res: Response) => {
+// 9.7-bis Signaler une vidéo ou annonce associée
+const handleVideoOrListingReport = (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { reason, details, reporterName, reporterContact } = req.body || {};
-    if (!reason) return res.status(400).json({ success: false, error: 'Le motif du signalement est requis.' });
-    const video = inMemoryVideos.find(v => v.id === id);
+    const id = req.params.id || req.body?.videoId || req.body?.propertyId;
+    const { reason, details, comment, reporterName, reporterContact, propertyId } = req.body || {};
+    if (!reason || String(reason).trim().length < 2) {
+      return res.status(400).json({ success: false, error: 'Le motif du signalement est requis.' });
+    }
+    const video = inMemoryVideos.find((v) => v.id === id || (propertyId && v.propertyId === propertyId));
+    const prop = propertyId ? inMemoryProperties.find((p) => p.id === propertyId) : null;
     const report = {
       id: `vrep_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      videoId: id,
-      propertyId: video?.propertyId || null,
-      propertyTitle: video?.propertyTitle || 'Visite vidéo',
-      reason,
-      details: details || '',
-      reporterName: reporterName || 'Utilisateur',
-      reporterContact: reporterContact || '',
+      videoId: video?.id || id || null,
+      propertyId: propertyId || video?.propertyId || null,
+      propertyTitle: prop?.title || video?.propertyTitle || 'Visite vidéo',
+      reason: String(reason).trim(),
+      details: String(details || comment || '').trim(),
+      reporterName: String(reporterName || 'Utilisateur').trim(),
+      reporterContact: String(reporterContact || '').trim(),
       status: 'pending',
       createdAt: new Date().toISOString()
     };
@@ -5292,7 +6183,9 @@ app.post('/api/videos/:id/report', (req: Request, res: Response) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
-});
+};
+app.post('/api/videos/:id/report', handleVideoOrListingReport);
+app.post('/api/videos/reports', handleVideoOrListingReport);
 
 // 9.8 Enregistrer une demande de visite réelle
 app.post('/api/videos/:id/visit-request', (req: Request, res: Response) => {
@@ -5358,12 +6251,22 @@ app.get('/api/properties', (req: Request, res: Response) => {
     const { commune, type, status, listingStatus, search, limit = '100', offset = '0', include_unpublished } = req.query;
     let list = [...inMemoryProperties];
 
-    // Filtrer les biens non publiés sauf pour l'admin ou le propriétaire du bien
+    // Filtrer les biens non publiés, suspendus ou masqués sauf pour l'admin ou le propriétaire du bien
     const allowUnpublished = include_unpublished === 'true' && authUser;
     list = list.filter((p) => {
       const ls = String(p.listingStatus || '').toUpperCase();
-      const isPublic = p.published !== false && ls !== 'DRAFT' && ls !== 'ARCHIVED' && ls !== 'PENDING_REVIEW';
-      if (isPublic) return true;
+      const hiddenOrSuspended =
+        p.published === false ||
+        p.softHiddenByPlan === true ||
+        p.fraudStatus === 'suspect' ||
+        p.isSuspended === true ||
+        p.suspended === true ||
+        ls === 'DRAFT' ||
+        ls === 'ARCHIVED' ||
+        ls === 'PENDING_REVIEW' ||
+        ls === 'SUSPENDED' ||
+        ls === 'HIDDEN';
+      if (!hiddenOrSuspended) return true;
       if (allowUnpublished && canManageProperty(authUser!, p)) return true;
       if (authUser?.role === 'admin' && include_unpublished === 'true') return true;
       return false;
@@ -5414,13 +6317,23 @@ const videoStorage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.mp4';
-    cb(null, `video_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`);
+    const rawExt = path.extname(String(file.originalname || '')).toLowerCase();
+    const safeExt = ALLOWED_VIDEO_EXTS.has(rawExt) ? rawExt : '.mp4';
+    cb(null, `video_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${safeExt}`);
   }
 });
 const videoUpload = multer({
   storage: videoStorage,
-  limits: { fileSize: 100 * 1024 * 1024 }
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(String(file.originalname || '')).toLowerCase();
+    const mime = String(file.mimetype || '').toLowerCase();
+    if (ALLOWED_VIDEO_MIMES.has(mime) && ALLOWED_VIDEO_EXTS.has(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format de fichier interdit. Seules les vidéos MP4, WebM, MOV et M4V sont autorisées.'));
+    }
+  }
 });
 
 app.post('/api/properties/upload-video', (req: Request, res: Response, next) => {
@@ -5428,8 +6341,18 @@ app.post('/api/properties/upload-video', (req: Request, res: Response, next) => 
   if (!user) {
     return res.status(401).json({ success: false, message: 'Authentification requise pour téléverser une vidéo.' });
   }
-  return next();
-}, videoUpload.single('video'), (req: Request, res: Response) => {
+  const storedUser = inMemoryUsers.find((u) => u.id === user.id) || null;
+  const pubCheck = canUserPublishListings(storedUser);
+  if (!pubCheck.allowed) {
+    return res.status(403).json({ success: false, code: 'EMAIL_VERIFICATION_REQUIRED', message: pubCheck.reason });
+  }
+  return videoUpload.single('video')(req, res, (err: any) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err?.message || 'Fichier vidéo refusé.' });
+    }
+    return next();
+  });
+}, (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Aucun fichier vidéo reçu.' });
   }
@@ -5450,7 +6373,17 @@ app.get('/api/properties/:id', (req: Request, res: Response) => {
   }
   const authUser = getAuthUser(req);
   const ls = String(prop.listingStatus || '').toUpperCase();
-  const isPublic = prop.published !== false && ls !== 'DRAFT' && ls !== 'ARCHIVED' && ls !== 'PENDING_REVIEW';
+  const isPublic =
+    prop.published !== false &&
+    prop.softHiddenByPlan !== true &&
+    prop.fraudStatus !== 'suspect' &&
+    prop.isSuspended !== true &&
+    prop.suspended !== true &&
+    ls !== 'DRAFT' &&
+    ls !== 'ARCHIVED' &&
+    ls !== 'PENDING_REVIEW' &&
+    ls !== 'SUSPENDED' &&
+    ls !== 'HIDDEN';
   if (!isPublic) {
     if (!authUser || !canManageProperty(authUser, prop)) {
       return res.status(403).json({ success: false, error: 'Cette annonce n\'est pas publique.' });
@@ -5472,13 +6405,55 @@ app.post('/api/properties', async (req: Request, res: Response) => {
       });
     }
 
-    const id = body.id || `prop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const storedUser = inMemoryUsers.find((u) => u.id === user.id) || null;
+    const pubCheck = canUserPublishListings(storedUser);
+    if (!pubCheck.allowed) {
+      return res.status(403).json({
+        success: false,
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        error: pubCheck.reason
+      });
+    }
+
+    const id = user.role === 'admin' && body.id ? body.id : `prop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const nowIso = new Date().toISOString();
     const listingStatus = String(body.listingStatus || (body.published === false ? 'DRAFT' : 'PUBLISHED')).toUpperCase();
     const isDraft = listingStatus === 'DRAFT' || listingStatus === 'ARCHIVED';
     const isAvailable = listingStatus === 'PUBLISHED';
 
-    const { trust_status: _ts, trust_score: _tsc, trust_verified_at: _tva, ...safeBody } = body;
+    const cleanTitle = String(body.title || '').trim();
+    if (!cleanTitle || (!isDraft && cleanTitle.length < 3)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Le titre de l\'annonce est obligatoire (au moins 3 caractères).',
+      });
+    }
+
+    const numericPrice = Number(body.price);
+    if (body.price !== undefined && (!Number.isFinite(numericPrice) || numericPrice < 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Le prix du bien doit être un nombre positif valide.',
+      });
+    }
+
+    const {
+      trust_status: _ts,
+      trust_score: _tsc,
+      trust_verified_at: _tva,
+      featured: _f,
+      isPremium: _ip,
+      isUrgent: _iu,
+      isSponsored: _is,
+      boostExpiresAt: _be,
+      boostStartedAt: _bs,
+      boostLabel: _bl,
+      boostType: _bt,
+      isVerified: _iv,
+      verified: _v,
+      ...restBody
+    } = body;
+    const safeBody = user.role === 'admin' ? body : restBody;
     const rawImages = Array.isArray(safeBody.images) ? safeBody.images.filter(Boolean) : [];
 
     if (!isDraft && listingStatus === 'PUBLISHED' && rawImages.length < MIN_PROPERTY_PHOTOS) {
@@ -5520,7 +6495,7 @@ app.post('/api/properties', async (req: Request, res: Response) => {
       ? safeBody.imagesMeta.map((m: any) => m?.fingerprint).filter(Boolean)
       : [];
     const dupMatches = findDuplicateFingerprintsInMemory(fingerprints, persistedImages, null);
-    let fraudStatus = safeBody.fraudStatus || 'normal';
+    let fraudStatus = user.role === 'admin' ? (safeBody.fraudStatus || 'normal') : 'normal';
     const fraudFlags = Array.isArray(safeBody.fraudFlags) ? [...safeBody.fraudFlags] : [];
     if (dupMatches.length > 0) {
       if (fraudStatus === 'normal') fraudStatus = 'review_required';
@@ -5536,6 +6511,8 @@ app.post('/api/properties', async (req: Request, res: Response) => {
 
     const newProp = normalizePropertyRecord({
       ...safeBody,
+      title: cleanTitle,
+      price: Number.isFinite(numericPrice) ? numericPrice : 0,
       images: persistedImages,
       ...(persistedFloorPlan ? { floorPlanUrl: persistedFloorPlan } : {}),
       virtualTourUrl: tourCheck.normalizedUrl,
@@ -5545,13 +6522,16 @@ app.post('/api/properties', async (req: Request, res: Response) => {
       id,
       userId: user.id,
       agentId: user.role === 'admin' && body.agentId ? body.agentId : user.id,
-      agencyId: user.role === 'agency' ? (user.agencyId || user.id) : (body.agencyId || user.agencyId),
-      agencyName: body.agencyName || user.agencyName,
+      agencyId: user.role === 'admin' ? (body.agencyId || user.agencyId) : (user.role === 'agency' ? (user.agencyId || user.id) : user.agencyId),
+      agencyName: user.role === 'admin' ? (body.agencyName || user.agencyName) : (user.agencyName || body.agencyName),
       contactEmail: body.contactEmail || user.email,
       contactPhone: body.contactPhone || user.phone,
       listingStatus,
       isAvailable,
       published: !isDraft && body.published !== false && fraudStatus !== 'suspect',
+      ...(user.role !== 'admin'
+        ? { featured: false, isPremium: false, isUrgent: false, isSponsored: false, isVerified: false, verified: false }
+        : {}),
       status: listingStatus === 'SOLD' ? 'sold' : (body.status || 'for-sale'),
       createdAt: body.createdAt || nowIso,
       updatedAt: nowIso,
@@ -5616,6 +6596,17 @@ app.put('/api/properties/:id', async (req: Request, res: Response) => {
     const oldStatus = current.listingStatus || (current.status === 'sold' ? 'SOLD' : 'PUBLISHED');
     const newStatus = safeIncoming.listingStatus ? String(safeIncoming.listingStatus).toUpperCase() : oldStatus;
     const isDraft = newStatus === 'DRAFT' || newStatus === 'ARCHIVED';
+    if (!isDraft && newStatus === 'PUBLISHED') {
+      const storedUser = inMemoryUsers.find((u) => u.id === user.id) || null;
+      const pubCheck = canUserPublishListings(storedUser);
+      if (!pubCheck.allowed) {
+        return res.status(403).json({
+          success: false,
+          code: 'EMAIL_VERIFICATION_REQUIRED',
+          error: pubCheck.reason,
+        });
+      }
+    }
 
     const rawImages = Array.isArray(safeIncoming.images) ? safeIncoming.images.filter(Boolean) : current.images || [];
     if (!isDraft && newStatus === 'PUBLISHED' && rawImages.length < MIN_PROPERTY_PHOTOS) {
@@ -6031,7 +7022,11 @@ app.get('/api/agency/transactions', (req: Request, res: Response) => {
     const effectiveAgencyId = user.role === 'admin' ? (agencyId ? String(agencyId) : null) : (user.agencyId || user.id);
     let list = inMemoryTransactions;
     if (effectiveAgencyId) {
-      list = list.filter(t => t.agencyId === effectiveAgencyId || t.agentId === user.id);
+      if (user.role === 'agency') {
+        list = list.filter((t) => t.agencyId === effectiveAgencyId);
+      } else {
+        list = list.filter((t) => t.agencyId === effectiveAgencyId || t.agentId === user.id);
+      }
     }
     return res.json({ success: true, count: list.length, transactions: list });
   } catch (err: any) {
@@ -6047,10 +7042,17 @@ app.post('/api/agency/transactions', (req: Request, res: Response) => {
     if (user.role !== 'admin' && user.role !== 'agency' && user.role !== 'agent') {
       return res.status(403).json({ success: false, error: 'Accès interdit.' });
     }
-    const body = req.body;
+    const body = req.body || {};
+    const targetAgencyId = user.role === 'admin' ? (body.agencyId || 'agency_default') : (user.agencyId || user.id);
+    if (body.propertyId && user.role !== 'admin') {
+      const linkedProp = inMemoryProperties.find((p) => p.id === body.propertyId);
+      if (linkedProp && !canManageProperty(user, linkedProp)) {
+        return res.status(403).json({ success: false, error: 'Accès interdit : ce bien appartient à une autre organisation.' });
+      }
+    }
     const newTx = {
       id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      agencyId: user.role === 'admin' ? (body.agencyId || 'agency_default') : (user.agencyId || user.id),
+      agencyId: targetAgencyId,
       propertyId: body.propertyId || '',
       propertyTitle: body.propertyTitle || 'Propriété Kinshasa',
       agentId: user.role === 'admin' ? (body.agentId || user.id) : user.id,
@@ -6892,6 +7894,7 @@ const DEFAULT_SETTINGS = {
   working_hours: 'Lun - Sam : 08h30 - 18h00',
   exchange_rate_usd_cdf: 2850,
   auto_approve_properties: true,
+  featured_slots_limit: DEFAULT_FEATURED_SLOTS_LIMIT,
   vip_enabled: true,
   vip_title: 'Conciergerie Privée & VIP Kinshasa',
   vip_subtitle: 'Accompagnement sur mesure pour résidences et investissements',
@@ -6933,7 +7936,11 @@ app.put('/api/admin/settings', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
   if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
-  inMemorySettings = { ...inMemorySettings, ...(req.body || {}), updated_at: new Date().toISOString() };
+  const incoming = { ...(req.body || {}) };
+  if (incoming.featured_slots_limit !== undefined) {
+    incoming.featured_slots_limit = parseFeaturedSlotsLimit(incoming.featured_slots_limit);
+  }
+  inMemorySettings = { ...inMemorySettings, ...incoming, updated_at: new Date().toISOString() };
   saveLocalSettings(inMemorySettings);
   return res.json({ success: true, message: 'Paramètres mis à jour.', settings: inMemorySettings });
 });
@@ -7178,7 +8185,7 @@ function saveLocalCrmLeads(list: any[]) {
   try { fs.writeFileSync(LOCAL_CRM_LEADS_FILE, JSON.stringify(list, null, 2), 'utf-8'); } catch {}
 }
 
-app.post('/api/messages', (req: Request, res: Response) => {
+app.post('/api/messages', publicSubmissionRateLimiter, (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
   const body = req.body || {};
   const { propertyId, agentId, senderName, senderEmail, senderPhone, message, type = 'info', visitDate } = body;
@@ -7257,16 +8264,52 @@ app.get('/api/leads', (req: Request, res: Response) => {
   return res.json({ success: true, count: list.length, leads: list, data: list });
 });
 
-app.post('/api/leads', (req: Request, res: Response) => {
+app.post('/api/leads', publicSubmissionRateLimiter, (req: Request, res: Response) => {
   const body = req.body || {};
+  const cleanName = String(body.name || body.clientName || '').trim();
+  const cleanMessage = String(body.message || body.notes || '').trim();
+  if (!cleanName && !body.email && !body.phone) {
+    return res.status(400).json({ success: false, error: 'Nom ou coordonnées du contact requis.' });
+  }
+  const linkedProp = body.propertyId ? inMemoryProperties.find((p) => p.id === body.propertyId) : null;
   const lead = {
-    id: body.id || `lead_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    ...body,
-    status: body.status || 'new',
-    createdAt: body.createdAt || new Date().toISOString()
+    id: `lead_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    propertyId: body.propertyId || null,
+    propertyTitle: linkedProp?.title || body.propertyTitle || '',
+    agentId: linkedProp?.agentId || body.agentId || null,
+    agencyId: linkedProp?.agencyId || body.agencyId || null,
+    name: cleanName || 'Visiteur Kinimmo',
+    email: String(body.email || '').trim(),
+    phone: String(body.phone || '').trim(),
+    message: cleanMessage,
+    type: String(body.type || 'inquiry'),
+    status: 'new',
+    createdAt: new Date().toISOString()
   };
   inMemoryCrmLeads.unshift(lead);
   saveLocalCrmLeads(inMemoryCrmLeads);
+
+  if (lead.propertyId) {
+    const pIdx = inMemoryProperties.findIndex((p) => p.id === lead.propertyId);
+    if (pIdx !== -1) {
+      inMemoryProperties[pIdx].leadsCount = (inMemoryProperties[pIdx].leadsCount || 0) + 1;
+      saveLocalProperties(inMemoryProperties);
+    }
+    const nowMs = Date.now();
+    let updatedInv = false;
+    inMemoryInvoices.forEach((inv) => {
+      if (
+        (inv.invoice_type === 'boost' || inv.invoiceType === 'boost') &&
+        inv.property_id === lead.propertyId &&
+        inv.status === 'paid' &&
+        isBoostWindowActive(inv.starts_at, inv.expires_at, nowMs)
+      ) {
+        inv.contacts_during_acc = Number(inv.contacts_during_acc || 0) + 1;
+        updatedInv = true;
+      }
+    });
+    if (updatedInv) saveLocalInvoices(inMemoryInvoices);
+  }
   return res.status(201).json({ success: true, lead, data: lead });
 });
 
@@ -7312,18 +8355,42 @@ app.post('/api/analytics/track', (req: Request, res: Response) => {
   }
   if (eventType === 'view') inMemoryAnalytics[propertyId].views += 1;
   else if (eventType === 'whatsapp') inMemoryAnalytics[propertyId].whatsapp += 1;
-  else if (eventType === 'phone') inMemoryAnalytics[propertyId].phone += 1;
+  else if (eventType === 'phone' || eventType === 'call') inMemoryAnalytics[propertyId].phone += 1;
   else if (eventType === 'share') inMemoryAnalytics[propertyId].shares += 1;
   else if (eventType === 'favorite') inMemoryAnalytics[propertyId].favorites += 1;
   saveLocalAnalytics(inMemoryAnalytics);
 
-  if (eventType === 'view') {
-    const pIdx = inMemoryProperties.findIndex((p) => p.id === propertyId);
-    if (pIdx !== -1) {
+  const pIdx = inMemoryProperties.findIndex((p) => p.id === propertyId);
+  if (pIdx !== -1) {
+    if (eventType === 'view') {
       inMemoryProperties[pIdx].viewsCount = (inMemoryProperties[pIdx].viewsCount || 0) + 1;
-      saveLocalProperties(inMemoryProperties);
+    } else if (eventType === 'whatsapp') {
+      inMemoryProperties[pIdx].whatsappClicks = (inMemoryProperties[pIdx].whatsappClicks || 0) + 1;
+    } else if (eventType === 'phone' || eventType === 'call') {
+      inMemoryProperties[pIdx].phoneCalls = (inMemoryProperties[pIdx].phoneCalls || 0) + 1;
     }
+    saveLocalProperties(inMemoryProperties);
   }
+
+  // Enregistrer les vues / contacts pendant le boost actif uniquement si dans la fenêtre [starts_at, expires_at)
+  if (eventType === 'view' || eventType === 'whatsapp' || eventType === 'phone' || eventType === 'call') {
+    const nowMs = Date.now();
+    let updatedInv = false;
+    inMemoryInvoices.forEach((inv) => {
+      if (
+        (inv.invoice_type === 'boost' || inv.invoiceType === 'boost') &&
+        inv.property_id === propertyId &&
+        inv.status === 'paid' &&
+        isBoostWindowActive(inv.starts_at, inv.expires_at, nowMs)
+      ) {
+        if (eventType === 'view') inv.views_during_acc = Number(inv.views_during_acc || 0) + 1;
+        else inv.contacts_during_acc = Number(inv.contacts_during_acc || 0) + 1;
+        updatedInv = true;
+      }
+    });
+    if (updatedInv) saveLocalInvoices(inMemoryInvoices);
+  }
+
   return res.json({ success: true, stats: inMemoryAnalytics[propertyId] });
 });
 
@@ -7331,6 +8398,9 @@ app.get('/api/analytics/property/:id', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
   const prop = inMemoryProperties.find((p) => p.id === req.params.id);
+  if (!prop && user.role !== 'admin') {
+    return res.status(404).json({ success: false, error: 'Propriété introuvable.' });
+  }
   if (prop && !canManageProperty(user, prop)) {
     return res.status(403).json({ success: false, error: 'Accès interdit.' });
   }
@@ -7358,10 +8428,7 @@ app.get('/api/analytics/my-performance', (req: Request, res: Response) => {
 });
 
 // 12.7 Utilisateurs (/api/users)
-const sanitizeUser = (u: StoredAccountRecord) => {
-  const { password: _pwd, ...safe } = u;
-  return safe;
-};
+const sanitizeUser = (u: StoredAccountRecord) => sanitizePublicUser(u);
 
 app.get('/api/users', (req: Request, res: Response) => {
   const user = getAuthUser(req);
@@ -7402,10 +8469,34 @@ app.put('/api/users/:id', (req: Request, res: Response) => {
 
   const body = req.body || {};
   if (authUser.role !== 'admin') {
-    const { password: _p, role: _r, id: _id, isVerified: _v, kinshasaBadgeVerified: _k, ...safeBody } = body;
+    const {
+      password: _p,
+      passwordHash: _ph,
+      passwordUpdatedAt: _pu,
+      role: _r,
+      id: _id,
+      email: _e,
+      pendingEmail: _pe,
+      emailVerified: _ev,
+      emailVerifiedAt: _eva,
+      termsAcceptedVersion: _tav,
+      termsAcceptedAt: _taa,
+      isVerified: _v,
+      kinshasaBadgeVerified: _k,
+      ...safeBody
+    } = body;
+
+    if (safeBody.phone !== undefined && String(safeBody.phone).trim()) {
+      const phoneRes = normalizePhoneRdc(String(safeBody.phone));
+      if (!phoneRes.valid || !phoneRes.normalized) {
+        return res.status(400).json({ success: false, error: phoneRes.error || 'Numéro +243 invalide.' });
+      }
+      safeBody.phone = phoneRes.normalized;
+    }
+
     inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...safeBody, id: req.params.id };
   } else {
-    const { id: _id, ...adminBody } = body;
+    const { id: _id, password: _p, passwordHash: _ph, ...adminBody } = body;
     inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...adminBody, id: req.params.id };
   }
   saveLocalUsers(inMemoryUsers);
@@ -7451,30 +8542,68 @@ app.get('/api/admin/users', (req: Request, res: Response) => {
   return res.json({ success: true, count: inMemoryUsers.length, users: inMemoryUsers.map(sanitizeUser) });
 });
 
-app.post('/api/admin/users', (req: Request, res: Response) => {
+app.post('/api/admin/users', async (req: Request, res: Response) => {
   const admin = getAuthUser(req);
   if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
   if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
-  const { name, email, password, phone, role = 'user', agencyName, rccmOrNif } = req.body || {};
-  if (!email || !password) return res.status(400).json({ success: false, error: 'Email et mot de passe requis.' });
-  const cleanEmail = String(email).trim().toLowerCase();
-  if (inMemoryUsers.some((u) => u.email.toLowerCase() === cleanEmail)) {
+  const { name, email, password, phone, role = 'user', agencyName, rccmOrNif, emailVerified } = req.body || {};
+
+  const cleanEmail = email ? normalizeEmailAddress(String(email)) : '';
+  const phoneRes = phone ? normalizePhoneRdc(String(phone)) : { valid: true, normalized: '' };
+  const cleanPhone = phoneRes.normalized || '';
+
+  if (phone && !phoneRes.valid) {
+    return res.status(400).json({ success: false, error: phoneRes.error || 'Numéro +243 invalide.' });
+  }
+  if (!cleanEmail && !cleanPhone) {
+    return res.status(400).json({ success: false, error: 'Un e-mail ou un numéro +243 est requis.' });
+  }
+  if (cleanEmail && !isValidEmailAddress(cleanEmail)) {
+    return res.status(400).json({ success: false, error: 'Adresse e-mail invalide.' });
+  }
+  if (!password) {
+    return res.status(400).json({ success: false, error: 'Mot de passe requis.' });
+  }
+  const pwdCheck = validatePasswordPolicy(String(password), {
+    name: String(name || ''),
+    email: cleanEmail,
+    phone: cleanPhone,
+  });
+  if (!pwdCheck.valid) {
+    return res.status(400).json({ success: false, error: pwdCheck.error || 'Mot de passe non conforme.' });
+  }
+
+  if (cleanEmail && inMemoryUsers.some((u) => u.email && u.email.toLowerCase() === cleanEmail)) {
     return res.status(409).json({ success: false, error: 'Cet email est déjà utilisé.' });
   }
+  if (cleanPhone && inMemoryUsers.some((u) => u.phone && normalizePhoneRdc(u.phone).normalized === cleanPhone)) {
+    return res.status(409).json({ success: false, error: 'Ce numéro +243 est déjà utilisé.' });
+  }
+
+  const normalizedRole = role === 'admin' ? 'admin' : normalizeAccountRole(String(role));
   const newId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const nowIso = new Date().toISOString();
+  const passwordHash = await hashPasswordBcrypt(String(password));
+  const isEmailConfirmed = Boolean(cleanEmail) && (emailVerified !== undefined ? Boolean(emailVerified) : true);
+
   const record: StoredAccountRecord = {
     id: newId,
-    name: name || cleanEmail.split('@')[0],
+    name: String(name || (cleanEmail ? cleanEmail.split('@')[0] : cleanPhone)).trim(),
     email: cleanEmail,
-    password: String(password).trim(),
-    phone: phone || '',
-    role,
-    agencyId: role === 'agency' ? newId : undefined,
-    agencyName: agencyName || undefined,
-    rccmOrNif: rccmOrNif || undefined,
+    passwordHash,
+    phone: cleanPhone,
+    role: normalizedRole,
+    agencyId: normalizedRole === 'agency' ? newId : undefined,
+    agencyName: agencyName ? String(agencyName).trim() : undefined,
+    rccmOrNif: rccmOrNif ? String(rccmOrNif).trim() : undefined,
     isVerified: false,
+    emailVerified: isEmailConfirmed,
+    emailVerifiedAt: isEmailConfirmed ? nowIso : undefined,
     kinshasaBadgeVerified: false,
-    createdAt: new Date().toISOString()
+    termsAcceptedVersion: TERMS_VERSION,
+    termsAcceptedAt: nowIso,
+    passwordUpdatedAt: nowIso,
+    createdAt: nowIso
   };
   inMemoryUsers.unshift(record);
   saveLocalUsers(inMemoryUsers);
@@ -7487,7 +8616,17 @@ app.put('/api/admin/users/:id', (req: Request, res: Response) => {
   if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
   const idx = inMemoryUsers.findIndex((u) => u.id === req.params.id);
   if (idx === -1) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
-  const { id: _id, ...updates } = req.body || {};
+  const { id: _id, password: _p, passwordHash: _ph, ...updates } = req.body || {};
+  if (updates.email !== undefined) {
+    updates.email = updates.email ? normalizeEmailAddress(String(updates.email)) : '';
+  }
+  if (updates.phone !== undefined && String(updates.phone).trim()) {
+    const phoneRes = normalizePhoneRdc(String(updates.phone));
+    if (!phoneRes.valid || !phoneRes.normalized) {
+      return res.status(400).json({ success: false, error: phoneRes.error || 'Numéro +243 invalide.' });
+    }
+    updates.phone = phoneRes.normalized;
+  }
   inMemoryUsers[idx] = { ...inMemoryUsers[idx], ...updates, id: req.params.id };
   saveLocalUsers(inMemoryUsers);
   return res.json({ success: true, user: sanitizeUser(inMemoryUsers[idx]) });
@@ -7524,19 +8663,28 @@ app.put('/api/admin/users/:id/verify', (req: Request, res: Response) => {
   return res.json({ success: true, user: sanitizeUser(inMemoryUsers[idx]) });
 });
 
-app.put('/api/admin/users/:id/reset-password', (req: Request, res: Response) => {
+app.put('/api/admin/users/:id/reset-password', async (req: Request, res: Response) => {
   const admin = getAuthUser(req);
   if (!admin) return res.status(401).json({ success: false, error: 'Authentification requise.' });
   if (admin.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
   const idx = inMemoryUsers.findIndex((u) => u.id === req.params.id);
   if (idx === -1) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
-  const newPassword = req.body?.newPassword || req.body?.password;
-  if (!newPassword || String(newPassword).length < 6) {
-    return res.status(400).json({ success: false, error: 'Le nouveau mot de passe doit contenir au moins 6 caractères.' });
+  const newPassword = String(req.body?.newPassword || req.body?.password || '');
+  const target = inMemoryUsers[idx];
+  const pwdCheck = validatePasswordPolicy(newPassword, {
+    name: target.name,
+    email: target.email,
+    phone: target.phone,
+  });
+  if (!pwdCheck.valid) {
+    return res.status(400).json({ success: false, error: pwdCheck.error || 'Mot de passe non conforme.' });
   }
-  inMemoryUsers[idx].password = String(newPassword).trim();
+  target.passwordHash = await hashPasswordBcrypt(newPassword);
+  delete target.password;
+  target.passwordUpdatedAt = new Date().toISOString();
   saveLocalUsers(inMemoryUsers);
-  return res.json({ success: true, message: 'Mot de passe réinitialisé avec succès.' });
+  revokeAllUserSessions(target.id, 'admin_password_reset');
+  return res.json({ success: true, message: 'Mot de passe réinitialisé avec succès et sessions révoquées.' });
 });
 
 app.delete('/api/admin/users/:id', (req: Request, res: Response) => {
@@ -8366,14 +9514,39 @@ async function startServer() {
 
   // Si on est en production ou que le dossier dist compilé existe, on sert les fichiers statiques
   if (isProd || hasDist) {
-    app.use(express.static(distPath, { index: false }));
+    app.use(
+      express.static(distPath, {
+        index: false,
+        setHeaders(res, filePath) {
+          const baseName = path.basename(filePath);
+          if (
+            baseName === 'sw.js' ||
+            baseName === 'registerSW.js' ||
+            baseName === 'manifest.webmanifest' ||
+            baseName === 'offline.html' ||
+            baseName === 'index.html' ||
+            baseName.startsWith('workbox-')
+          ) {
+            res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
     app.get('*', (req: Request, res: Response) => {
       const indexPath = path.join(distPath, 'index.html');
       if (fs.existsSync(indexPath)) {
         const rawHtml = fs.readFileSync(indexPath, 'utf-8');
         const seoMeta = resolveSeoMetadataForRequest(req, getSiteBaseUrl(req));
         const finalHtml = injectSeoTagsIntoHtml(rawHtml, seoMeta);
-        res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).send(finalHtml);
+        res
+          .status(200)
+          .set({
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-cache, must-revalidate',
+          })
+          .send(finalHtml);
       } else {
         res.status(200).send('Kinimmo API Server is running');
       }

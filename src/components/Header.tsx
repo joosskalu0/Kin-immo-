@@ -1,817 +1,416 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { languages } from '../utils/i18n';
-import { currencies } from '../utils/currency';
 import {
   Home,
-  MapPin,
-  Grid,
-  Users,
-  Building2,
+  Search,
   Heart,
-  Scale,
-  PlusCircle,
+  Bell,
   User as UserIcon,
-  Globe,
-  Coins,
-  SlidersHorizontal,
-  LogOut,
-  Sparkles,
-  ShieldCheck,
-  BadgeCheck,
-  Menu,
-  X,
-  UserPlus,
+  Plus,
+  Calendar,
   Briefcase,
-  Phone,
+  Building2,
+  Users,
+  MoreHorizontal,
+  Sparkles,
   Film,
-  BookOpen,
-  HelpCircle,
-  Compass,
+  LogIn,
 } from 'lucide-react';
-import { CurrencyCode, LanguageCode } from '../types';
+import { KinimmoLogo } from './KinimmoLogo';
+import { PWAInstallButton } from './PWA/PWAInstallPrompt';
+import { AppPageTab, ProSectionTab, buildProPath, buildSearchPath } from '../utils/navigation';
 
 interface HeaderProps {
-  currentTab: string;
-  setCurrentTab: (tab: string) => void;
-  onOpenAssistant?: () => void;
-  onNavigatePath?: (path: string) => void;
+  currentTab: AppPageTab;
+  proSection?: ProSectionTab;
+  isProMode?: boolean;
+  onNavigatePath: (path: string) => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onNavigatePath }) => {
+export const Header: React.FC<HeaderProps> = ({
+  currentTab,
+  proSection = 'today',
+  isProMode = false,
+  onNavigatePath,
+}) => {
   const {
-    language,
-    setLanguage,
-    currency,
-    setCurrency,
     user,
-    setUser,
     wishlist,
-    compareList,
-    setIsFieldsBuilderOpen,
-    setIsSubmitPropertyOpen,
-    setIsAuthModalOpen,
-    setIsSecurityModalOpen,
-    setIsCompareOpen,
-    setActivePropertyModalId,
-    setIsInviteModalOpen,
-    logOut,
+    inAppBillingNotifications,
+    savedSearches,
+    leads,
+    filters,
+    setFilters,
   } = useApp();
 
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [desktopQuery, setDesktopQuery] = useState(filters.searchQuery || '');
 
-  // Règle métier : la publication d'un bien est réservée exclusivement aux utilisateurs connectés
-  const handleOpenPublish = () => {
-    if (!user) {
-      setIsAuthModalOpen(true);
-    } else {
-      setIsSubmitPropertyOpen(true);
-    }
-  };
-
-  // Assurer la suppression des anciennes classes de zoom pour toujours ouvrir en taille standard A
   useEffect(() => {
-    if (typeof document !== 'undefined') {
-      document.documentElement.classList.remove('font-scale-standard', 'font-scale-large', 'font-scale-xlarge');
-      try {
-        localStorage.removeItem('kin_font_scale');
-      } catch {}
-    }
-  }, []);
+    setDesktopQuery(filters.searchQuery || '');
+  }, [filters.searchQuery]);
 
-  // Fermer le tiroir menu avec la touche Echap
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsMobileMenuOpen(false);
-      }
-    };
-    if (isMobileMenuOpen) {
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMobileMenuOpen]);
+  const unreadAlertsCount =
+    inAppBillingNotifications.filter((n) => !n.isRead).length +
+    (savedSearches?.length > 0 ? 0 : 0);
 
-  const handleGoHome = () => {
-    setActivePropertyModalId(null);
-    setIsFieldsBuilderOpen(false);
-    setIsSubmitPropertyOpen(false);
-    setIsAuthModalOpen(false);
-    setIsSecurityModalOpen(false);
-    setIsCompareOpen(false);
-    setIsMobileMenuOpen(false);
-    setCurrentTab('home');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  const isProUser = user && (user.role === 'agent' || user.role === 'agency');
+  const showProBottomBar = Boolean(isProUser && isProMode);
+
+  const pendingLeadsCount = isProUser
+    ? leads.filter((l) => l.status === 'new').length
+    : 0;
+
+  const handleDesktopSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFilters((prev) => ({ ...prev, searchQuery: desktopQuery }));
+    onNavigatePath(buildSearchPath({ q: desktopQuery, commune: filters.commune, type: filters.type, status: filters.status }));
   };
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 text-slate-800 shadow-xs h-16 transition-none">
-        {/* Main Navbar */}
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
-          {/* Kin Immobilier Logo */}
-          <div
-            onClick={handleGoHome}
-            className="flex items-center gap-2 cursor-pointer group shrink-0"
-            title="Retourner à l'Accueil"
-          >
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white font-bold shadow-md shadow-emerald-600/20 group-hover:scale-105 transition-transform">
-              <svg
-                className="w-5 h-5 fill-white"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z" />
-              </svg>
-            </div>
-            <div>
-              <div className="flex items-center gap-1">
-                <span className="text-base sm:text-xl font-black tracking-tight text-slate-900 uppercase">
-                  KIN IMMOBILIER
+      {/* TOP HEADER : Compact sur mobile (Logo, Recherche, Cloche), complet avec recherche intégrée sur ordinateur */}
+      <header className="fixed top-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 text-slate-900 h-14 lg:h-16">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-full flex items-center justify-between gap-2.5 lg:gap-4">
+          {/* 1. Logo Kinimmo */}
+          <KinimmoLogo
+            compact
+            showTagline={false}
+            onClick={() => onNavigatePath('/')}
+            className="shrink-0"
+          />
+
+          {/* Mobile Compact Header Actions (Strictly Logo + Recherche + Cloche) */}
+          <div className="flex lg:hidden items-center gap-2 flex-1 justify-end min-w-0">
+            <button
+              type="button"
+              onClick={() => onNavigatePath('/rechercher')}
+              aria-label="Rechercher un bien"
+              className="flex-1 max-w-[200px] h-10 px-3 rounded-xl bg-slate-100 hover:bg-slate-200/80 border border-slate-200 text-slate-600 text-xs font-medium flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <Search className="w-4 h-4 text-[#1D4ED8] shrink-0" />
+              <span className="truncate">Rechercher...</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigatePath('/alertes')}
+              aria-label="Alertes et notifications"
+              className="relative w-11 h-11 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-800 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+            >
+              <Bell className="w-5 h-5 text-[#1D4ED8]" />
+              {unreadAlertsCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                  {unreadAlertsCount}
                 </span>
-              </div>
-              <span className="block text-xs text-emerald-700 font-extrabold tracking-tight">
-                Plateforme Immobilière RDC
-              </span>
-            </div>
+              )}
+            </button>
           </div>
 
-          {/* Desktop Center Navigation Bar - Propre, fixe et sans boutons menu déroulants */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
-            <button
-              onClick={handleGoHome}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentTab === 'home'
-                  ? 'bg-emerald-50 text-emerald-800 font-black'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
+          {/* Desktop Integrated Search + Navigation */}
+          <div className="hidden lg:flex items-center gap-4 flex-1 min-w-0">
+            <form
+              onSubmit={handleDesktopSearchSubmit}
+              className="flex items-center flex-1 max-w-md h-10 bg-slate-100 border border-slate-200 focus-within:border-[#1D4ED8] focus-within:bg-white rounded-xl overflow-hidden transition-colors"
             >
-              Accueil
-            </button>
-            <button
-              onClick={() => {
-                setCurrentTab('visites');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                currentTab === 'visites'
-                  ? 'bg-slate-900 text-white font-black'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span>Visites Vidéo</span>
-            </button>
-            <button
-              onClick={() => {
-                setCurrentTab('map');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentTab === 'map'
-                  ? 'bg-emerald-50 text-emerald-800 font-black'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              Carte RDC
-            </button>
-            <button
-              onClick={() => {
-                setCurrentTab('agencies');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentTab === 'agencies'
-                  ? 'bg-emerald-50 text-emerald-800 font-black'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              Agences
-            </button>
-            <button
-              onClick={() => {
-                setCurrentTab('agents');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentTab === 'agents'
-                  ? 'bg-emerald-50 text-emerald-800 font-black'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              Agents Pro
-            </button>
-            <button
-              onClick={() => {
-                setCurrentTab('conciergerie');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                currentTab === 'conciergerie'
-                  ? 'bg-emerald-50 text-emerald-800 font-black'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Conciergerie</span>
-            </button>
-            <button
-              onClick={() => {
-                if (onNavigatePath) onNavigatePath('/blog');
-                else setCurrentTab('blog');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentTab === 'blog'
-                  ? 'bg-emerald-50 text-emerald-800 font-black'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              Guides
-            </button>
-            <button
-              onClick={() => {
-                setCurrentTab('pricing');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentTab === 'pricing'
-                  ? 'bg-emerald-50 text-emerald-800 font-black'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              Tarifs
-            </button>
-          </nav>
-
-          {/* Right Action Tools - Épuré, fixe, sans boutons menu encombrants */}
-          <div className="flex items-center gap-2">
-            {/* Submit Property Button */}
-            <button
-              onClick={handleOpenPublish}
-              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0"
-              title="Publier une annonce immobilière"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Publier</span>
-            </button>
-
-            {/* User Account / Auth Menu */}
-            {user ? (
-              <div className="flex items-center gap-1.5 pl-1.5 sm:pl-2 border-l border-slate-200">
-                {/* Invite Partner button for agents, agencies, admins */}
-                {(user.role === 'agent' || user.role === 'agency' || user.role === 'admin') && (
-                  <button
-                    onClick={() => setIsInviteModalOpen(true)}
-                    title="Inviter un agent ou une agence"
-                    className="p-2 sm:p-2.5 min-h-[38px] rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all flex items-center gap-1.5 text-xs font-bold active:scale-95 cursor-pointer"
-                  >
-                    <UserPlus className="w-4 h-4 text-emerald-700" />
-                    <span className="hidden xl:inline text-[11px] font-bold">Inviter</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => setIsSecurityModalOpen(true)}
-                  title="2FA & Sécurité"
-                  className="p-2 sm:p-2.5 min-h-[38px] rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all flex items-center gap-1.5 text-xs font-semibold active:scale-95 cursor-pointer"
-                >
-                  <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                  <span className="hidden xl:inline text-[11px] font-bold">2FA</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (user.role === 'agency') {
-                      setCurrentTab('agency-dashboard');
-                    } else if (user.role === 'agent') {
-                      setCurrentTab('agent-dashboard');
-                    } else {
-                      setCurrentTab('dashboard');
-                    }
-                  }}
-                  className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer"
-                  title="Mon Profil & Tableau de Bord"
-                >
-                  <img
-                    src={user.avatar}
-                    alt={user.name}
-                    className="w-8 h-8 rounded-lg object-cover ring-2 ring-emerald-500/40"
-                  />
-                  <div className="hidden xl:block text-left">
-                    <span className="block text-xs font-semibold text-slate-800 leading-tight">
-                      {user.name}
-                    </span>
-                    <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-0.5">
-                      <BadgeCheck className="w-3 h-3 inline text-emerald-600" /> {user.role === 'admin' ? 'Administrateur' : user.role === 'agency' ? 'Agence' : user.role === 'agent' ? 'Agent' : 'Vérifié'}
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  onClick={logOut}
-                  title="Se déconnecter"
-                  className="p-2 text-slate-500 hover:text-rose-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
+              <Search className="w-4 h-4 text-slate-400 ml-3 shrink-0" />
+              <input
+                type="text"
+                value={desktopQuery}
+                onChange={(e) => setDesktopQuery(e.target.value)}
+                placeholder="Commune, quartier, type de bien..."
+                className="flex-1 bg-transparent px-2.5 text-sm text-slate-900 placeholder-slate-500 focus:outline-none min-w-0"
+              />
               <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 min-h-[38px] rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs border border-slate-800 transition-all active:scale-95 shadow-sm cursor-pointer shrink-0"
+                type="submit"
+                className="h-full px-3.5 bg-[#1D4ED8] hover:bg-[#0B3EA8] text-white text-xs font-bold transition-colors cursor-pointer shrink-0"
               >
-                <UserIcon className="w-4 h-4 text-emerald-400" />
-                <span>Connexion</span>
+                Rechercher
+              </button>
+            </form>
+
+            <nav className="flex items-center gap-1 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => {
+                  setFilters((prev) => ({ ...prev, status: 'for-sale' }));
+                  onNavigatePath('/rechercher?status=for-sale');
+                }}
+                className={`px-3 py-2 rounded-xl transition-colors cursor-pointer whitespace-nowrap ${
+                  currentTab === 'search' && filters.status === 'for-sale'
+                    ? 'bg-blue-50 text-[#1D4ED8]'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                À vendre
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilters((prev) => ({ ...prev, status: 'for-rent' }));
+                  onNavigatePath('/rechercher?status=for-rent');
+                }}
+                className={`px-3 py-2 rounded-xl transition-colors cursor-pointer whitespace-nowrap ${
+                  currentTab === 'search' && filters.status === 'for-rent'
+                    ? 'bg-blue-50 text-[#1D4ED8]'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                À louer
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigatePath('/agences')}
+                className={`px-3 py-2 rounded-xl transition-colors cursor-pointer whitespace-nowrap ${
+                  currentTab === 'agencies' || currentTab === 'agents'
+                    ? 'bg-blue-50 text-[#1D4ED8]'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                Agences
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigatePath('/visites')}
+                className={`px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                  currentTab === 'visites'
+                    ? 'bg-blue-50 text-[#1D4ED8]'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Film className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                <span>Visites</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigatePath('/conciergerie')}
+                className={`px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                  currentTab === 'conciergerie'
+                    ? 'bg-blue-50 text-[#1D4ED8]'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>Conciergerie</span>
+              </button>
+            </nav>
+          </div>
+
+          {/* Desktop Right Actions */}
+          <div className="hidden lg:flex items-center gap-2 shrink-0">
+            <PWAInstallButton />
+            <button
+              type="button"
+              onClick={() => onNavigatePath('/favoris')}
+              className={`relative h-10 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                currentTab === 'wishlist'
+                  ? 'bg-blue-50 border-blue-200 text-[#1D4ED8]'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+              title="Mes favoris"
+            >
+              <Heart className={`w-4 h-4 ${wishlist.length > 0 ? 'text-rose-500 fill-rose-500' : ''}`} />
+              <span>Favoris</span>
+              {wishlist.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-[#1D4ED8] text-white text-[10px] font-bold tabular-nums">
+                  {wishlist.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigatePath('/alertes')}
+              aria-label="Mes alertes et notifications"
+              className={`relative w-10 h-10 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
+                currentTab === 'alerts'
+                  ? 'bg-blue-50 border-blue-200 text-[#1D4ED8]'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+              title="Mes alertes"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadAlertsCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                  {unreadAlertsCount}
+                </span>
+              )}
+            </button>
+
+            {isProUser && (
+              <button
+                type="button"
+                onClick={() => onNavigatePath('/pro')}
+                className={`h-10 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-colors cursor-pointer ${
+                  currentTab === 'pro'
+                    ? 'bg-[#0B3EA8] text-white border-[#0B3EA8]'
+                    : 'bg-blue-50 text-[#1D4ED8] border-blue-200 hover:bg-blue-100'
+                }`}
+              >
+                <Briefcase className="w-4 h-4" />
+                <span>Espace pro</span>
               </button>
             )}
 
-            {/* Bouton Menu Interactif & Réactif (Visible sur tous les écrans) */}
             <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              aria-label="Menu principal"
-              className="p-2 sm:px-3 min-h-[38px] rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 flex items-center gap-1.5 active:scale-95 transition-all font-bold text-xs cursor-pointer shadow-2xs shrink-0"
-              title="Menu principal et outils"
+              type="button"
+              onClick={() => onNavigatePath(user ? '/publier' : '/connexion')}
+              className="h-10 px-4 rounded-xl bg-[#FACC15] hover:bg-[#EAB308] text-slate-950 font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
-              {isMobileMenuOpen ? (
-                <X className="w-4 h-4 text-emerald-700" />
-              ) : (
-                <Menu className="w-4 h-4 text-slate-700" />
-              )}
-              <span className="font-bold">Menu</span>
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>Publier</span>
             </button>
+
+            {user ? (
+              <button
+                type="button"
+                onClick={() => onNavigatePath('/compte')}
+                className={`h-10 pl-1.5 pr-3 rounded-xl border flex items-center gap-2 text-xs font-bold transition-colors cursor-pointer ${
+                  currentTab === 'account' || currentTab === 'security'
+                    ? 'bg-blue-50 border-blue-200 text-[#1D4ED8]'
+                    : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                <img
+                  src={
+                    user.avatar ||
+                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'
+                  }
+                  alt={user.name}
+                  className="w-7 h-7 rounded-lg object-cover"
+                />
+                <span className="max-w-[110px] truncate">{user.name.split(' ')[0]}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onNavigatePath('/connexion')}
+                className="h-10 px-3.5 rounded-xl bg-[#1D4ED8] hover:bg-[#0B3EA8] text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Connexion</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Menu Panel Modal / Drawer - Placé hors du header pour échapper au stacking context backdrop-filter */}
-      {isMobileMenuOpen && (
-        <>
-          {/* Backdrop plein écran */}
-          <div
-            className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs transition-opacity cursor-pointer"
-            onClick={() => setIsMobileMenuOpen(false)}
-          />
-
-          {/* Menu Panel */}
-          <div className="fixed inset-x-3 bottom-20 sm:bottom-auto sm:top-20 sm:right-6 sm:left-auto sm:w-96 z-50 bg-white border border-slate-200 px-4 sm:px-5 py-5 space-y-4 shadow-2xl max-h-[82vh] overflow-y-auto rounded-3xl animate-in slide-in-from-bottom-2 sm:slide-in-from-top-2 duration-200">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                  Menu & Outils
-                </span>
-                <button
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                  title="Fermer le menu"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Language & Currency Quick Switcher */}
-              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-2.5 flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <Globe className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value as LanguageCode)}
-                    className="bg-transparent text-slate-800 font-bold cursor-pointer outline-none text-xs"
-                  >
-                    {languages.map((l) => (
-                      <option key={l.code} value={l.code} className="bg-white text-slate-900">
-                        {l.flag} {l.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Coins className="w-4 h-4 text-amber-600 shrink-0" />
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
-                    className="bg-transparent text-slate-800 font-bold cursor-pointer outline-none text-xs"
-                  >
-                    {Object.values(currencies).map((c) => (
-                      <option key={c.code} value={c.code} className="bg-white text-slate-900">
-                        {c.symbol} ({c.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* User Profile Card Header or Login Button */}
-              {user ? (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-sm text-white">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <img
-                        src={user.avatar || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80'}
-                        alt={user.name}
-                        className="w-11 h-11 rounded-xl object-cover ring-2 ring-emerald-500/50 shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <h4 className="font-extrabold text-sm text-white flex items-center gap-1.5 truncate">
-                          {user.name}
-                          <BadgeCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                        </h4>
-                        <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        logOut();
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
-                      title="Se déconnecter"
-                    >
-                      <LogOut className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Accès Direct au Tableau de Bord de l'utilisateur connecté */}
-                  <button
-                    onClick={() => {
-                      if (user.role === 'agency') {
-                        setCurrentTab('agency-dashboard');
-                      } else if (user.role === 'agent') {
-                        setCurrentTab('agent-dashboard');
-                      } else {
-                        setCurrentTab('dashboard');
-                      }
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`w-full py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-between transition-all shadow-md cursor-pointer ${
-                      user.role === 'agency'
-                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                        : user.role === 'agent'
-                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                        : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {user.role === 'agency' ? (
-                        <Building2 className="w-4 h-4" />
-                      ) : user.role === 'agent' ? (
-                        <Briefcase className="w-4 h-4" />
-                      ) : (
-                        <UserIcon className="w-4 h-4" />
-                      )}
-                      <span>
-                        {user.role === 'agency'
-                          ? 'Mon Espace Agence'
-                          : user.role === 'agent'
-                          ? 'Mon Espace Agent'
-                          : 'Mon Tableau de Bord'}
-                      </span>
-                    </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/20 uppercase tracking-wider font-extrabold">
-                      Accéder
+      {/* MOBILE BOTTOM NAVIGATION BAR — Jamais plus de 5 éléments */}
+      {showProBottomBar ? (
+        <nav
+          aria-label="Navigation Espace Pro"
+          className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 h-[60px] pb-safe flex items-center justify-around px-1 shadow-[0_-4px_16px_rgba(15,23,42,0.06)] select-none"
+        >
+          {[
+            { id: 'today' as ProSectionTab, label: "Aujourd'hui", icon: Home, path: '/pro' },
+            { id: 'listings' as ProSectionTab, label: 'Annonces', icon: Building2, path: '/pro/annonces' },
+            {
+              id: 'leads' as ProSectionTab,
+              label: 'Prospects',
+              icon: Users,
+              path: '/pro/prospects',
+              badge: pendingLeadsCount,
+            },
+            { id: 'visits' as ProSectionTab, label: 'Visites', icon: Calendar, path: '/pro/visites' },
+            { id: 'more' as ProSectionTab, label: 'Plus', icon: MoreHorizontal, path: '/pro/plus' },
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive = currentTab === 'pro' && proSection === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onNavigatePath(item.path)}
+                className={`relative flex-1 min-w-[56px] min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                  isActive ? 'text-[#1D4ED8]' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <div className="relative">
+                  <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-[2]'}`} />
+                  {item.badge && item.badge > 0 ? (
+                    <span className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-amber-400 text-slate-950 text-[10px] font-extrabold flex items-center justify-center tabular-nums">
+                      {item.badge}
                     </span>
-                  </button>
-
-                  <div className="flex items-center gap-2 pt-1 border-t border-slate-800/80">
-                    <button
-                      onClick={() => {
-                        setIsSecurityModalOpen(true);
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className="flex-1 py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Sécurité 2FA</span>
-                    </button>
-                    {(user.role === 'agent' || user.role === 'agency' || user.role === 'admin') && (
-                      <button
-                        onClick={() => {
-                          setIsInviteModalOpen(true);
-                          setIsMobileMenuOpen(false);
-                        }}
-                        className="flex-1 py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <UserPlus className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Inviter Partenaire</span>
-                      </button>
-                    )}
-                  </div>
+                  ) : null}
                 </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    setIsAuthModalOpen(true);
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full py-3 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
-                >
-                  <UserIcon className="w-4 h-4 text-emerald-400" />
-                  <span>Se Connecter / Créer un Compte</span>
-                </button>
-              )}
-
-              {/* Raccourcis Favoris & Comparateur */}
-              <div className="grid grid-cols-2 gap-2 text-xs font-bold pt-1">
-                <button
-                  onClick={() => {
-                    setCurrentTab('wishlist');
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 flex items-center justify-between cursor-pointer transition-colors"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Heart className={`w-4 h-4 ${wishlist.length > 0 ? 'text-rose-500 fill-rose-500' : 'text-slate-400'}`} />
-                    <span>Favoris</span>
-                  </div>
-                  {wishlist.length > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black">
-                      {wishlist.length}
+                <span className="truncate max-w-full px-1">{item.label}</span>
+                {isActive && (
+                  <span className="absolute bottom-0.5 w-8 h-0.5 rounded-full bg-[#1D4ED8]" />
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      ) : (
+        <nav
+          aria-label="Navigation principale"
+          className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 h-[60px] pb-safe flex items-center justify-around px-1 shadow-[0_-4px_16px_rgba(15,23,42,0.06)] select-none"
+        >
+          {[
+            { id: 'home', label: 'Accueil', icon: Home, path: '/' },
+            { id: 'search', label: 'Rechercher', icon: Search, path: '/rechercher' },
+            {
+              id: 'wishlist',
+              label: 'Favoris',
+              icon: Heart,
+              path: '/favoris',
+              badge: wishlist.length,
+            },
+            {
+              id: 'alerts',
+              label: 'Alertes',
+              icon: Bell,
+              path: '/alertes',
+              badge: unreadAlertsCount,
+            },
+            {
+              id: 'account',
+              label: 'Compte',
+              icon: UserIcon,
+              path: user ? '/compte' : '/connexion',
+            },
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive =
+              (item.id === 'home' && currentTab === 'home') ||
+              (item.id === 'search' && (currentTab === 'search' || currentTab === 'map')) ||
+              (item.id === 'wishlist' && (currentTab === 'wishlist' || currentTab === 'compare')) ||
+              (item.id === 'alerts' && currentTab === 'alerts') ||
+              (item.id === 'account' &&
+                (currentTab === 'account' || currentTab === 'auth' || currentTab === 'security'));
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onNavigatePath(item.path)}
+                className={`relative flex-1 min-w-[56px] min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                  isActive ? 'text-[#1D4ED8]' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <div className="relative">
+                  <Icon
+                    className={`w-5 h-5 ${
+                      isActive
+                        ? item.id === 'home'
+                          ? 'fill-[#1D4ED8]/15 stroke-[2.5]'
+                          : 'stroke-[2.5]'
+                        : 'stroke-[2]'
+                    }`}
+                  />
+                  {item.badge && item.badge > 0 ? (
+                    <span className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center tabular-nums">
+                      {item.badge}
                     </span>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsCompareOpen(true);
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 flex items-center justify-between cursor-pointer transition-colors"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Scale className="w-4 h-4 text-amber-600" />
-                    <span>Comparer</span>
-                  </div>
-                  {compareList.length > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black">
-                      {compareList.length}
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* Navigation Essentielle & Épurée */}
-              <div className="space-y-1.5 pt-1">
-                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 px-1 pb-1">
-                  Navigation
+                  ) : null}
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs font-bold">
-                  <button
-                    onClick={handleGoHome}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                      currentTab === 'home'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <Home className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span>Accueil</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentTab('visites');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                      currentTab === 'visites'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <Film className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Visites Vidéo</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentTab('map');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                      currentTab === 'map'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Carte RDC</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentTab('agencies');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                      currentTab === 'agencies'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <Building2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Agences</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentTab('agents');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                      currentTab === 'agents'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <Users className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Agents Pro</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentTab('pricing');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                      currentTab === 'pricing'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <Coins className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Tarifs</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentTab('conciergerie');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer col-span-2 ${
-                      currentTab === 'conciergerie'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Conciergerie Immobilière</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (onNavigatePath) onNavigatePath('/quartiers/gombe');
-                      else setCurrentTab('neighborhood');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                      currentTab === 'neighborhood'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <Compass className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Quartiers</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (onNavigatePath) onNavigatePath('/blog');
-                      else setCurrentTab('blog');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                      currentTab === 'blog'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Blog & Guides</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (onNavigatePath) onNavigatePath('/aide');
-                      else setCurrentTab('aide');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`p-3 rounded-xl flex items-center gap-2 text-left transition-colors cursor-pointer col-span-2 ${
-                      currentTab === 'aide'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <HelpCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Centre d’aide & FAQ</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Devenir Partenaire WhatsApp */}
-              <div className="pt-1">
-                <button
-                  onClick={() => {
-                    const partnerMsg = encodeURIComponent("Bonjour KINIMMO Partenariats, je souhaite devenir partenaire officiel (agence immobilière, promoteur ou agent indépendant) à Kinshasa.");
-                    window.open(`https://wa.me/243845294616?text=${partnerMsg}`, '_blank', 'noopener,noreferrer');
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full py-2.5 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <Briefcase className="w-4 h-4 text-amber-700" />
-                  <span>Devenir Agence Partenaire ou Promoteur</span>
-                </button>
-              </div>
-
-              {/* Bouton Publier Simple */}
-              <div className="pt-1">
-                <button
-                  onClick={() => {
-                    handleOpenPublish();
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Publier une Annonce</span>
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-      {/* Fixed Mobile Bottom Navigation Bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-2xl border-t border-slate-200 px-3 h-17 sm:h-18 flex items-center justify-around text-xs font-extrabold text-slate-700 shadow-xl select-none pb-safe">
-        <button
-          onClick={handleGoHome}
-          className={`flex flex-col items-center justify-center min-w-[56px] min-h-[50px] gap-1 transition-all active:scale-90 ${
-            currentTab === 'home' ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
-          }`}
-          title="Retourner à l'Accueil"
-        >
-          <Home className={`w-5.5 h-5.5 ${currentTab === 'home' ? 'text-emerald-600' : ''}`} />
-          <span className="text-xs">Accueil</span>
-        </button>
-
-        {/* Bouton Visites Vidéo 30s TikTok */}
-        <button
-          onClick={() => {
-            setCurrentTab('visites');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          className={`relative flex flex-col items-center justify-center min-w-[56px] min-h-[50px] gap-1 transition-all active:scale-90 ${
-            currentTab === 'visites' ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
-          }`}
-          title="Visites Vidéo 30s TikTok"
-        >
-          <div className="relative">
-            <Film className={`w-5.5 h-5.5 ${currentTab === 'visites' ? 'text-emerald-600' : ''}`} />
-            <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-          </div>
-          <span className="text-xs">Visites</span>
-        </button>
-
-        {/* Central Floating "Publier" Action Button */}
-        <button
-          onClick={handleOpenPublish}
-          className="relative -mt-6 flex flex-col items-center group active:scale-90 transition-transform cursor-pointer"
-          aria-label="Publier un bien"
-        >
-          <div className="w-13 h-13 rounded-full bg-emerald-600 text-white shadow-xl shadow-emerald-600/30 ring-4 ring-white flex items-center justify-center font-black">
-            <PlusCircle className="w-6.5 h-6.5 stroke-[2.5]" />
-          </div>
-          <span className="text-xs font-black text-emerald-700 mt-0.5 tracking-tight">Publier</span>
-        </button>
-
-        <button
-          onClick={() => {
-            setCurrentTab('conciergerie');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          className={`flex flex-col items-center justify-center min-w-[56px] min-h-[50px] gap-1 transition-all active:scale-90 ${
-            currentTab === 'conciergerie' ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
-          }`}
-          title="Conciergerie Immobilière Kinimmo"
-        >
-          <Sparkles className={`w-5.5 h-5.5 ${currentTab === 'conciergerie' ? 'text-emerald-600' : ''}`} />
-          <span className="text-xs">Conciergerie</span>
-        </button>
-
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className={`flex flex-col items-center justify-center min-w-[56px] min-h-[50px] gap-1 transition-all active:scale-90 cursor-pointer ${
-            isMobileMenuOpen ? 'text-emerald-700 font-black' : 'hover:text-slate-900'
-          }`}
-          title="Menu principal"
-        >
-          {isMobileMenuOpen ? (
-            <X className="w-5.5 h-5.5 text-emerald-600" />
-          ) : (
-            <Menu className="w-5.5 h-5.5" />
-          )}
-          <span className="text-xs">Menu</span>
-        </button>
-      </nav>
+                <span className="truncate max-w-full px-1">{item.label}</span>
+                {isActive && (
+                  <span className="absolute bottom-0.5 w-8 h-0.5 rounded-full bg-[#1D4ED8]" />
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </>
   );
 };
-

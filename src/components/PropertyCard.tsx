@@ -4,6 +4,8 @@ import { useApp } from '../context/AppContext';
 import { convertAndFormatPrice } from '../utils/currency';
 import { buildPropertyShareUrl } from '../utils/shareUtils';
 import { canUserManageProperty } from '../utils/propertyPermissions';
+import { buildBoostPath, dispatchAppNavigate } from '../utils/navigation';
+import { getActiveBoostDisplay } from '../utils/boostHelpers';
 import {
   resolveMediaUrl,
   handlePropertyImageError,
@@ -41,7 +43,6 @@ import {
   Building2,
 } from 'lucide-react';
 import { ScheduleVisitModal } from './ScheduleVisitModal';
-import { VisibilityBoostModal } from './Monetization/VisibilityBoostModal';
 import { TrustBadge } from './Trust/TrustBadge';
 import { TrustAvailabilityBadge } from './Trust/TrustAvailabilityBadge';
 import {
@@ -82,7 +83,6 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
 
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
-  const [isBoostOpen, setIsBoostOpen] = useState(false);
 
   const isFavorite = wishlist.includes(property.id);
   const isCompared = compareList.includes(property.id);
@@ -90,6 +90,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
   const isRented = property.listingStatus === 'RENTED';
   const formattedPrice = convertAndFormatPrice(property.price, currency, cdfExchangeRate, property.currency || 'USD');
   const labels = Array.isArray(property.labels) ? property.labels : [];
+  const boostDisplay = getActiveBoostDisplay(property);
 
   const agent = agents.find((a) => a.id === property.agentId || a.name === property.agentId || (property.contactEmail && a.email === property.contactEmail));
   const agency =
@@ -156,11 +157,13 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
     });
   };
 
+  const [copyFeedback, setCopyFeedback] = useState(false);
+
   // Get key custom fields to display on card
   const cardCustomFields = (Array.isArray(customFields) ? customFields : []).filter((cf) => cf && cf.showInSearch && !cf.isPrivate).slice(0, 2);
 
   return (
-    <div className={`group bg-white border ${isSold ? 'border-red-300 ring-1 ring-red-500/20' : 'border-slate-200/90 hover:border-emerald-500/40 hover:shadow-2xl'} rounded-3xl overflow-hidden transition-all duration-300 flex flex-col h-full relative shadow-sm`}>
+    <div className={`group bg-white border ${isSold ? 'border-rose-300 ring-1 ring-rose-500/20' : 'border-slate-200 hover:border-[#1D4ED8]/50 hover:shadow-lg'} rounded-2xl overflow-hidden transition-all duration-200 flex flex-col h-full relative shadow-2xs`}>
       {/* Image Banner Container */}
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
         <img
@@ -187,16 +190,20 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
         {images.length > 1 && (
           <>
             <button
+              type="button"
               onClick={handlePrevImage}
               className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-slate-950/80 hover:bg-slate-900 text-white flex items-center justify-center backdrop-blur-md border border-white/10 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all z-20 shadow-lg active:scale-90"
               title="Photo précédente"
+              aria-label="Photo précédente"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button
+              type="button"
               onClick={handleNextImage}
               className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-slate-950/80 hover:bg-slate-900 text-white flex items-center justify-center backdrop-blur-md border border-white/10 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all z-20 shadow-lg active:scale-90"
               title="Photo suivante"
+              aria-label="Photo suivante"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -206,6 +213,8 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
               {images.map((_, idx) => (
                 <button
                   key={idx}
+                  type="button"
+                  aria-label={`Afficher la photo ${idx + 1} sur ${images.length}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     setActiveImgIndex(idx);
@@ -223,31 +232,29 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
         <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
           {/* Main Status Badge */}
           <span
-            className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold tracking-wide shadow-xs flex items-center gap-1 ${
               isSold
-                ? 'bg-rose-600 text-white border border-rose-400'
+                ? 'bg-rose-600 text-white'
                 : isRented
-                ? 'bg-blue-600 text-white border border-blue-400'
+                ? 'bg-slate-800 text-white'
                 : property.status === 'for-sale'
-                ? 'bg-emerald-600 text-white'
+                ? 'bg-[#1D4ED8] text-white'
                 : property.status === 'for-rent'
-                ? 'bg-sky-600 text-white'
-                : property.status === 'open-house'
-                ? 'bg-purple-600 text-white'
-                : 'bg-amber-600 text-white'
+                ? 'bg-[#0B3EA8] text-white'
+                : 'bg-amber-400 text-slate-950'
             }`}
           >
-            {(isSold || isRented) && <CheckCircle2 className="w-3 h-3 fill-white text-rose-600" />}
+            {(isSold || isRented) && <CheckCircle2 className="w-3 h-3" />}
             {isSold
               ? 'Vendu'
               : isRented
               ? 'Loué'
               : property.status === 'for-sale'
-              ? 'A Vendre'
+              ? 'À vendre'
               : property.status === 'for-rent'
-              ? 'A Louer'
+              ? 'À louer'
               : property.status === 'open-house'
-              ? 'Portes Ouvertes'
+              ? 'Visite libre'
               : property.status}
           </span>
 
@@ -263,30 +270,35 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
             size="sm"
           />
 
-          {/* Badges de Monétisation : Premium, Urgent, Vedette */}
-          {(property.isPremium || property.listingTier === 'premium') && (
-            <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 flex items-center gap-1.5 shadow-md border border-amber-300">
-              <Crown className="w-3.5 h-3.5 fill-slate-950 text-slate-950" />
-              Premium
+          {/* Étiquettes de mise en avant évaluées à la lecture : À la une / Sponsorisé + Urgent */}
+          {boostDisplay.primaryLabel && (
+            <span
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold tracking-wide shadow-sm flex items-center gap-1 ${
+                boostDisplay.primaryLabel === 'Sponsorisé'
+                  ? 'bg-[#1D4ED8] text-white border border-blue-400/40'
+                  : 'bg-[#FACC15] text-slate-950 border border-amber-300'
+              }`}
+            >
+              {boostDisplay.isPremium ? (
+                <Crown className="w-3.5 h-3.5" />
+              ) : boostDisplay.primaryLabel === 'Sponsorisé' ? (
+                <Rocket className="w-3.5 h-3.5" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              <span>{boostDisplay.primaryLabel}</span>
             </span>
           )}
 
-          {property.isUrgent && (
-            <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-rose-600 text-white flex items-center gap-1.5 shadow-md animate-pulse">
+          {boostDisplay.isUrgent && (
+            <span className="px-2.5 py-1 rounded-xl text-[11px] font-extrabold tracking-wide bg-rose-600 text-white flex items-center gap-1 shadow-sm">
               <Zap className="w-3.5 h-3.5 fill-white text-white" />
-              Urgent
+              <span>Urgent</span>
             </span>
           )}
 
-          {(property.featured || labels.includes('featured') || property.listingTier === 'featured') && !(property.isPremium || property.listingTier === 'premium') && (
-            <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-amber-400 text-slate-950 flex items-center gap-1.5 shadow-sm">
-              <Sparkles className="w-3.5 h-3.5 fill-slate-950" />
-              Vedette
-            </span>
-          )}
-
-          {labels.includes('hot') && !property.isUrgent && (
-            <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-rose-500 text-white flex items-center gap-1.5 shadow-sm">
+          {labels.includes('hot') && !boostDisplay.isUrgent && (
+            <span className="px-2.5 py-1 rounded-xl text-[11px] font-extrabold tracking-wide bg-rose-500 text-white flex items-center gap-1 shadow-sm">
               <Flame className="w-3.5 h-3.5 fill-white" />
               Hot Deal
             </span>
@@ -349,11 +361,12 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
                   url: shareUrl,
                 }).catch(() => {});
               } else {
-                navigator.clipboard.writeText(shareUrl);
-                alert('Lien direct de l\'annonce copié dans le presse-papier !');
+                navigator.clipboard?.writeText(shareUrl);
+                setCopyFeedback(true);
+                setTimeout(() => setCopyFeedback(false), 2000);
               }
             }}
-            title="Partager l'annonce"
+            title={copyFeedback ? 'Lien copié !' : "Partager l'annonce"}
             className="p-2.5 min-w-[42px] min-h-[42px] rounded-2xl bg-black/40 hover:bg-black/60 text-white backdrop-blur-md border border-white/20 flex items-center justify-center transition-all active:scale-90"
           >
             <Share2 className="w-4.5 h-4.5" />
@@ -362,19 +375,19 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
 
         {/* Bottom Image Overlay: Price Tag & Eye Button */}
         <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between z-10">
-          <div className="bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-2xl border border-slate-200 shadow-md">
-            <span className="text-lg sm:text-xl font-black text-emerald-700 tracking-tight">
+          <div className="bg-[#1D4ED8] text-white px-3 py-1.5 rounded-xl shadow-md tabular-nums">
+            <span className="text-base sm:text-lg font-extrabold tracking-tight">
               {formattedPrice}
             </span>
             {property.period === 'month' && (
-              <span className="text-xs sm:text-sm text-slate-500 font-bold"> /mois</span>
+              <span className="text-xs text-blue-100 font-semibold">/mois</span>
             )}
           </div>
 
           <button
             onClick={() => setActivePropertyModalId(property.id)}
-            className="p-2.5 min-w-[42px] min-h-[42px] rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white transition-all font-bold text-xs flex items-center justify-center gap-1 shadow-md active:scale-90"
-            title="Voir fiche rapide"
+            className="p-2.5 min-w-[44px] min-h-[44px] rounded-xl bg-white hover:bg-slate-100 text-[#1D4ED8] transition-all font-bold text-xs flex items-center justify-center shadow-md active:scale-90 cursor-pointer"
+            title="Voir la fiche du bien"
           >
             <Eye className="w-5 h-5" />
           </button>
@@ -591,10 +604,10 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setIsBoostOpen(true);
+                  dispatchAppNavigate(buildBoostPath(property.id));
                 }}
-                className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-900 border border-amber-300 transition-all flex items-center justify-center active:scale-95 shadow-sm"
-                title="Booster cette annonce (Mise en avant, Premium, Urgent)"
+                className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-900 border border-amber-300 transition-all flex items-center justify-center active:scale-95 shadow-sm cursor-pointer"
+                title="Mettre cette annonce en avant (À la une, Sponsorisé, Urgent)"
               >
                 <Rocket className="w-3.5 h-3.5 text-amber-600" />
               </button>
@@ -607,9 +620,9 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
                 onClick={(e) => {
                   e.stopPropagation();
                   setEditingProperty(property);
-                  setIsSubmitPropertyOpen(true);
+                  dispatchAppNavigate(`/publier/${encodeURIComponent(property.id)}`);
                 }}
-                className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-slate-100 hover:bg-amber-100 text-amber-700 hover:text-amber-900 border border-slate-200 hover:border-amber-300 transition-all flex items-center justify-center active:scale-95"
+                className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-slate-100 hover:bg-amber-100 text-amber-700 hover:text-amber-900 border border-slate-200 hover:border-amber-300 transition-all flex items-center justify-center active:scale-95 cursor-pointer"
                 title="Modifier cette annonce"
               >
                 <Edit className="w-3.5 h-3.5" />
@@ -623,17 +636,17 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
                 e.stopPropagation();
                 setIsScheduleOpen(true);
               }}
-              className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-slate-100 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-900 border border-slate-200 hover:border-emerald-300 transition-all flex items-center justify-center active:scale-95"
-              title="Programmer une visite (sur place ou vidéo)"
+              className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-slate-100 hover:bg-blue-50 text-[#1D4ED8] border border-slate-200 hover:border-blue-200 transition-all flex items-center justify-center active:scale-95 cursor-pointer"
+              title="Programmer une visite"
             >
               <Calendar className="w-3.5 h-3.5" />
             </button>
 
             <button
               onClick={() => setActivePropertyModalId(property.id)}
-              className="px-2.5 py-1.5 min-h-[36px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center gap-1 border border-emerald-600 active:scale-95 transition-all shadow-sm"
+              className="px-3 py-1.5 min-h-[38px] rounded-xl bg-[#1D4ED8] hover:bg-[#0B3EA8] text-white font-bold text-xs flex items-center gap-1 active:scale-95 transition-all shadow-2xs cursor-pointer"
             >
-              Fiche →
+              Voir →
             </button>
           </div>
         </div>
@@ -644,13 +657,6 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
         property={property}
         isOpen={isScheduleOpen}
         onClose={() => setIsScheduleOpen(false)}
-      />
-
-      {/* Visibility Boost Modal (Monétisation Options) */}
-      <VisibilityBoostModal
-        property={property}
-        isOpen={isBoostOpen}
-        onClose={() => setIsBoostOpen(false)}
       />
     </div>
   );

@@ -2,54 +2,63 @@ import React, { useState, useEffect } from 'react';
 import { AdminLogin } from './AdminLogin';
 import { AdminDashboard } from './AdminDashboard';
 import { useApp } from '../../context/AppContext';
-import { clearStoredToken } from '../../services/mysqlApi';
+import { mysqlApi } from '../../services/mysqlApi';
+import { purgeLegacyAuthStorage } from '../../services/secureFetch';
 
 interface AdminPortalProps {
   onReturnHome: () => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({ onReturnHome }) => {
-  const { user } = useApp();
+  const { user, logOut } = useApp();
   const [adminUser, setAdminUser] = useState<any>(null);
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
-    // Vérifier si une session admin existe déjà
-    try {
-      const savedAdminStr = localStorage.getItem('kinimmo_admin_session');
-      if (savedAdminStr) {
-        const parsed = JSON.parse(savedAdminStr);
-        if (parsed && parsed.role === 'admin') {
-          setAdminUser(parsed);
-          setIsInitializing(false);
-          return;
-        }
-      }
+    let active = true;
+    purgeLegacyAuthStorage();
 
-      // Si l'utilisateur dans AppContext a déjà le rôle admin
-      if (user && user.role === 'admin') {
-        setAdminUser({
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: 'admin',
-          agencyName: user.agencyName || 'Direction Kinimmo'
-        });
-      }
-    } catch (e) {
-      console.error('Erreur lecture session admin:', e);
-    } finally {
+    if (user && user.role === 'admin') {
+      setAdminUser({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: 'admin',
+        agencyName: user.agencyName || 'Direction Kinimmo'
+      });
       setIsInitializing(false);
+      return;
     }
+
+    mysqlApi
+      .getMe()
+      .then((res) => {
+        if (!active) return;
+        const liveUser = res.user || res.data?.user;
+        if (res.success && liveUser?.role === 'admin') {
+          setAdminUser(liveUser);
+        } else {
+          setAdminUser(null);
+        }
+      })
+      .catch(() => {
+        if (active) setAdminUser(null);
+      })
+      .finally(() => {
+        if (active) setIsInitializing(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [user]);
 
   const handleLoginSuccess = (authenticatedAdmin: any) => {
     setAdminUser(authenticatedAdmin);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('kinimmo_admin_session');
-    clearStoredToken();
+  const handleLogout = async () => {
+    await logOut();
     setAdminUser(null);
   };
 

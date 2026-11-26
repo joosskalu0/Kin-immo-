@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Property, ListingLifecycleStatus, LeadRequest } from '../../types';
+import { Property, ListingLifecycleStatus, LeadRequest, VisibilityOption, Invoice } from '../../types';
 import { mysqlApi } from '../../services/mysqlApi';
+import { buildBoostPath, dispatchAppNavigate } from '../../utils/navigation';
+import {
+  DEFAULT_FEATURED_SLOTS_LIMIT,
+  evaluateBoostRequestStatus,
+  getActiveBoostDisplay,
+  parseFeaturedSlotsLimit,
+  resolveBoostPrimaryLabel,
+} from '../../utils/boostHelpers';
 import {
   LISTING_STATUS_CONFIG,
   getListingLifecycleStatus,
@@ -9,7 +17,6 @@ import {
   canBoostProperty,
 } from '../../utils/propertyStatusHelpers';
 import { AgentVideoPublishManager } from './AgentVideoPublishManager';
-import { VisibilityBoostModal } from '../Monetization/VisibilityBoostModal';
 import { TrustBadge } from '../Trust/TrustBadge';
 import { TrustVerificationModal } from '../Trust/TrustVerificationModal';
 import { AgentTrustSpace } from '../Trust/AgentTrustSpace';
@@ -73,11 +80,15 @@ export type AgentSectionId =
 interface AgentDashboardViewProps {
   onOpenSubmitProperty?: () => void;
   onOpenSecurityModal?: () => void;
+  forcedSection?: AgentSectionId;
+  hideTopNav?: boolean;
 }
 
 export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
   onOpenSubmitProperty,
-  onOpenSecurityModal
+  onOpenSecurityModal,
+  forcedSection,
+  hideTopNav = false,
 }) => {
   const {
     user,
@@ -91,14 +102,23 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
     updateLeadStatus,
     deleteLead,
     invoices,
+    addInvoice,
     agents,
     subscriptionPlans,
     cdfExchangeRate,
     propertyVideos,
-    contactSettings
+    contactSettings,
+    requestConfirm,
   } = useApp();
 
-  const [activeSection, setActiveSection] = useState<AgentSectionId>('overview');
+  const [activeSection, setActiveSection] = useState<AgentSectionId>(forcedSection || 'overview');
+  const [statusErrorMsg, setStatusErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (forcedSection) {
+      setActiveSection(forcedSection);
+    }
+  }, [forcedSection]);
   const [propertyFilter, setPropertyFilter] = useState<'ALL' | ListingLifecycleStatus>('ALL');
   const [propertySearch, setPropertySearch] = useState('');
 
@@ -109,19 +129,35 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
   const [isSubmittingStatus, setIsSubmittingStatus] = useState(false);
   const [statusHistoryViewProperty, setStatusHistoryViewProperty] = useState<Property | null>(null);
 
-  // Boost Modal State
-  const [boostModalProperty, setBoostModalProperty] = useState<Property | null>(null);
-
-  // Agent's Personal Boost Requests (Chargées directement depuis MySQL)
+  // Agent's Personal Boost Requests & Configurable Options
   const [agentBoostRequests, setAgentBoostRequests] = useState<any[]>([]);
+  const [visibilityOptions, setVisibilityOptions] = useState<VisibilityOption[]>([]);
+  const [featuredSlotsLimit, setFeaturedSlotsLimit] = useState<number>(() =>
+    parseFeaturedSlotsLimit(contactSettings?.featuredSlotsLimit ?? DEFAULT_FEATURED_SLOTS_LIMIT)
+  );
+  const [activeSlotsCount, setActiveSlotsCount] = useState<number>(0);
   const [isLoadingAgentBoosts, setIsLoadingAgentBoosts] = useState(false);
+  const [extendingBoostId, setExtendingBoostId] = useState<string | null>(null);
+  const [boostActionError, setBoostActionError] = useState<string | null>(null);
 
   const loadAgentBoosts = async () => {
     setIsLoadingAgentBoosts(true);
     try {
-      const res = await mysqlApi.getMyBoosts();
-      if (res && res.boosts) {
+      const [res, optRes] = await Promise.all([
+        mysqlApi.getMyBoosts().catch(() => null),
+        mysqlApi.getVisibilityOptions().catch(() => null),
+      ]);
+      if (res && Array.isArray(res.boosts)) {
         setAgentBoostRequests(res.boosts);
+      }
+      if (res?.featured_slots_limit) {
+        setFeaturedSlotsLimit(parseFeaturedSlotsLimit(res.featured_slots_limit));
+      }
+      if (typeof res?.active_slots_count === 'number') {
+        setActiveSlotsCount(res.active_slots_count);
+      }
+      if (optRes?.success && Array.isArray(optRes.options)) {
+        setVisibilityOptions(optRes.options.filter((o: any) => o.is_active !== false));
       }
     } catch (e) {
       console.warn('Erreur chargement des boosts agent:', e);
@@ -133,6 +169,79 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
   useEffect(() => {
     loadAgentBoosts();
   }, [user?.id]);
+
+  const handleOneTapExtendBoost = async (boost: any) => {
+    if (!boost?.property_id) {
+      dispatchAppNavigate('/pro/boost');
+      return;
+    }
+    const targetOptionId = boost.option_id || 'opt_featured_7d';
+    setExtendingBoostId(boost.id);
+    setBoostActionError(null);
+    try {
+      const res = await mysqlApi.createBoostOrder(
+        boost.property_id,
+        targetOptionId,
+        boost.payment_method_id || undefined,
+        'manual_mobile_money',
+        boost.id
+      );
+
+      if (res?.success && res?.invoice) {
+        const inv = res.invoice;
+        const matchedOpt = visibilityOptions.find((o) => o.id === targetOptionId);
+        const amountUsd = Number(inv.amount ?? inv.total_amount ?? matchedOpt?.price_usd ?? 10);
+        const amountCdf = Number(inv.amount_cdf ?? inv.total_amount_cdf ?? Math.round(amountUsd * cdfExchangeRate));
+        const renewalInvoice: Invoice = {
+          id: inv.id,
+          invoiceNumber: inv.invoice_number || `INV-${Date.now()}`,
+          targetType: 'property',
+          targetId: boost.property_id,
+          targetName: user?.name || 'Annonceur Kinshasa',
+          targetEmail: user?.email || '',
+          targetPhone: user?.phone || '',
+          invoiceType: 'boost',
+          propertyId: boost.property_id,
+          propertyTitle: inv.property_title || boost.property_title || 'Bien immobilier',
+          optionId: targetOptionId,
+          optionName: inv.option_name || boost.option_name || matchedOpt?.name,
+          boost_type: inv.boost_type || boost.boost_type,
+          boost_label: inv.boost_label || boost.boost_label,
+          extends_boost_id: boost.id,
+          totalAmount: amountUsd,
+          subtotalAmount: amountUsd,
+          taxAmount: 0,
+          totalAmountCDF: amountCdf,
+          currency: 'USD',
+          status: 'pending',
+          paymentMethod: 'mpesa',
+          dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+          createdAt: new Date().toISOString(),
+          items: [
+            {
+              id: `item_${Date.now()}`,
+              description: `Prolongation boost : ${inv.option_name || boost.option_name || 'Mise en avant'} (${inv.property_title || boost.property_title})`,
+              quantity: 1,
+              amount: amountUsd,
+            },
+          ],
+        };
+        addInvoice(renewalInvoice);
+        dispatchAppNavigate(
+          buildBoostPath(boost.property_id, {
+            invoiceId: inv.id,
+            optionId: targetOptionId,
+          })
+        );
+      } else {
+        setBoostActionError(res?.message || res?.error || 'Impossible de créer la facture de prolongation.');
+      }
+    } catch (err: any) {
+      setBoostActionError(err?.message || 'Erreur réseau lors de la prolongation.');
+    } finally {
+      setExtendingBoostId(null);
+    }
+  };
 
   // Kinimmo Trust Application Modal
   const [isTrustModalOpen, setIsTrustModalOpen] = useState(false);
@@ -199,21 +308,20 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
       (inv as any).userId === user?.id
   );
 
-  // Active boosts
-  const activeBoostedProps = myProperties.filter(
-    (p) => p.featured || p.isPremium || p.isUrgent || p.listingTier === 'featured' || p.listingTier === 'premium'
-  );
+  // Active boosts (évalués à la lecture sans tâche planifiée)
+  const activeBoostedProps = myProperties.filter((p) => getActiveBoostDisplay(p).isActive);
 
   // Status Change Handler
   const handleConfirmStatusChange = async () => {
     if (!statusModalProperty) return;
     setIsSubmittingStatus(true);
+    setStatusErrorMsg(null);
     try {
       await updatePropertyListingStatus(statusModalProperty.id, targetStatus, statusChangeNote);
       setStatusModalProperty(null);
       setStatusChangeNote('');
     } catch (err: any) {
-      alert(err.message || 'Erreur lors de la mise à jour du statut.');
+      setStatusErrorMsg(err?.message || 'Impossible de mettre à jour le statut. Réessayez dans un instant.');
     } finally {
       setIsSubmittingStatus(false);
     }
@@ -237,38 +345,40 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
     <div className="space-y-6">
       <PaymentReminderBanner onOpenBilling={() => setActiveSection('billing_subscription')} />
       {/* Navigation Sub-Tabs pour le tableau de bord Agent */}
-      <div className="flex border-b border-slate-800 gap-1.5 overflow-x-auto text-xs font-semibold pb-1">
-        {[
-          { id: 'overview', label: 'Vue d’ensemble', icon: BarChart3 },
-          { id: 'my_properties', label: `Mes Biens (${totalListings})`, icon: Building2 },
-          { id: 'kinimmo_trust', label: 'Kinimmo Trust', icon: ShieldCheck },
-          { id: 'media_manager', label: 'Photos & Vidéos', icon: Film },
-          { id: 'leads', label: `Prospects & CRM (${leads.length})`, icon: Users },
-          { id: 'visits_calendar', label: 'Visites & Calendrier', icon: Calendar },
-          { id: 'analytics', label: 'Statistiques Annonces', icon: TrendingUp },
-          { id: 'boosts', label: `Boosts (${activeBoostedProps.length})`, icon: Sparkles },
-          { id: 'billing_subscription', label: 'Abonnement & Factures', icon: CreditCard },
-          { id: 'profile_whatsapp', label: 'Profil & WhatsApp Pro', icon: UserIcon },
-          { id: 'notifications_settings', label: 'Assistance & Paramètres', icon: Bell }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeSection === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSection(tab.id as AgentSectionId)}
-              className={`py-2.5 px-3.5 rounded-xl transition-all flex items-center gap-2 whitespace-nowrap ${
-                isActive
-                  ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20'
-                  : 'bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800/80'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      {!hideTopNav && (
+        <div className="flex border-b border-slate-800 gap-1.5 overflow-x-auto text-xs font-semibold pb-1">
+          {[
+            { id: 'overview', label: 'Vue d’ensemble', icon: BarChart3 },
+            { id: 'my_properties', label: `Mes Biens (${totalListings})`, icon: Building2 },
+            { id: 'kinimmo_trust', label: 'Kinimmo Trust', icon: ShieldCheck },
+            { id: 'media_manager', label: 'Photos & Vidéos', icon: Film },
+            { id: 'leads', label: `Prospects & CRM (${leads.length})`, icon: Users },
+            { id: 'visits_calendar', label: 'Visites & Calendrier', icon: Calendar },
+            { id: 'analytics', label: 'Statistiques Annonces', icon: TrendingUp },
+            { id: 'boosts', label: `Boosts (${activeBoostedProps.length})`, icon: Sparkles },
+            { id: 'billing_subscription', label: 'Abonnement & Factures', icon: CreditCard },
+            { id: 'profile_whatsapp', label: 'Profil & WhatsApp Pro', icon: UserIcon },
+            { id: 'notifications_settings', label: 'Assistance & Paramètres', icon: Bell }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeSection === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSection(tab.id as AgentSectionId)}
+                className={`py-2.5 px-3.5 rounded-xl transition-all flex items-center gap-2 whitespace-nowrap ${
+                  isActive
+                    ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20'
+                    : 'bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800/80'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ======================================================== */}
       {/* 1. VUE D'ENSEMBLE */}
@@ -600,11 +710,21 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
                       <button
                         onClick={() => {
                           if (!canEdit) {
-                            alert("Permission refusée : Vous n'êtes pas autorisé à modifier ce bien.");
+                            requestConfirm({
+                              title: 'Modification non autorisée',
+                              message: "Vous n'êtes pas autorisé à modifier cette annonce.",
+                              confirmText: 'Compris',
+                              cancelText: 'Fermer',
+                              onConfirm: () => {},
+                            });
                             return;
                           }
                           setEditingProperty(p);
-                          setIsSubmitPropertyOpen(true);
+                          if (onOpenSubmitProperty) {
+                            onOpenSubmitProperty();
+                          } else {
+                            dispatchAppNavigate(`/publier/${encodeURIComponent(p.id)}`);
+                          }
                         }}
                         disabled={!canEdit}
                         className={`py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
@@ -632,16 +752,17 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
                     </div>
 
                     <div className="grid grid-cols-2 gap-1.5">
-                      {/* Bouton Booster (Désactivé si RENTED ou SOLD) */}
+                      {/* Bouton Booster (Page dédiée /pro/boost/:id, désactivé si indisponible) */}
                       <button
-                        onClick={() => setBoostModalProperty(p)}
+                        type="button"
+                        onClick={() => dispatchAppNavigate(buildBoostPath(p.id))}
                         disabled={!boostCheck.allowed}
                         className={`py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
                           boostCheck.allowed
-                            ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+                            ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30 cursor-pointer'
                             : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed opacity-60'
                         }`}
-                        title={boostCheck.reason || 'Sponsoriser ce bien'}
+                        title={boostCheck.reason || 'Mettre ce bien en avant'}
                       >
                         <Sparkles className="w-3.5 h-3.5" />
                         <span>{boostCheck.allowed ? 'Booster' : 'Boost interdit'}</span>
@@ -913,83 +1034,114 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
       )}
 
       {/* ======================================================== */}
-      {/* 8. BOOSTS ET ANNONCES SPONSORISÉES */}
-      {/* ======================================================== */}
-      {/* ======================================================== */}
       {/* 8. BOOSTS ET ANNONCES SPONSORISÉES / MES MISES EN AVANT */}
       {/* ======================================================== */}
       {activeSection === 'boosts' && (
-        <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-6 shadow-xl">
+        <div className="bg-slate-900 border border-slate-800 p-5 sm:p-6 rounded-3xl space-y-6 shadow-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
-                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
-                  Espace Personnel Agent • Vitrine Kinimmo
-                </span>
-              </div>
-              <h3 className="text-xl font-black text-white flex items-center gap-2 mt-1">
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
+                Mise en avant & Vitrine Kinimmo • {activeSlotsCount} / {featuredSlotsLimit} places actives en tête
+              </span>
+              <h3 className="text-xl font-black text-white flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-amber-400" />
-                <span>Mes Mises en Avant & Vitrine</span>
+                <span>Mes Mises en Avant & Historique</span>
               </h3>
               <p className="text-xs text-slate-400">
-                Suivez en temps réel la validation de vos demandes de mise en avant par la direction, vos dates d'activation et vos motifs de refus.
+                Consultez vos vues et contacts avant et pendant chaque boost, et prolongez en un appui.
               </p>
             </div>
 
-            <button
-              onClick={loadAgentBoosts}
-              disabled={isLoadingAgentBoosts}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAgentBoosts ? 'animate-spin' : ''}`} />
-              <span>Actualiser</span>
-            </button>
-          </div>
-
-          {/* Formules de mise en avant disponibles */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-black uppercase tracking-wider text-slate-300">
-              Formules de Mise en Avant Disponibles
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-5 rounded-2xl bg-slate-950/70 border border-amber-500/30 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-xs">Mise en Vedette (7 jours)</span>
-                  <span className="text-amber-400 font-bold text-xs">10 $ USD</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Positionnement prioritaire dans la section Vitrine en tête de page et badge « À LA UNE » doré.
-                </p>
-              </div>
-
-              <div className="p-5 rounded-2xl bg-slate-950/70 border border-yellow-500/30 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-xs">Pack Premium (30 jours)</span>
-                  <span className="text-amber-400 font-bold text-xs">25 $ USD</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Affichage maximal en vitrine pendant 1 mois entier, cadre d'exception et priorité absolue.
-                </p>
-              </div>
-
-              <div className="p-5 rounded-2xl bg-slate-950/70 border border-rose-500/30 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-xs">Badge Urgent (14 jours)</span>
-                  <span className="text-rose-400 font-bold text-xs">8 $ USD</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Signalétique d'urgence pour trouver preneur rapidement auprès des acquéreurs et locataires.
-                </p>
-              </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => dispatchAppNavigate('/pro/boost')}
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Mettre une annonce en avant</span>
+              </button>
+              <button
+                type="button"
+                onClick={loadAgentBoosts}
+                disabled={isLoadingAgentBoosts}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAgentBoosts ? 'animate-spin' : ''}`} />
+                <span>Actualiser</span>
+              </button>
             </div>
           </div>
 
-          {/* Tableau détaillé des demandes de mise en avant de l'agent */}
+          {boostActionError && (
+            <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs font-semibold flex items-center justify-between gap-2">
+              <span>{boostActionError}</span>
+              <button
+                type="button"
+                onClick={() => setBoostActionError(null)}
+                className="text-rose-300 hover:text-white font-bold px-2"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Formules paramétrables disponibles */}
+          <div className="space-y-3">
+            <h4 className="text-xs font-black uppercase tracking-wider text-slate-300">
+              Options de Mise en Avant Paramétrées
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+              {visibilityOptions.map((opt) => {
+                const badge =
+                  opt.boost_type === 'urgent'
+                    ? 'Urgent'
+                    : resolveBoostPrimaryLabel(opt.boost_type, opt.badge_text, opt.label_type);
+                const priceUsd = Number(opt.price_usd ?? opt.price ?? 0);
+                const priceCdf = Number(opt.price_cdf ?? opt.priceCDF ?? Math.round(priceUsd * cdfExchangeRate));
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => dispatchAppNavigate(buildBoostPath(undefined, { optionId: opt.id }))}
+                    className="p-4 rounded-2xl bg-slate-950/70 hover:bg-slate-950 border border-slate-800 hover:border-amber-400/50 text-left space-y-2.5 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-white text-xs truncate">{opt.name}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0 ${
+                            badge === 'Urgent'
+                              ? 'bg-rose-600 text-white'
+                              : badge === 'Sponsorisé'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-amber-400 text-slate-950'
+                          }`}
+                        >
+                          {badge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2">
+                        {opt.description}
+                      </p>
+                    </div>
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs tabular-nums">
+                      <span className="text-slate-400 font-semibold">{opt.duration_days} jours</span>
+                      <span className="text-amber-400 font-black">
+                        {priceUsd} $ <span className="text-[10px] text-slate-500 font-normal">({priceCdf.toLocaleString('fr-FR')} CDF)</span>
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Historique des boosts avec vues/contacts avant & pendant + Prolonger en 1 appui */}
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-black uppercase tracking-wider text-slate-300">
-                Historique de vos Demandes de Mise en Avant ({agentBoostRequests.length})
+                Historique de vos Demandes & Performances ({agentBoostRequests.length})
               </h4>
             </div>
 
@@ -1000,11 +1152,12 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
                   Vous n'avez aucune demande de mise en avant pour le moment.
                 </p>
                 <p className="text-[11px] text-slate-500 max-w-md mx-auto">
-                  Pour propulser l'un de vos biens dans la Vitrine Officielle Kinimmo, rendez-vous dans l'onglet « Mes Propriétés » ci-dessus et cliquez sur le bouton « Demander une mise en avant ».
+                  Choisissez l'une de vos annonces publiées et activez « À la une », « Sponsorisé » ou « Urgent » pour apparaître en tête.
                 </p>
                 <button
-                  onClick={() => setActiveSection('my_properties')}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs inline-flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+                  type="button"
+                  onClick={() => dispatchAppNavigate('/pro/boost')}
+                  className="min-h-[42px] px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs inline-flex items-center gap-1.5 cursor-pointer"
                 >
                   <Building2 className="w-4 h-4" />
                   <span>Choisir un bien à mettre en avant</span>
@@ -1013,103 +1166,178 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
             ) : (
               <div className="space-y-3">
                 {agentBoostRequests.map((boost) => {
-                  const isPending = boost.status === 'pending';
-                  const isActive = boost.status === 'active';
-                  const isRejected = boost.status === 'rejected';
-                  const isSuspended = boost.status === 'suspended';
-                  const isExpired = boost.status === 'expired' || (isActive && boost.expires_at && new Date(boost.expires_at).getTime() <= Date.now());
+                  const matchedProp = properties.find((p) => p.id === boost.property_id);
+                  const status = boost.computed_status || evaluateBoostRequestStatus(boost, matchedProp);
+                  const isPending = status === 'pending';
+                  const isAwaiting = status === 'awaiting_validation';
+                  const isActive = status === 'active';
+                  const isRejected = status === 'rejected';
+                  const isSuspended = status === 'suspended';
+                  const isRefunded = status === 'refunded';
+                  const isExpired = status === 'expired';
+
+                  const viewsBefore = Number(boost.views_before ?? 0);
+                  const contactsBefore = Number(boost.contacts_before ?? 0);
+                  const viewsDuring = Number(boost.views_during ?? 0);
+                  const contactsDuring = Number(boost.contacts_during ?? 0);
+                  const boostBadgeLabel =
+                    boost.boost_label ||
+                    (boost.boost_type === 'urgent'
+                      ? 'Urgent'
+                      : resolveBoostPrimaryLabel(boost.boost_type, boost.badge_text));
+                  const canExtend = Boolean(boost.property_id) && canBoostProperty(matchedProp || { published: true } as any).allowed;
 
                   return (
                     <div
                       key={boost.id}
-                      className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
-                        isPending
+                      className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                        isPending || isAwaiting
                           ? 'bg-amber-950/20 border-amber-500/40'
-                          : isActive && !isExpired
-                          ? 'bg-slate-950/80 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
+                          : isActive
+                          ? 'bg-slate-950/80 border-emerald-500/40'
                           : isSuspended
                           ? 'bg-purple-950/20 border-purple-500/40'
                           : isRejected
                           ? 'bg-rose-950/20 border-rose-500/40'
-                          : 'bg-slate-950/40 border-slate-800 opacity-70'
+                          : 'bg-slate-950/50 border-slate-800'
                       }`}
                     >
-                      <div className="space-y-1.5 flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                              isPending
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                                : isActive && !isExpired
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                isPending
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : isAwaiting
+                                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                                  : isActive
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                  : isSuspended
+                                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                                  : isRejected
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                  : isRefunded
+                                  ? 'bg-slate-700 text-slate-300 border border-slate-600'
+                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                              }`}
+                            >
+                              {isPending
+                                ? 'Facture à payer'
+                                : isAwaiting
+                                ? 'Preuve envoyée · Validation admin'
+                                : isActive
+                                ? 'Active en vitrine'
                                 : isSuspended
-                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                                ? 'Suspendue'
                                 : isRejected
-                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                                : 'bg-slate-800 text-slate-400 border border-slate-700'
-                            }`}
-                          >
-                            {isPending
-                              ? '⏳ En attente de validation Admin'
-                              : isActive && !isExpired
-                              ? '✓ Active en Vitrine'
-                              : isSuspended
-                              ? '⏸ Suspendue (Compteur gelé)'
-                              : isRejected
-                              ? '✕ Demande Refusée'
-                              : 'Expirée'}
-                          </span>
-
-                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-bold">
-                            {boost.option_name || 'Option Visibilité'} ({boost.duration_days || 7} jours)
-                          </span>
-                        </div>
-
-                        <h4 className="text-sm font-bold text-white truncate">
-                          {boost.property_title || 'Bien immobilier'}
-                        </h4>
-
-                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
-                          {boost.starts_at && (
-                            <span>Début : {new Date(boost.starts_at).toLocaleDateString('fr-FR')}</span>
-                          )}
-                          {boost.expires_at && (
-                            <span className={isActive && !isExpired ? 'text-emerald-400 font-semibold' : ''}>
-                              Fin : {new Date(boost.expires_at).toLocaleDateString('fr-FR')}
+                                ? 'Demande refusée'
+                                : isRefunded
+                                ? 'Remboursée'
+                                : 'Expirée'}
                             </span>
-                          )}
-                          {boost.created_at && !boost.starts_at && (
-                            <span>Demandé le : {new Date(boost.created_at).toLocaleDateString('fr-FR')}</span>
-                          )}
+
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                                boostBadgeLabel === 'Urgent'
+                                  ? 'bg-rose-600 text-white'
+                                  : boostBadgeLabel === 'Sponsorisé'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-amber-400 text-slate-950'
+                              }`}
+                            >
+                              {boostBadgeLabel}
+                            </span>
+
+                            <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-bold tabular-nums">
+                              {boost.option_name || 'Mise en avant'} ({boost.duration_days || 7} j)
+                            </span>
+                          </div>
+
+                          <h4 className="text-sm font-bold text-white truncate">
+                            {boost.property_title || matchedProp?.title || 'Bien immobilier'}
+                          </h4>
+
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 tabular-nums">
+                            {boost.starts_at && (
+                              <span>Début : {new Date(boost.starts_at).toLocaleDateString('fr-FR')}</span>
+                            )}
+                            {boost.expires_at && (
+                              <span className={isActive ? 'text-emerald-400 font-semibold' : ''}>
+                                Fin : {new Date(boost.expires_at).toLocaleDateString('fr-FR')}
+                              </span>
+                            )}
+                            {boost.created_at && !boost.starts_at && (
+                              <span>Facture du {new Date(boost.created_at).toLocaleDateString('fr-FR')}</span>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Motif du refus renseigné par l'administrateur */}
-                        {isRejected && boost.rejection_reason && (
-                          <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs mt-2">
-                            <strong>Motif du refus par l'administration :</strong> {boost.rejection_reason}
+                        {/* Statistiques Avant Boost vs Pendant Boost */}
+                        <div className="grid grid-cols-2 gap-2 shrink-0 min-w-[230px] text-[11px] tabular-nums">
+                          <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                            <span className="text-[10px] text-slate-400 block uppercase font-bold">
+                              Avant boost
+                            </span>
+                            <div className="text-slate-200 font-bold mt-0.5">
+                              {viewsBefore.toLocaleString('fr-FR')} vues · {contactsBefore.toLocaleString('fr-FR')} contacts
+                            </div>
                           </div>
-                        )}
+                          <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30">
+                            <span className="text-[10px] text-emerald-400 block uppercase font-bold">
+                              Pendant boost
+                            </span>
+                            <div className="text-emerald-300 font-black mt-0.5">
+                              +{viewsDuring.toLocaleString('fr-FR')} vues · +{contactsDuring.toLocaleString('fr-FR')} contacts
+                            </div>
+                          </div>
+                        </div>
 
-                        {/* Note de suspension */}
-                        {isSuspended && (
-                          <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs mt-2">
-                            Mise en avant mise en pause temporaire par la direction. Le solde de vos jours est préservé.
-                          </div>
-                        )}
+                        {/* Actions directes : Payer (si pending) ou Prolonger en 1 appui */}
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {isPending && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                dispatchAppNavigate(
+                                  buildBoostPath(boost.property_id, {
+                                    invoiceId: boost.id,
+                                    optionId: boost.option_id,
+                                  })
+                                )
+                              }
+                              className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black cursor-pointer transition-colors"
+                            >
+                              Payer la facture
+                            </button>
+                          )}
+
+                          {(isActive || isExpired || isRejected) && (
+                            <button
+                              type="button"
+                              disabled={!canExtend || extendingBoostId === boost.id}
+                              onClick={() => handleOneTapExtendBoost(boost)}
+                              className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                              <Zap className="w-3.5 h-3.5" />
+                              <span>
+                                {extendingBoostId === boost.id ? 'Création facture...' : 'Prolonger'}
+                              </span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Action de renouvellement si refusée ou expirée */}
-                      {(isExpired || isRejected) && (
-                        <button
-                          onClick={() => {
-                            const foundProp = properties.find((p) => p.id === boost.property_id);
-                            if (foundProp) setBoostModalProperty(foundProp);
-                            else setActiveSection('my_properties');
-                          }}
-                          className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all shrink-0 cursor-pointer"
-                        >
-                          Renouveler la demande
-                        </button>
+                      {isRejected && boost.rejection_reason && (
+                        <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                          <strong>Motif du refus :</strong> {boost.rejection_reason}
+                        </div>
+                      )}
+
+                      {isSuspended && (
+                        <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs">
+                          Mise en avant suspendue (annonce masquée ou suspendue).
+                        </div>
                       )}
                     </div>
                   );
@@ -1334,12 +1562,20 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
                   className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
+              {statusErrorMsg && (
+                <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold">
+                  {statusErrorMsg}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setStatusModalProperty(null)}
+                onClick={() => {
+                  setStatusErrorMsg(null);
+                  setStatusModalProperty(null);
+                }}
                 className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 font-bold text-xs hover:bg-slate-800"
               >
                 Annuler
@@ -1409,16 +1645,6 @@ export const AgentDashboardView: React.FC<AgentDashboardViewProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* Modal Boost de visibilité */}
-      {boostModalProperty && (
-        <VisibilityBoostModal
-          isOpen={Boolean(boostModalProperty)}
-          onClose={() => setBoostModalProperty(null)}
-          property={boostModalProperty}
-          onSuccess={() => setBoostModalProperty(null)}
-        />
       )}
 
       {/* Modal Demande Kinimmo Trust Agent */}
