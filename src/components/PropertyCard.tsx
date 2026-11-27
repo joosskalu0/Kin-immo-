@@ -6,6 +6,7 @@ import { buildPropertyShareUrl } from '../utils/shareUtils';
 import { canUserManageProperty } from '../utils/propertyPermissions';
 import { buildBoostPath, dispatchAppNavigate } from '../utils/navigation';
 import { getActiveBoostDisplay } from '../utils/boostHelpers';
+import { resolvePropertyAdvertiser } from '../utils/propertyContact';
 import {
   resolveMediaUrl,
   handlePropertyImageError,
@@ -93,21 +94,9 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
   const labels = Array.isArray(property.labels) ? property.labels : [];
   const boostDisplay = getActiveBoostDisplay(property);
 
-  const agent = agents.find((a) => a.id === property.agentId || a.name === property.agentId || (property.contactEmail && a.email === property.contactEmail));
-  const agency =
-    (property.agencyId
-      ? agencies?.find(
-          (ag) =>
-            ag.id === property.agencyId ||
-            ag.name === property.agencyName ||
-            (property.agencyId === 'agency_1' && ag.id === 'agency_congo_luxury') ||
-            (property.agencyId === 'agency_2' && ag.id === 'agency_fleuve_habitat')
-        )
-      : null) ||
-    (agent?.agencyId ? agencies?.find((ag) => ag.id === agent.agencyId || ag.name === agent.agencyName) : null) ||
-    (property.agencyName
-      ? agencies?.find((ag) => ag.name?.toLowerCase().trim() === property.agencyName?.toLowerCase().trim())
-      : null);
+  const { allUsers } = useApp();
+  const advertiser = resolvePropertyAdvertiser(property, { agents, agencies, allUsers });
+  const { agent, agency } = advertiser;
 
   const canManageProperty = canUserManageProperty(user, property, agents);
 
@@ -550,8 +539,8 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
           <div className="flex items-center gap-1.5 shrink-0">
             {/* Quick WhatsApp button for Agent */}
             {(() => {
-              const targetPhone = agent?.whatsapp || agent?.phone || property.contactPhone || '+243810000001';
-              const contactName = agent?.name || 'Conseiller Agent Kinshasa';
+              const targetPhone = advertiser.whatsapp;
+              const contactName = advertiser.name;
               const message = `Bonjour ${contactName}, je suis intéressé(e) par votre bien "${property.title}" (${formattedPrice}) sur Kinshasa Immobilier (Réf: ${property.id}).`;
               const waUrl = buildWhatsAppUrl(targetPhone, message);
 
@@ -573,14 +562,14 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onShare })
             })()}
 
             {/* Quick Phone Call button */}
-            {(agent?.phone || agency?.phone || property.contactPhone) && (
+            {advertiser.phone && (
               <a
-                href={`tel:${cleanPhoneNumberForTel(agent?.phone || agency?.phone || property.contactPhone)}`}
+                href={`tel:${cleanPhoneNumberForTel(advertiser.phone)}`}
                 target="_top"
                 onClick={(e) => {
                   e.stopPropagation();
                   recordPropertyAction(property.id, 'call');
-                  copyPhoneNumber(agent?.phone || agency?.phone || property.contactPhone || '');
+                  copyPhoneNumber(advertiser.phone);
                 }}
                 className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200 transition-all flex items-center justify-center active:scale-95 cursor-pointer"
                 title={`Appeler ${agent ? agent.name : agency?.name || 'le contact'}`}

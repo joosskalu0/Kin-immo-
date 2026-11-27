@@ -7,6 +7,7 @@ import {
   computeTextSimilarity,
   normalizePhoneNumber,
 } from '../../src/utils/suspiciousListingDetector';
+import { resolvePropertyAdvertiser } from '../../src/utils/propertyContact';
 import {
   DEFAULT_FEATURED_SLOTS_LIMIT,
   computeBoostMetrics,
@@ -518,4 +519,70 @@ describe('7. Tarification immobilière, devises USD/CDF et conditions locatives'
     assert.equal(resAnnual.flags.some((f) => f.code === 'ABNORMALLY_LOW_PRICE'), false);
   });
 });
+
+describe('8. Résolution publique des coordonnées de l annonceur (visiteur non connecté)', () => {
+  it('résout le vrai nom et WhatsApp depuis les champs joints de l annonce même sans utilisateur connecté ni allUsers', () => {
+    const prop = makeProperty({
+      id: 'prop_guest_1',
+      agentId: 'usr_real_agent',
+      agentName: 'Jean-Paul Kabasele',
+      agentPhone: '+243 821 445 566',
+      agentWhatsapp: '+243 998 776 655',
+      agentEmail: 'jp.kabasele@kinimmo.com',
+      contactPhone: '+243 821 445 566',
+      contactWhatsapp: '+243 998 776 655',
+      contactEmail: 'jp.kabasele@kinimmo.com',
+    });
+
+    const resolved = resolvePropertyAdvertiser(prop, {
+      agents: [],
+      agencies: [],
+      allUsers: [], // visiteur non connecté
+    });
+
+    assert.equal(resolved.name, 'Jean-Paul Kabasele');
+    assert.equal(resolved.whatsapp, '+243 998 776 655');
+    assert.equal(resolved.phone, '+243 821 445 566');
+    assert.equal(resolved.email, 'jp.kabasele@kinimmo.com');
+  });
+
+  it('associe l agent via userId et ignore les numéros fictifs de repli au profit du vrai numéro', () => {
+    const prop = makeProperty({
+      id: 'prop_guest_2',
+      agentId: 'usr_99',
+      agentName: 'Sarah Mulumba',
+      agentWhatsapp: '+243 855 123 456',
+      agentPhone: '+243 855 123 456',
+    });
+
+    const resolved = resolvePropertyAdvertiser(prop, {
+      agents: [
+        {
+          id: 'agent_99',
+          userId: 'usr_99',
+          name: 'Sarah Mulumba',
+          title: 'Courtière',
+          email: 'sarah@kinimmo.com',
+          phone: '+243 81 000 0000', // placeholder injecté par sanitizeAgent
+          whatsapp: '+243 81 000 0000',
+          avatar: '',
+          bio: '',
+          rating: 5,
+          reviewCount: 1,
+          listingsCount: 1,
+          specialties: [],
+          languages: ['Français'],
+        },
+      ],
+      agencies: [],
+      allUsers: [],
+    });
+
+    assert.equal(resolved.agent?.id, 'agent_99');
+    assert.equal(resolved.whatsapp, '+243 855 123 456');
+    assert.equal(resolved.phone, '+243 855 123 456');
+    assert.equal(resolved.email, 'sarah@kinimmo.com');
+  });
+});
+
 

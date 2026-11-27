@@ -132,10 +132,22 @@ export interface Property {
   userId?: string;
   agencyId?: string;
   agencyName?: string;
+  agencyLogo?: string;
+  agencyPhone?: string;
+  agencyWhatsapp?: string;
+  agencyEmail?: string;
+  agentName?: string;
+  agentPhone?: string;
+  agentWhatsapp?: string;
+  agentEmail?: string;
+  agentAvatar?: string;
+  agentVerified?: boolean;
+  agentCreatedAt?: string;
   assignedAgentId?: string;
   assignedAgentName?: string;
   contactEmail?: string;
   contactPhone?: string;
+  contactWhatsapp?: string;
   createdAt: string;
   updatedAt: string;
   viewsCount: number;
@@ -202,6 +214,7 @@ export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'reject
 
 export interface Agent {
   id: string;
+  userId?: string;
   name: string;
   title: string;
   email: string;

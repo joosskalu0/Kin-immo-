@@ -9,6 +9,7 @@ import {
   getPropertyDisplayCurrencies,
   formatPropertyPrimaryPriceWithPeriod,
 } from '../../utils/propertyPricing';
+import { resolvePropertyAdvertiser } from '../../utils/propertyContact';
 import {
   trackVideoStart,
   trackVideoSignificantWatch,
@@ -316,19 +317,25 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
   const handleWhatsAppClick = (property: Property, agent: Agent | undefined) => {
     recordPropertyAction(property.id, 'whatsapp');
     trackVideoWhatsAppClick(property);
-    const targetPhone = agent?.whatsapp || agent?.phone || property.contactPhone || '+243810000001';
+    const advertiser = resolvePropertyAdvertiser(property, {
+      agents: agent ? [agent, ...agents] : agents,
+      agencies,
+    });
     const cleanCommune = property.commune || 'Kinshasa';
     const priceFormatted = formatPropertyPrimaryPriceWithPeriod(property, cdfExchangeRate, true);
-    const prefilledMessage = `Bonjour ${agent?.name || 'Conseiller Kinimmo'}, j'ai vu la visite vidéo du bien "${property.title}" (${cleanCommune}, ${priceFormatted}) sur Kinimmo. Je souhaite organiser une visite directe ou recevoir la fiche complète.`;
+    const prefilledMessage = `Bonjour ${advertiser.name}, j'ai vu la visite vidéo du bien "${property.title}" (${cleanCommune}, ${priceFormatted}) sur Kinimmo. Je souhaite organiser une visite directe ou recevoir la fiche complète.`;
 
-    openWhatsApp(targetPhone, prefilledMessage);
+    openWhatsApp(advertiser.whatsapp, prefilledMessage);
   };
 
   // Action Appel téléphonique
   const handlePhoneCallClick = (property: Property, agent: Agent | undefined) => {
     recordPropertyAction(property.id, 'call');
-    const targetPhone = agent?.phone || agent?.whatsapp || property.contactPhone || '+243810000001';
-    triggerPhoneCall(targetPhone);
+    const advertiser = resolvePropertyAdvertiser(property, {
+      agents: agent ? [agent, ...agents] : agents,
+      agencies,
+    });
+    triggerPhoneCall(advertiser.phone);
   };
 
   // Action Partage
@@ -378,7 +385,7 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
 
   const activeProperty = visitProperties[currentIndex];
   const activeAgent = activeProperty
-    ? agents.find((a) => a.id === activeProperty.agentId) || agents[0]
+    ? resolvePropertyAdvertiser(activeProperty, { agents, agencies }).agent
     : undefined;
 
   return (
@@ -547,8 +554,9 @@ export const VisitsReelsView: React.FC<VisitsReelsViewProps> = ({
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
             {visitProperties.map((property, idx) => {
-              const agent = agents.find((a) => a.id === property.agentId) || agents[0];
-              const agency = property.agencyId ? agencies.find((ag) => ag.id === property.agencyId) : undefined;
+              const advertiser = resolvePropertyAdvertiser(property, { agents, agencies });
+              const agent = advertiser.agent;
+              const agency = advertiser.agency;
               const isCurrent = idx === currentIndex;
               const isWishlisted = wishlist.includes(property.id);
 

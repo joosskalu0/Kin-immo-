@@ -240,4 +240,123 @@ describe('PropertiesController - Mise à jour et création sans paramètre undef
       delete require.cache[controllerPath];
     }
   });
+
+  it('getProperties renvoie le vrai nom et WhatsApp de l agent même sans utilisateur connecté', async () => {
+    const mockPool = {
+      async query(sql) {
+        if (sql.includes('FROM properties p')) {
+          return [[
+            {
+              id: 'prop_pub_1',
+              title: 'Villa Gombe',
+              description: 'Belle villa',
+              price: 250000,
+              currency: 'USD',
+              period: 'total',
+              type: 'villa',
+              status: 'for-sale',
+              category: 'Résidentiel',
+              address: 'Gombe',
+              city: 'Kinshasa',
+              commune: 'Gombe',
+              quartier: '',
+              avenue: '',
+              reference_point: '',
+              zip_code: 'KN-01',
+              country: 'RDC',
+              lat: -4.32,
+              lng: 15.3,
+              bedrooms: 4,
+              bathrooms: 3,
+              area: 300,
+              year_built: 2022,
+              garages: 2,
+              amenities: '[]',
+              custom_fields: '{}',
+              virtual_tour_url: null,
+              agent_id: 'usr_agent_7',
+              agency_id: null,
+              agent_user_name: 'Patrick Ilunga',
+              agent_user_email: 'patrick@kinimmo.com',
+              agent_user_phone: '+243 812 345 678',
+              agent_user_whatsapp: '+243 991 223 344',
+              agent_user_avatar: 'https://cdn.example.com/avatar.jpg',
+              agent_user_verified: 1,
+              agent_user_created_at: '2026-01-01T00:00:00Z',
+              agent_profile_name: null,
+              agent_profile_email: null,
+              agent_profile_phone: null,
+              agent_profile_whatsapp: null,
+              agent_profile_avatar: null,
+              agent_profile_verified: 0,
+              agency_title: null,
+              agency_logo: null,
+              agency_phone: null,
+              agency_whatsapp: null,
+              agency_email: null,
+              agency_manager_name: null,
+              agency_verified: 0,
+              views_count: 10,
+              featured: 0,
+              is_premium: 0,
+              is_urgent: 0,
+              listing_tier: 'free',
+              published: 1,
+              created_at: '2026-01-10T00:00:00Z',
+              updated_at: '2026-01-10T00:00:00Z',
+            },
+          ]];
+        }
+        return [[]];
+      },
+      async execute() {
+        return [[]];
+      },
+    };
+
+    const dbPath = require.resolve('../config/database');
+    const controllerPath = require.resolve('../controllers/propertiesController');
+    const prevDbModule = require.cache[dbPath];
+
+    require.cache[dbPath] = {
+      id: dbPath,
+      filename: dbPath,
+      loaded: true,
+      exports: mockPool,
+    };
+    delete require.cache[controllerPath];
+
+    try {
+      const { getProperties } = require('../controllers/propertiesController');
+      let jsonResponse = null;
+      const req = { query: {}, user: undefined };
+      const res = {
+        json(payload) {
+          jsonResponse = payload;
+          return this;
+        },
+      };
+
+      await getProperties(req, res, (err) => {
+        throw err;
+      });
+
+      assert.equal(jsonResponse?.success, true);
+      assert.equal(jsonResponse?.properties?.length, 1);
+      const item = jsonResponse.properties[0];
+      assert.equal(item.agentName, 'Patrick Ilunga');
+      assert.equal(item.agentPhone, '+243 812 345 678');
+      assert.equal(item.agentWhatsapp, '+243 991 223 344');
+      assert.equal(item.contactWhatsapp, '+243 991 223 344');
+      assert.equal(item.contactPhone, '+243 812 345 678');
+      assert.equal(item.contactEmail, 'patrick@kinimmo.com');
+    } finally {
+      if (prevDbModule) {
+        require.cache[dbPath] = prevDbModule;
+      } else {
+        delete require.cache[dbPath];
+      }
+      delete require.cache[controllerPath];
+    }
+  });
 });

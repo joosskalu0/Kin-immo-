@@ -4,6 +4,7 @@ import { Property, CustomFieldDefinition, Agent, Agency, CurrencyCode, Invoice }
 import { formatAdminDateFR } from './currency';
 import { getPropertyDisplayCurrencies, getPropertyPeriodSuffix } from './propertyPricing';
 import { buildPropertyShareUrl } from './shareUtils';
+import { resolvePropertyAdvertiser } from './propertyContact';
 
 export interface GeneratePropertyPDFOptions {
   property: Property;
@@ -321,11 +322,15 @@ export async function generatePropertyPDF(
   doc.setDrawColor(203, 213, 225);
   doc.rect(14, footerY, 182, 46, 'FD');
 
-  const advertiserName = agent?.name || agency?.name || property.agencyName || 'Conseiller Kinimmo';
-  const advertiserPhone = agent?.phone || agency?.phone || property.contactPhone || '+243 81 000 0001';
-  const advertiserEmail = agent?.email || agency?.email || property.contactEmail || 'contact@kinimmo.com';
-  const advertiserAgency = agency?.name || agent?.agencyName || property.agencyName || 'Kinimmo Partenaire';
-  const isVerified = Boolean(agent?.isVerified || agent?.verificationStatus === 'verified' || agency?.isVerified);
+  const resolvedAdvertiser = resolvePropertyAdvertiser(property, {
+    agents: agent ? [agent] : [],
+    agencies: agency ? [agency] : [],
+  });
+  const advertiserName = resolvedAdvertiser.name;
+  const advertiserPhone = resolvedAdvertiser.phone;
+  const advertiserEmail = resolvedAdvertiser.email;
+  const advertiserAgency = resolvedAdvertiser.agencyName;
+  const isVerified = resolvedAdvertiser.isVerified;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);

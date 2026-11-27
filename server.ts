@@ -1166,6 +1166,92 @@ function countActiveBoostSlotsServer(nowMs = Date.now()): number {
   return inMemoryProperties.filter((p) => getActiveBoostDisplay(p, nowMs).isActive).length;
 }
 
+function pickFirstNonEmptyServer(...values: Array<unknown>): string | undefined {
+  for (const val of values) {
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function enrichPropertyPublisherFields(prop: any) {
+  const matchedUser = inMemoryUsers.find(
+    (u) =>
+      (prop.userId && u.id === prop.userId) ||
+      (prop.agentId && (u.id === prop.agentId || (u as any).agentId === prop.agentId)) ||
+      (prop.contactEmail && u.email?.toLowerCase() === String(prop.contactEmail).toLowerCase())
+  );
+  const matchedAgent = inMemoryAgents.find(
+    (a) =>
+      (prop.agentId && (a.id === prop.agentId || a.userId === prop.agentId)) ||
+      (prop.userId && (a.userId === prop.userId || a.id === prop.userId)) ||
+      (matchedUser?.email && a.email?.toLowerCase() === matchedUser.email.toLowerCase())
+  );
+  const matchedAgency = inMemoryAgencies.find(
+    (ag) =>
+      (prop.agencyId && ag.id === prop.agencyId) ||
+      (matchedAgent?.agencyId && ag.id === matchedAgent.agencyId)
+  );
+
+  const agentName = pickFirstNonEmptyServer(
+    prop.agentName,
+    matchedUser?.name,
+    matchedAgent?.name,
+    matchedAgency?.managerName,
+    matchedAgency?.name,
+    prop.agencyName
+  );
+  const agentPhone = pickFirstNonEmptyServer(
+    prop.agentPhone,
+    matchedUser?.phone,
+    matchedAgent?.phone,
+    prop.contactPhone,
+    matchedAgency?.phone
+  );
+  const agentWhatsapp = pickFirstNonEmptyServer(
+    prop.agentWhatsapp,
+    prop.contactWhatsapp,
+    matchedUser?.whatsapp,
+    matchedAgent?.whatsapp,
+    matchedUser?.phone,
+    matchedAgent?.phone,
+    prop.contactPhone,
+    matchedAgency?.whatsapp,
+    matchedAgency?.phone
+  );
+  const agentEmail = pickFirstNonEmptyServer(
+    prop.agentEmail,
+    matchedUser?.email,
+    matchedAgent?.email,
+    prop.contactEmail,
+    matchedAgency?.email
+  );
+  const agentAvatar = pickFirstNonEmptyServer(
+    prop.agentAvatar,
+    matchedUser?.avatar,
+    matchedAgent?.avatar,
+    matchedAgency?.logo
+  );
+
+  return {
+    ...prop,
+    ...(agentName ? { agentName } : {}),
+    ...(agentPhone ? { agentPhone, contactPhone: prop.contactPhone || agentPhone } : {}),
+    ...(agentWhatsapp ? { agentWhatsapp, contactWhatsapp: prop.contactWhatsapp || agentWhatsapp } : {}),
+    ...(agentEmail ? { agentEmail, contactEmail: prop.contactEmail || agentEmail } : {}),
+    ...(agentAvatar ? { agentAvatar } : {}),
+    ...(matchedAgency?.name && !prop.agencyName ? { agencyName: matchedAgency.name } : {}),
+    ...(matchedAgency?.logo && !prop.agencyLogo ? { agencyLogo: matchedAgency.logo } : {}),
+    ...(matchedAgency?.phone ? { agencyPhone: matchedAgency.phone } : {}),
+    ...(matchedAgency?.whatsapp ? { agencyWhatsapp: matchedAgency.whatsapp } : {}),
+    ...(matchedAgency?.email ? { agencyEmail: matchedAgency.email } : {}),
+    ...(matchedUser?.createdAt && !prop.agentCreatedAt ? { agentCreatedAt: matchedUser.createdAt } : {}),
+    agentVerified: Boolean(prop.agentVerified || matchedUser?.isVerified || matchedAgent?.isVerified || matchedAgency?.isVerified),
+  };
+}
+
 function sanitizePropertyForViewer(prop: any, authUser: AuthUser | null) {
   const normalized = normalizePropertyRecord(prop);
   const matchingVideo = inMemoryVideos.find((v) => v.propertyId === normalized.id && v.videoUrl === normalized.videoUrl)
@@ -1189,7 +1275,7 @@ function sanitizePropertyForViewer(prop: any, authUser: AuthUser | null) {
       };
 
   const { privateFields: _pf, ...withoutPrivate } = boostSanitized;
-  const baseProp = isOwnerOrAdmin ? boostSanitized : withoutPrivate;
+  const baseProp = enrichPropertyPublisherFields(isOwnerOrAdmin ? boostSanitized : withoutPrivate);
 
   if (videoModStatus && videoModStatus !== 'approved' && !isOwnerOrAdmin) {
     return {
@@ -6663,8 +6749,14 @@ app.post('/api/properties', async (req: Request, res: Response) => {
       agentId: user.role === 'admin' && body.agentId ? body.agentId : user.id,
       agencyId: user.role === 'admin' ? (body.agencyId || user.agencyId) : (user.role === 'agency' ? (user.agencyId || user.id) : user.agencyId),
       agencyName: user.role === 'admin' ? (body.agencyName || user.agencyName) : (user.agencyName || body.agencyName),
-      contactEmail: body.contactEmail || user.email,
-      contactPhone: body.contactPhone || user.phone,
+      contactEmail: body.contactEmail || storedUser?.email || user.email,
+      contactPhone: body.contactPhone || storedUser?.phone || user.phone,
+      contactWhatsapp: body.contactWhatsapp || storedUser?.whatsapp || body.contactPhone || storedUser?.phone || user.phone,
+      agentName: body.agentName || storedUser?.name || user.name,
+      agentPhone: body.agentPhone || storedUser?.phone || user.phone || body.contactPhone,
+      agentWhatsapp: body.agentWhatsapp || storedUser?.whatsapp || storedUser?.phone || user.phone || body.contactPhone,
+      agentEmail: body.agentEmail || storedUser?.email || user.email || body.contactEmail,
+      agentAvatar: body.agentAvatar || storedUser?.avatar || user.avatar,
       listingStatus,
       isAvailable,
       published: !isDraft && body.published !== false && fraudStatus !== 'suspect',

@@ -4,6 +4,7 @@ import { Property } from '../types';
 import { convertAndFormatPrice } from '../utils/currency';
 import { openWhatsApp } from '../utils/whatsapp';
 import { trackVideoVisitRequest } from '../utils/analytics';
+import { resolvePropertyAdvertiser } from '../utils/propertyContact';
 import {
   Calendar,
   Clock,
@@ -29,7 +30,7 @@ export const ScheduleVisitModal: React.FC<ScheduleVisitModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { user, currency, addLeadRequest, agents } = useApp();
+  const { user, currency, addLeadRequest, agents, agencies, allUsers } = useApp();
 
   const [visitType, setVisitType] = useState<'in_person' | 'video'>('in_person');
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -46,8 +47,8 @@ export const ScheduleVisitModal: React.FC<ScheduleVisitModalProps> = ({
 
   if (!isOpen || !property) return null;
 
-  const agent = agents.find((a) => a.id === property.agentId);
-  const agentPhone = property.contactPhone || agent?.phone || agent?.whatsapp || '+243810000000';
+  const advertiser = resolvePropertyAdvertiser(property, { agents, agencies, allUsers });
+  const agentPhone = advertiser.whatsapp || advertiser.phone;
 
   const timeSlots = ['09:00', '10:30', '12:00', '14:00', '15:30', '17:00'];
 

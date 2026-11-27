@@ -69,6 +69,7 @@ import { buildPropertyShareUrl, resolvePropertyBySlugOrId } from '../utils/share
 import { dispatchAppNavigate } from '../utils/navigation';
 import { slugifyText } from '../data/contentSeed';
 import { buildWhatsAppUrl, cleanPhoneNumberForTel, cleanPhoneNumberForWhatsApp, copyPhoneNumber } from '../utils/whatsapp';
+import { resolvePropertyAdvertiser } from '../utils/propertyContact';
 import { ApproximatePropertyMap } from './ApproximatePropertyMap';
 import { MortgageCalculator } from './MortgageCalculator';
 import { PropertyVideoPlayer } from './PropertyVideoPlayer';
@@ -301,75 +302,39 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
   const periodSuffix = dualPrice.periodSuffixSpaced;
   const rentalBreakdown = computeRentalBreakdown(property, cdfExchangeRate);
 
-  // Résolution Agent, Agence & Utilisateur pour le bloc Annonceur
-  const agent = agents.find(
-    (a) =>
-      a.id === property.agentId ||
-      a.name === property.agentId ||
-      (property.contactEmail && a.email === property.contactEmail)
-  );
-  const agency =
-    (property.agencyId
-      ? agencies?.find(
-          (ag) =>
-            ag.id === property.agencyId ||
-            ag.name === property.agencyName ||
-            (property.agencyId === 'agency_1' && ag.id === 'agency_congo_luxury') ||
-            (property.agencyId === 'agency_2' && ag.id === 'agency_fleuve_habitat')
-        )
-      : null) ||
-    (agent?.agencyId ? agencies?.find((ag) => ag.id === agent.agencyId || ag.name === agent.agencyName) : null) ||
-    (property.agencyName
-      ? agencies?.find((ag) => ag.name?.toLowerCase().trim() === property.agencyName?.toLowerCase().trim())
-      : null);
-
-  const matchedUser = allUsers?.find(
-    (u) =>
-      u.id === property.userId ||
-      u.id === property.agentId ||
-      u.agentId === property.agentId ||
-      (property.contactEmail && u.email?.toLowerCase() === property.contactEmail.toLowerCase())
-  );
-
-  const advertiserName =
-    agent?.name ||
-    matchedUser?.name ||
-    agency?.managerName ||
-    agency?.name ||
-    property.agencyName ||
-    'Conseiller Kinimmo';
-
-  const advertiserPhoto =
-    agent?.avatar ||
-    matchedUser?.avatar ||
-    agency?.logo ||
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80';
-
-  const advertiserPhone =
-    agent?.phone || agency?.phone || matchedUser?.phone || property.contactPhone || '+243 81 000 0001';
-  const advertiserWhatsapp =
-    agent?.whatsapp || agent?.phone || agency?.whatsapp || agency?.phone || property.contactPhone || '+243 81 000 0001';
-  const advertiserEmail =
-    agent?.email || agency?.email || matchedUser?.email || property.contactEmail || 'contact@kinimmo.com';
+  // Résolution Agent, Agence & Utilisateur pour le bloc Annonceur (connecté ou visiteur anonyme)
+  const {
+    agent,
+    agency,
+    matchedUser,
+    name: advertiserName,
+    photo: advertiserPhoto,
+    phone: advertiserPhone,
+    whatsapp: advertiserWhatsapp,
+    email: advertiserEmail,
+    isVerified: isAdvertiserVerified,
+    tenureSourceDate,
+  } = resolvePropertyAdvertiser(property, { agents, agencies, allUsers });
 
   // Niveau de vérification
   const verificationLevel = (() => {
     if (property.trust_status === 'property_verified') {
       return { label: 'Bien & Annonceur Certifiés (Kinimmo Trust)', verified: true };
     }
-    if (agent?.isVerified || agent?.verificationStatus === 'verified' || matchedUser?.isVerified) {
+    if (agent?.isVerified || agent?.verificationStatus === 'verified' || matchedUser?.isVerified || property.agentVerified) {
       return { label: 'Identité & Licence Vérifiées', verified: true };
     }
     if (agency?.isVerified || agency?.verificationStatus === 'verified') {
       return { label: 'Agence Agréée Vérifiée', verified: true };
     }
+    if (isAdvertiserVerified) {
+      return { label: 'Identité Vérifiée', verified: true };
+    }
     return { label: 'Annonceur Enregistré', verified: false };
   })();
 
   // Ancienneté réelle
-  const advertiserTenure = formatTenureLabel(
-    matchedUser?.createdAt || agency?.createdAt || agent?.verifiedAt || property.createdAt
-  );
+  const advertiserTenure = formatTenureLabel(tenureSourceDate);
 
   // Nombre d'annonces publiées par cet annonceur
   const advertiserListingsCount = useMemo(() => {

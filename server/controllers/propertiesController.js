@@ -37,6 +37,72 @@ function toOptionalSqlNumber(val) {
   return Number.isFinite(num) ? num : null;
 }
 
+function pickFirstNonEmpty(...values) {
+  for (const val of values) {
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function buildPublisherFields(row) {
+  const agentName = pickFirstNonEmpty(
+    row.agent_user_name,
+    row.agent_profile_name,
+    row.agent_name,
+    row.agency_manager_name,
+    row.agency_title
+  );
+  const agentPhone = pickFirstNonEmpty(
+    row.agent_user_phone,
+    row.agent_profile_phone,
+    row.agent_phone,
+    row.agency_phone
+  );
+  const agentWhatsapp = pickFirstNonEmpty(
+    row.agent_user_whatsapp,
+    row.agent_profile_whatsapp,
+    row.agent_whatsapp,
+    row.agent_user_phone,
+    row.agent_profile_phone,
+    row.agent_phone,
+    row.agency_whatsapp,
+    row.agency_phone
+  );
+  const agentEmail = pickFirstNonEmpty(
+    row.agent_user_email,
+    row.agent_profile_email,
+    row.agent_email,
+    row.agency_email
+  );
+  const agentAvatar = pickFirstNonEmpty(
+    row.agent_user_avatar,
+    row.agent_profile_avatar,
+    row.agent_avatar,
+    row.agency_logo
+  );
+
+  return {
+    agencyName: row.agency_title || undefined,
+    agencyLogo: row.agency_logo || undefined,
+    agencyPhone: row.agency_phone || undefined,
+    agencyWhatsapp: row.agency_whatsapp || undefined,
+    agencyEmail: row.agency_email || undefined,
+    agentName,
+    agentPhone,
+    agentWhatsapp,
+    agentEmail,
+    agentAvatar,
+    agentVerified: Boolean(row.agent_user_verified || row.agent_profile_verified || row.agency_verified),
+    agentCreatedAt: row.agent_user_created_at || undefined,
+    contactPhone: agentPhone,
+    contactWhatsapp: agentWhatsapp,
+    contactEmail: agentEmail,
+  };
+}
+
 function hydrateMediaFromRow(row, images = [], videoModStatusMap = null, currentUser = null) {
   const rawCustomFields = parseJsonSafe(row.custom_fields, {});
   const mediaMeta = rawCustomFields && typeof rawCustomFields === 'object' ? rawCustomFields._mediaMeta : null;
@@ -316,10 +382,15 @@ async function getProperties(req, res, next) {
 
     let sql = `
       SELECT p.*,
-             u.name as agent_name, u.email as agent_email, u.phone as agent_phone, u.whatsapp as agent_whatsapp,
-             ag.name as agency_title, ag.logo as agency_logo
+             u.name as agent_user_name, u.email as agent_user_email, u.phone as agent_user_phone, u.whatsapp as agent_user_whatsapp,
+             u.avatar as agent_user_avatar, u.is_verified as agent_user_verified, u.created_at as agent_user_created_at,
+             a.name as agent_profile_name, a.email as agent_profile_email, a.phone as agent_profile_phone, a.whatsapp as agent_profile_whatsapp,
+             a.avatar as agent_profile_avatar, a.is_verified as agent_profile_verified,
+             ag.name as agency_title, ag.logo as agency_logo, ag.phone as agency_phone, ag.whatsapp as agency_whatsapp,
+             ag.email as agency_email, ag.manager_name as agency_manager_name, ag.is_verified as agency_verified
       FROM properties p
       LEFT JOIN users u ON p.agent_id = u.id
+      LEFT JOIN agents a ON a.user_id = p.agent_id
       LEFT JOIN agencies ag ON p.agency_id = ag.id
       ${whereClause}
     `;
@@ -411,6 +482,7 @@ async function getProperties(req, res, next) {
     const formatted = rows.map((row) => {
       const imgs = imagesByPropId.get(row.id) || [];
       const hydrated = hydrateMediaFromRow(row, imgs, videoModMap, req.user);
+      const publisher = buildPublisherFields(row);
       return {
         id: row.id,
         title: row.title,
@@ -442,11 +514,7 @@ async function getProperties(req, res, next) {
         ...hydrated,
         agentId: row.agent_id,
         agencyId: row.agency_id,
-        agencyName: row.agency_title,
-        agencyLogo: row.agency_logo,
-        agentName: row.agent_name,
-        agentPhone: row.agent_phone,
-        agentWhatsapp: row.agent_whatsapp,
+        ...publisher,
         viewsCount: row.views_count,
         featured: Boolean(row.featured),
         isPremium: Boolean(row.is_premium),
@@ -482,10 +550,15 @@ async function getPropertyById(req, res, next) {
 
     const [rows] = await pool.execute(
       `SELECT p.*,
-              u.name as agent_name, u.email as agent_email, u.phone as agent_phone, u.whatsapp as agent_whatsapp, u.avatar as agent_avatar,
-              ag.name as agency_title, ag.logo as agency_logo, ag.phone as agency_phone
+              u.name as agent_user_name, u.email as agent_user_email, u.phone as agent_user_phone, u.whatsapp as agent_user_whatsapp,
+              u.avatar as agent_user_avatar, u.is_verified as agent_user_verified, u.created_at as agent_user_created_at,
+              a.name as agent_profile_name, a.email as agent_profile_email, a.phone as agent_profile_phone, a.whatsapp as agent_profile_whatsapp,
+              a.avatar as agent_profile_avatar, a.is_verified as agent_profile_verified,
+              ag.name as agency_title, ag.logo as agency_logo, ag.phone as agency_phone, ag.whatsapp as agency_whatsapp,
+              ag.email as agency_email, ag.manager_name as agency_manager_name, ag.is_verified as agency_verified
        FROM properties p
        LEFT JOIN users u ON p.agent_id = u.id
+       LEFT JOIN agents a ON a.user_id = p.agent_id
        LEFT JOIN agencies ag ON p.agency_id = ag.id
        WHERE p.id = ? LIMIT 1`,
       [id]
@@ -514,6 +587,7 @@ async function getPropertyById(req, res, next) {
     await pool.execute('UPDATE properties SET views_count = views_count + 1 WHERE id = ?', [id]);
 
     const hydrated = hydrateMediaFromRow(row, images, videoModMap, req.user);
+    const publisher = buildPublisherFields(row);
 
     const property = {
       id: row.id,
@@ -546,12 +620,7 @@ async function getPropertyById(req, res, next) {
       ...hydrated,
       agentId: row.agent_id,
       agencyId: row.agency_id,
-      agencyName: row.agency_title,
-      agencyLogo: row.agency_logo,
-      agentName: row.agent_name,
-      agentPhone: row.agent_phone,
-      agentWhatsapp: row.agent_whatsapp,
-      agentAvatar: row.agent_avatar,
+      ...publisher,
       viewsCount: row.views_count + 1,
       featured: Boolean(row.featured),
       isPremium: Boolean(row.is_premium),
