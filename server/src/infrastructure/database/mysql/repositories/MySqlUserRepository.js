@@ -75,34 +75,45 @@ class MySqlUserRepository extends IUserRepository {
   async findByEmailOrPhone(identifier) {
     const clean = String(identifier || '').trim();
     if (!clean) return null;
-    const cleanDigits = clean.replace(/[^\d+]/g, '');
-    const onlyDigits = clean.replace(/\D/g, '');
-    const last9 = onlyDigits.length >= 9 ? onlyDigits.slice(-9) : '';
-    const query = `
+
+    const baseSelect = `
       SELECT id, name, email, password_hash, phone, whatsapp, role,
              agency_id, agency_name, avatar, is_verified, kinshasa_badge_verified,
              rccm_or_nif, plan_id, subscription_status, created_at, updated_at
       FROM users
-      WHERE LOWER(TRIM(email)) = LOWER(?) 
-         OR phone = ? 
-         OR phone = ?
-         OR whatsapp = ?
-         OR whatsapp = ?
-         OR (? <> '' AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)
-         OR (? <> '' AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(whatsapp, ''), ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)
-      LIMIT 1
     `;
-    const [rows] = await this.pool.execute(query, [
-      clean,
-      clean,
-      cleanDigits,
-      clean,
-      cleanDigits,
-      last9,
-      last9,
-      last9,
-      last9
-    ]);
+
+    if (clean.includes('@')) {
+      const [rows] = await this.pool.execute(
+        `${baseSelect} WHERE LOWER(TRIM(email)) = LOWER(?) LIMIT 1`,
+        [clean]
+      );
+      if (!rows || rows.length === 0) return null;
+      return MySqlUserRepository.toDomain(rows[0]);
+    }
+
+    const cleanDigits = clean.replace(/[^\d+]/g, '');
+    const onlyDigits = clean.replace(/\D/g, '');
+    const last9 = onlyDigits.length >= 6 ? onlyDigits.slice(-9) : '';
+
+    const conditions = ['phone = ?', 'whatsapp = ?'];
+    const params = [clean, clean];
+
+    if (cleanDigits && cleanDigits !== clean) {
+      conditions.push('phone = ?', 'whatsapp = ?');
+      params.push(cleanDigits, cleanDigits);
+    }
+
+    if (last9) {
+      conditions.push(
+        "(phone IS NOT NULL AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)",
+        "(whatsapp IS NOT NULL AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(whatsapp, ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)"
+      );
+      params.push(last9, last9);
+    }
+
+    const query = `${baseSelect} WHERE ${conditions.join(' OR ')} LIMIT 1`;
+    const [rows] = await this.pool.execute(query, params);
     if (!rows || rows.length === 0) {
       return null;
     }

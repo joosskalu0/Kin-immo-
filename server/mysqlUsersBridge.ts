@@ -164,18 +164,27 @@ export async function findMysqlUserByIdentifier(
     const phoneCheck = normalizePhoneRdc(trimmed);
     const normalized = phoneCheck.valid ? phoneCheck.normalized : trimmed.replace(/[\s().-]/g, '');
     const digitsOnly = normalized.replace(/\D/g, '');
-    const last9 = digitsOnly.length >= 9 ? digitsOnly.slice(-9) : digitsOnly;
+    const last9 = digitsOnly.length >= 6 ? digitsOnly.slice(-9) : '';
+
+    const conditions = ['phone = ?', 'whatsapp = ?'];
+    const params: string[] = [trimmed, trimmed];
+
+    if (normalized && normalized !== trimmed) {
+      conditions.push('phone = ?', 'whatsapp = ?');
+      params.push(normalized, normalized);
+    }
+
+    if (last9) {
+      conditions.push(
+        "(phone IS NOT NULL AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)",
+        "(whatsapp IS NOT NULL AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(whatsapp, ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)"
+      );
+      params.push(last9, last9);
+    }
 
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT * FROM users
-       WHERE phone = ?
-          OR phone = ?
-          OR whatsapp = ?
-          OR whatsapp = ?
-          OR (? <> '' AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)
-          OR (? <> '' AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(whatsapp, ''), ' ', ''), '-', ''), '+', ''), '.', ''), 9) = ?)
-       LIMIT 1`,
-      [trimmed, normalized, trimmed, normalized, last9, last9, last9, last9]
+      `SELECT * FROM users WHERE ${conditions.join(' OR ')} LIMIT 1`,
+      params
     );
     if (!rows || rows.length === 0) return { record: null, suspended: false };
     if (isMysqlRowSuspended(rows[0])) return { record: null, suspended: true };
