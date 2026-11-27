@@ -21,6 +21,46 @@ const pool = mysql.createPool({
   timezone: '+00:00'
 });
 
+const WRAPPED_SQL_CONN = Symbol('kinimmoWrappedSqlConn');
+
+/**
+ * mysql2/promise rejette explicitement `undefined` dans les paramètres liés :
+ * convertir systématiquement `undefined` en `null` (SQL NULL) pour éviter tout crash.
+ */
+function sanitizeBindParams(params) {
+  if (!Array.isArray(params)) return params;
+  return params.map((value) => (value === undefined ? null : value));
+}
+
+function wrapSqlMethod(target, methodName) {
+  if (!target || typeof target[methodName] !== 'function') return;
+  const original = target[methodName].bind(target);
+  target[methodName] = (sqlOrOptions, params, ...rest) => {
+    const normalizedSql =
+      sqlOrOptions && typeof sqlOrOptions === 'object' && Array.isArray(sqlOrOptions.values)
+        ? { ...sqlOrOptions, values: sanitizeBindParams(sqlOrOptions.values) }
+        : sqlOrOptions;
+    if (params === undefined && rest.length === 0) {
+      return original(normalizedSql);
+    }
+    return original(normalizedSql, sanitizeBindParams(params), ...rest);
+  };
+}
+
+wrapSqlMethod(pool, 'execute');
+wrapSqlMethod(pool, 'query');
+
+const originalGetConnection = pool.getConnection.bind(pool);
+pool.getConnection = async (...args) => {
+  const connection = await originalGetConnection(...args);
+  if (connection && !connection[WRAPPED_SQL_CONN]) {
+    connection[WRAPPED_SQL_CONN] = true;
+    wrapSqlMethod(connection, 'execute');
+    wrapSqlMethod(connection, 'query');
+  }
+  return connection;
+};
+
 // Test initial de la connexion à la base de données
 async function testConnection() {
   try {
@@ -33,6 +73,10 @@ async function testConnection() {
   }
 }
 
-testConnection();
+if (process.env.NODE_ENV !== 'test') {
+  testConnection();
+}
+
+pool.sanitizeBindParams = sanitizeBindParams;
 
 module.exports = pool;

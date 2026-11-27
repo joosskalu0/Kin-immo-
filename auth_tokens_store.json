@@ -1,5 +1,75 @@
 [
   {
+    "id": "tok_fb5a2abb0da03275",
+    "tokenHash": "80e3d06e86da7b55118ce49cc1d3bde3345e6ff8630c2596e4f5aa2939fd6c49",
+    "purpose": "reset_password",
+    "userId": "user_1795760526499_s6yt",
+    "targetEmail": "alice.sec@kinimmo.cd",
+    "createdAt": "2026-11-27T06:22:08.468Z",
+    "expiresAt": "2026-11-27T07:22:08.468Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_779e4fef89ddff80",
+    "tokenHash": "ae290020c309c183f8c040a7e73cb8f32497da8bbfd13b10d16a03f83f3c134d",
+    "purpose": "verify_email",
+    "userId": "user_1795760527465_75ew",
+    "targetEmail": "hack.admin@kinimmo.cd",
+    "createdAt": "2026-11-27T06:22:07.928Z",
+    "expiresAt": "2026-11-28T06:22:07.928Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_3a62fd0ea07912a8",
+    "tokenHash": "72b9bd34d01ce460ad80b30edc3b8ac47dd10e75c0662759e67f9148d287121c",
+    "purpose": "verify_email",
+    "userId": "user_1795760526984_7wep",
+    "targetEmail": "bob.sec@kinimmo.cd",
+    "createdAt": "2026-11-27T06:22:07.438Z",
+    "expiresAt": "2026-11-28T06:22:07.438Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_c4cc52620a37cf6e",
+    "tokenHash": "cbd8919f34641008a7805a8691597e327e9d78da34f7653fc229e987d7e7b3c0",
+    "purpose": "verify_email",
+    "userId": "user_1795760526499_s6yt",
+    "targetEmail": "alice.sec@kinimmo.cd",
+    "createdAt": "2026-11-27T06:22:06.973Z",
+    "expiresAt": "2026-11-28T06:22:06.973Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_c42324f62ce7f3b5",
+    "tokenHash": "877587460b55a388763d2ac155052f3a9c8224b551c0f40056851f6857f6f600",
+    "purpose": "verify_email",
+    "userId": "user_1795760523285_syip",
+    "targetEmail": "agence.rbac@kinimmo.cd",
+    "createdAt": "2026-11-27T06:22:03.733Z",
+    "expiresAt": "2026-11-28T06:22:03.733Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_f19293c871a88661",
+    "tokenHash": "9500df96782d2f7e8c0ba368178dacd956203dc1ed215ef65fd53551158b545a",
+    "purpose": "verify_email",
+    "userId": "user_1795760522838_0mnb",
+    "targetEmail": "courtier.rbac@kinimmo.cd",
+    "createdAt": "2026-11-27T06:22:03.276Z",
+    "expiresAt": "2026-11-28T06:22:03.276Z",
+    "usedAt": null
+  },
+  {
+    "id": "tok_85517af9e9f01cc5",
+    "tokenHash": "41188287a5de5b8c8add6515239fbb492efaf7ecb66cdcbda63c15183b7eb639",
+    "purpose": "verify_email",
+    "userId": "user_1795760522355_1rcp",
+    "targetEmail": "client.rbac@kinimmo.cd",
+    "createdAt": "2026-11-27T06:22:02.828Z",
+    "expiresAt": "2026-11-28T06:22:02.828Z",
+    "usedAt": null
+  },
+  {
     "id": "tok_bbc113a3b34366fb",
     "tokenHash": "7fca781693fc2f088a3026ba4ffe6450d4ab1defe027b867e2065d990c5f4432",
     "purpose": "reset_password",

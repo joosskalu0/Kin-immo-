@@ -27,6 +27,16 @@ function parseJsonSafe(val, fallback) {
   }
 }
 
+function toOptionalSqlValue(val) {
+  return val === undefined ? null : val;
+}
+
+function toOptionalSqlNumber(val) {
+  if (val === undefined || val === null || val === '') return null;
+  const num = Number(val);
+  return Number.isFinite(num) ? num : null;
+}
+
 function hydrateMediaFromRow(row, images = [], videoModStatusMap = null, currentUser = null) {
   const rawCustomFields = parseJsonSafe(row.custom_fields, {});
   const mediaMeta = rawCustomFields && typeof rawCustomFields === 'object' ? rawCustomFields._mediaMeta : null;
@@ -742,9 +752,9 @@ async function createProperty(req, res, next) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         propertyId,
-        p.title,
+        p.title ?? '',
         p.description || '',
-        p.price,
+        toOptionalSqlNumber(p.price) ?? 0,
         p.currency || 'USD',
         p.period || 'total',
         p.type || 'apartment',
@@ -758,20 +768,20 @@ async function createProperty(req, res, next) {
         p.referencePoint || '',
         p.zipCode || 'KN-01',
         p.country || 'RDC',
-        p.lat || -4.322447,
-        p.lng || 15.307045,
-        p.bedrooms || 0,
-        p.bathrooms || 0,
-        p.area || 0,
-        p.yearBuilt || null,
-        p.garages || 0,
+        toOptionalSqlNumber(p.lat) ?? -4.322447,
+        toOptionalSqlNumber(p.lng) ?? 15.307045,
+        toOptionalSqlNumber(p.bedrooms) ?? 0,
+        toOptionalSqlNumber(p.bathrooms) ?? 0,
+        toOptionalSqlNumber(p.area) ?? 0,
+        toOptionalSqlNumber(p.yearBuilt),
+        toOptionalSqlNumber(p.garages) ?? 0,
         JSON.stringify(p.amenities || []),
         JSON.stringify(mergedCustomFields),
-        videoUrlToSave,
+        videoUrlToSave ?? null,
         tourCheck.normalizedUrl || null,
-        validAgentId,
-        validAgencyId,
-        isFeatured,
+        validAgentId ?? null,
+        validAgencyId ?? null,
+        isFeatured ? 1 : 0,
         isPublished
       ]
     );
@@ -787,7 +797,7 @@ async function createProperty(req, res, next) {
     if (videoUrlToSave) {
       videoModerationStatus = await ensurePendingVideoModeration(connection, {
         propertyId,
-        userId: req.user?.id,
+        userId: req.user?.id || null,
         videoUrl: videoUrlToSave,
         thumbnailUrl: savedImages[0] || null,
         isAdmin,
@@ -838,7 +848,7 @@ async function updateProperty(req, res, next) {
     const p = req.body;
 
     const [existing] = await connection.execute(
-      'SELECT agent_id, agency_id, video_url, custom_fields, published FROM properties WHERE id = ?',
+      'SELECT agent_id, agency_id, video_url, virtual_tour_url, custom_fields, published FROM properties WHERE id = ?',
       [id]
     );
     if (existing.length === 0) {
@@ -1012,47 +1022,43 @@ async function updateProperty(req, res, next) {
            published = ?
        WHERE id = ?`,
       [
-        p.title !== undefined ? p.title : null,
-        p.description !== undefined ? p.description : null,
-        p.price !== undefined ? p.price : null,
-        p.currency !== undefined ? p.currency : null,
-        p.period !== undefined ? p.period : null,
-        p.type !== undefined ? p.type : null,
-        p.status !== undefined ? p.status : null,
-        p.category !== undefined ? p.category : null,
-        p.address !== undefined ? p.address : null,
-        p.commune !== undefined ? p.commune : null,
-        p.quartier !== undefined ? p.quartier : null,
-        p.avenue !== undefined ? p.avenue : null,
-        p.referencePoint !== undefined ? p.referencePoint : null,
-        p.zipCode !== undefined ? p.zipCode : null,
-        p.country !== undefined ? p.country : null,
-        p.lat !== undefined ? p.lat : null,
-        p.lng !== undefined ? p.lng : null,
-        p.bedrooms !== undefined ? p.bedrooms : null,
-        p.bathrooms !== undefined ? p.bathrooms : null,
-        p.area !== undefined ? p.area : null,
-        p.yearBuilt !== undefined ? p.yearBuilt : null,
-        p.garages !== undefined ? p.garages : null,
+        toOptionalSqlValue(p.title),
+        toOptionalSqlValue(p.description),
+        toOptionalSqlNumber(p.price),
+        toOptionalSqlValue(p.currency),
+        toOptionalSqlValue(p.period),
+        toOptionalSqlValue(p.type),
+        toOptionalSqlValue(p.status),
+        toOptionalSqlValue(p.category),
+        toOptionalSqlValue(p.address),
+        toOptionalSqlValue(p.commune),
+        toOptionalSqlValue(p.quartier),
+        toOptionalSqlValue(p.avenue),
+        toOptionalSqlValue(p.referencePoint),
+        toOptionalSqlValue(p.zipCode),
+        toOptionalSqlValue(p.country),
+        toOptionalSqlNumber(p.lat),
+        toOptionalSqlNumber(p.lng),
+        toOptionalSqlNumber(p.bedrooms),
+        toOptionalSqlNumber(p.bathrooms),
+        toOptionalSqlNumber(p.area),
+        toOptionalSqlNumber(p.yearBuilt),
+        toOptionalSqlNumber(p.garages),
         p.amenities !== undefined ? JSON.stringify(p.amenities) : null,
         JSON.stringify(mergedCustomFields),
-        p.videoUrl !== undefined ? (videoUrlToSave || null) : propRow.video_url,
-        p.virtualTourUrl !== undefined ? (p.virtualTourUrl || null) : undefined,
+        p.videoUrl !== undefined ? (videoUrlToSave ?? null) : (propRow.video_url ?? null),
+        p.virtualTourUrl !== undefined ? (p.virtualTourUrl || null) : (propRow.virtual_tour_url ?? null),
         nextFeatured,
         nextPublished,
         id
-      ].map((v, idx) => {
-        // Si virtualTourUrl n'était pas fourni, récupérer via SQL en gardant la valeur actuelle si undefined
-        if (idx === 26 && v === undefined) return propRow.virtual_tour_url || null;
-        return v;
-      })
+      ]
     );
 
     let videoModerationStatus = null;
     if (videoUrlToSave && videoUrlToSave !== propRow.video_url) {
       videoModerationStatus = await ensurePendingVideoModeration(connection, {
         propertyId: id,
-        userId: req.user?.id,
+        userId: req.user?.id || null,
         videoUrl: videoUrlToSave,
         thumbnailUrl: savedImages[0] || null,
         isAdmin,
