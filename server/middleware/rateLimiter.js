@@ -41,7 +41,7 @@ function createRateLimiter(options = {}) {
 }
 
 // Nettoyage régulier de la mémoire pour éviter les fuites
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, record] of rateLimitMap.entries()) {
     if (now > record.resetTime) {
@@ -49,6 +49,9 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000);
+if (typeof cleanupInterval.unref === 'function') {
+  cleanupInterval.unref();
+}
 
 // Limiteur général pour l'API
 const apiLimiter = createRateLimiter({

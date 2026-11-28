@@ -160,6 +160,310 @@ function formatOption(opt, activeRate = 2850) {
   };
 }
 
+const DEFAULT_VISIBILITY_OPTIONS_SEED = [
+  {
+    id: 'opt_featured_7d',
+    name: 'À la une — 7 jours',
+    slug: 'mise_en_avant_7d',
+    description: 'Positionnement en tête de page d\'accueil et de recherche pendant 7 jours avec étiquette « À la une ».',
+    boost_type: 'featured',
+    duration_days: 7,
+    price_usd: 10.0,
+    badge_text: 'À la une',
+    icon: 'Sparkles',
+    is_active: true
+  },
+  {
+    id: 'opt_sponsorise_14d',
+    name: 'Annonce Sponsorisée — 14 jours',
+    slug: 'annonce_sponsorisee_14d',
+    description: 'Mise en avant ciblée dans les résultats et vitrine pendant 14 jours avec étiquette « Sponsorisé ».',
+    boost_type: 'featured',
+    duration_days: 14,
+    price_usd: 15.0,
+    badge_text: 'Sponsorisé',
+    icon: 'Rocket',
+    is_active: true
+  },
+  {
+    id: 'opt_premium_30d',
+    name: 'Pack À la une — 30 jours',
+    slug: 'annonce_premium_30d',
+    description: 'Affichage continu pendant 30 jours avec étiquette « À la une », priorité maximale et 3x plus d\'appels.',
+    boost_type: 'premium',
+    duration_days: 30,
+    price_usd: 25.0,
+    badge_text: 'À la une',
+    icon: 'Crown',
+    is_active: true
+  },
+  {
+    id: 'opt_urgent_14d',
+    name: 'Badge Urgent — 14 jours',
+    slug: 'badge_urgent_14d',
+    description: 'Étiquette visible « Urgent » pour attirer immédiatement les acheteurs et locataires sérieux.',
+    boost_type: 'urgent',
+    duration_days: 14,
+    price_usd: 8.0,
+    badge_text: 'Urgent',
+    icon: 'Zap',
+    is_active: true
+  },
+  {
+    id: 'opt_refresh_bump',
+    name: 'Remontée Immédiate (24h)',
+    slug: 'remontee_tete',
+    description: 'Actualise la date de votre annonce pour la replacer en tête des résultats récents pendant 24h.',
+    boost_type: 'refresh',
+    duration_days: 1,
+    price_usd: 5.0,
+    badge_text: 'Sponsorisé',
+    icon: 'ArrowUpCircle',
+    is_active: true
+  },
+  {
+    id: 'opt_social_blast',
+    name: 'Diffusion Multi-Canal — 14 jours',
+    slug: 'diffusion_reseaux',
+    description: 'Publication sponsorisée sur Kinimmo et diffusion sur les réseaux communautaires pendant 14 jours.',
+    boost_type: 'social_blast',
+    duration_days: 14,
+    price_usd: 35.0,
+    badge_text: 'Sponsorisé',
+    icon: 'Share2',
+    is_active: true
+  }
+];
+
+const DEFAULT_PAYMENT_METHODS_SEED = [
+  {
+    id: 'pm_mpesa',
+    provider: 'mpesa',
+    account_name: 'KINIMMO SARL - Vodacom M-Pesa',
+    account_number: '+243 810 000 000',
+    merchant_code: '123456',
+    instructions: 'Envoyer le montant exact via M-Pesa puis insérer le code de transaction.',
+    is_active: true
+  },
+  {
+    id: 'pm_airtel',
+    provider: 'airtel',
+    account_name: 'KINIMMO SARL - Airtel Money RDC',
+    account_number: '+243 990 000 000',
+    merchant_code: '789012',
+    instructions: 'Paiement direct via Airtel Money RDC.',
+    is_active: true
+  },
+  {
+    id: 'pm_orange',
+    provider: 'orange',
+    account_name: 'KINIMMO SARL - Orange Money Kinshasa',
+    account_number: '+243 890 000 000',
+    merchant_code: '345678',
+    instructions: 'Paiement via Orange Money Kinshasa.',
+    is_active: true
+  },
+  {
+    id: 'pm_rawbank',
+    provider: 'bank_transfer',
+    account_name: 'KINIMMO RDC - Rawbank Kinshasa Gombe',
+    account_number: '01002-00012345678-90',
+    merchant_code: null,
+    instructions: 'Virement bancaire ou versement au guichet Rawbank.',
+    is_active: true
+  }
+];
+
+async function ensureDefaultVisibilityOptions(db = pool, activeRate = 2850, specificOptionId = null) {
+  try {
+    const rate = Number.isFinite(Number(activeRate)) && Number(activeRate) > 0 ? Number(activeRate) : 2850;
+    const seeds = specificOptionId
+      ? DEFAULT_VISIBILITY_OPTIONS_SEED.filter((o) => o.id === specificOptionId)
+      : DEFAULT_VISIBILITY_OPTIONS_SEED;
+
+    for (const opt of seeds) {
+      const priceCdf = Math.round(Number(opt.price_usd) * rate);
+      await db.execute(
+        `INSERT IGNORE INTO visibility_options
+         (id, name, slug, description, boost_type, duration_days, price_usd, price_cdf, badge_text, icon, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          opt.id,
+          opt.name,
+          opt.slug,
+          opt.description,
+          opt.boost_type,
+          opt.duration_days,
+          opt.price_usd,
+          priceCdf,
+          opt.badge_text,
+          opt.icon,
+          Boolean(opt.is_active)
+        ]
+      );
+    }
+  } catch (err) {
+    console.warn('[Seed VisibilityOptions] Warning:', err.message);
+  }
+}
+
+async function ensureDefaultPaymentMethods(db = pool) {
+  try {
+    for (const pm of DEFAULT_PAYMENT_METHODS_SEED) {
+      await db.execute(
+        `INSERT IGNORE INTO payment_methods
+         (id, provider, account_name, account_number, merchant_code, instructions, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          pm.id,
+          pm.provider,
+          pm.account_name,
+          pm.account_number,
+          pm.merchant_code || null,
+          pm.instructions || '',
+          Boolean(pm.is_active)
+        ]
+      );
+    }
+  } catch (err) {
+    console.warn('[Seed PaymentMethods] Warning:', err.message);
+  }
+}
+
+async function resolvePaymentMethodId(db = pool, paymentMethodId) {
+  if (typeof paymentMethodId !== 'string') return null;
+  const trimmed = paymentMethodId.trim();
+  if (!trimmed) return null;
+
+  try {
+    const [rows] = await db.execute('SELECT id FROM payment_methods WHERE id = ? LIMIT 1', [trimmed]);
+    if (rows.length > 0) return rows[0].id;
+
+    // Si la table payment_methods est entièrement vide et qu'un identifiant par défaut est soumis, amorcer proprement
+    if (DEFAULT_PAYMENT_METHODS_SEED.some((pm) => pm.id === trimmed)) {
+      const [countRows] = await db.execute('SELECT COUNT(*) AS total FROM payment_methods');
+      const total = Number(countRows?.[0]?.total ?? 0);
+      if (total === 0) {
+        await ensureDefaultPaymentMethods(db);
+        const [retryRows] = await db.execute('SELECT id FROM payment_methods WHERE id = ? LIMIT 1', [trimmed]);
+        if (retryRows.length > 0) return retryRows[0].id;
+      }
+    }
+  } catch (err) {
+    console.warn('[ResolvePaymentMethod] Warning:', err.message);
+  }
+
+  return null;
+}
+
+function parseJsonSafe(val, fallback) {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val !== 'string') return val;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return fallback;
+  }
+}
+
+async function canUserManagePropertyRow(db, user, propRow) {
+  if (!user || !propRow) return false;
+  const role = String(user.role || '').trim().toLowerCase();
+  if (role === 'admin') return true;
+
+  const userId = String(user.id || '').trim();
+  const userEmail = String(user.email || '').trim().toLowerCase();
+  const propAgentId = String(propRow.agent_id || '').trim();
+
+  if (propAgentId && propAgentId === userId) return true;
+  if (propAgentId && userEmail && propAgentId.toLowerCase() === userEmail) return true;
+
+  const customFields = parseJsonSafe(propRow.custom_fields, {});
+  const assignedIds = [
+    customFields?.assignedAgentId,
+    customFields?.agentId,
+    customFields?.ownerId,
+    customFields?.userId
+  ].filter(Boolean).map((v) => String(v).trim());
+  if (assignedIds.includes(userId)) return true;
+
+  if (
+    propRow.agency_id &&
+    ((user.agency_id && propRow.agency_id === user.agency_id) ||
+      (role === 'agency' && propRow.agency_id === userId))
+  ) {
+    return true;
+  }
+
+  // Correspondance éventuelle via profil agent rattaché à l'utilisateur connecté
+  if (propAgentId) {
+    try {
+      const [agentRows] = await db.execute(
+        'SELECT id, user_id, agency_id, email FROM agents WHERE id = ? LIMIT 1',
+        [propAgentId]
+      );
+      if (agentRows.length > 0) {
+        const ag = agentRows[0];
+        if (ag.user_id && String(ag.user_id).trim() === userId) return true;
+        if (userEmail && ag.email && String(ag.email).trim().toLowerCase() === userEmail) return true;
+        if (user.agency_id && ag.agency_id && String(ag.agency_id).trim() === String(user.agency_id).trim()) {
+          return true;
+        }
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+function checkPropertyBoostEligibility(propRow) {
+  if (!propRow || typeof propRow !== 'object') {
+    return { allowed: false, reason: 'Propriété introuvable.' };
+  }
+
+  if (propRow.published === 0 || propRow.published === false) {
+    return {
+      allowed: false,
+      reason: 'Cette annonce n’est pas publiée publiquement (brouillon ou masquée). Publiez-la avant de commander un boost.'
+    };
+  }
+
+  if (propRow.soft_hidden_by_plan === 1 || propRow.soft_hidden_by_plan === true) {
+    return {
+      allowed: false,
+      reason: 'Cette annonce est temporairement masquée par votre formule actuelle. Passez à une formule supérieure pour la réactiver et la booster.'
+    };
+  }
+
+  const customFields = parseJsonSafe(propRow.custom_fields, {});
+  const mediaMeta = customFields && typeof customFields === 'object' ? customFields._mediaMeta : null;
+  const fraudStatus = String(mediaMeta?.fraudStatus || '').toLowerCase();
+  if (fraudStatus === 'suspect') {
+    return {
+      allowed: false,
+      reason: 'Cette annonce fait l’objet d’une vérification de modération et ne peut pas être boostée pour le moment.'
+    };
+  }
+
+  const lifecycle = String(mediaMeta?.listingStatus || '').toUpperCase();
+  if (['DRAFT', 'ARCHIVED', 'PENDING_REVIEW', 'SOLD', 'RENTED', 'SUSPENDED', 'HIDDEN'].includes(lifecycle)) {
+    return {
+      allowed: false,
+      reason: `Impossible de booster une annonce ayant le statut « ${lifecycle} ».`
+    };
+  }
+
+  const rawStatus = String(propRow.status || '').toLowerCase();
+  if (['sold', 'rented', 'archived', 'draft', 'suspended', 'hidden'].includes(rawStatus)) {
+    return {
+      allowed: false,
+      reason: `Impossible de booster un bien ayant le statut « ${rawStatus} ».`
+    };
+  }
+
+  return { allowed: true, reason: null };
+}
+
 /**
  * Récupérer la liste des formules d'abonnement actives
  * GET /api/billing/plans
@@ -331,80 +635,21 @@ async function getPlans(req, res, next) {
 async function getVisibilityOptions(req, res, next) {
   try {
     const activeRate = await getActiveExchangeRate();
-    const [rows] = await pool.execute(
+    let [rows] = await pool.execute(
       'SELECT * FROM visibility_options WHERE is_active = TRUE ORDER BY price_usd ASC'
     );
+    if (rows.length === 0) {
+      const [countRows] = await pool.execute('SELECT COUNT(*) AS total FROM visibility_options');
+      if (Number(countRows?.[0]?.total ?? 0) === 0) {
+        await ensureDefaultVisibilityOptions(pool, activeRate);
+        [rows] = await pool.execute(
+          'SELECT * FROM visibility_options WHERE is_active = TRUE ORDER BY price_usd ASC'
+        );
+      }
+    }
     res.json({ success: true, options: rows.map(o => formatOption(o, activeRate)), exchangeRate: activeRate });
   } catch (error) {
-    // Fallback dynamique si la table n'a pas encore été importée
-    const fallbackOptions = [
-      {
-        id: 'opt_featured_7d',
-        name: 'Mise en Avant 7 jours',
-        slug: 'mise_en_avant_7d',
-        description: 'Positionnement en tête de page d\'accueil et carrousel prioritaire pendant 7 jours.',
-        boost_type: 'featured',
-        duration_days: 7,
-        price_usd: 10.0,
-        price_cdf: 28500.0,
-        badge_text: 'En Vedette ⭐',
-        icon: 'Sparkles',
-        is_active: true
-      },
-      {
-        id: 'opt_premium_30d',
-        name: 'Pack Annonce Premium 30 jours',
-        slug: 'annonce_premium_30d',
-        description: 'Affichage permanent avec cadre doré, badge Premium, priorité maximale et 3x plus d\'appels.',
-        boost_type: 'premium',
-        duration_days: 30,
-        price_usd: 25.0,
-        price_cdf: 71250.0,
-        badge_text: '👑 Annonce Premium',
-        icon: 'Crown',
-        is_active: true
-      },
-      {
-        id: 'opt_urgent_14d',
-        name: 'Badge Vente / Location Urgente',
-        slug: 'badge_urgent_14d',
-        description: 'Bandeau rouge d\'urgence pour attirer immédiatement les acheteurs et locataires sérieux.',
-        boost_type: 'urgent',
-        duration_days: 14,
-        price_usd: 8.0,
-        price_cdf: 22800.0,
-        badge_text: '⚡ Urgent',
-        icon: 'Zap',
-        is_active: true
-      },
-      {
-        id: 'opt_refresh_bump',
-        name: 'Remontée Immédiate en Tête',
-        slug: 'remontee_tete',
-        description: 'Actualise la date de votre annonce pour la replacer tout en haut des résultats de recherche récents.',
-        boost_type: 'refresh',
-        duration_days: 1,
-        price_usd: 5.0,
-        price_cdf: 14250.0,
-        badge_text: 'Top Liste',
-        icon: 'ArrowUpCircle',
-        is_active: true
-      },
-      {
-        id: 'opt_social_blast',
-        name: 'Diffusion Réseaux & WhatsApp Kinimmo',
-        slug: 'diffusion_reseaux',
-        description: 'Publication sponsorisée sur la communauté Facebook Kinimmo et diffusion WhatsApp VIP.',
-        boost_type: 'social_blast',
-        duration_days: 14,
-        price_usd: 35.0,
-        price_cdf: 99750.0,
-        badge_text: 'Multi-Canal VIP',
-        icon: 'Share2',
-        is_active: true
-      }
-    ];
-    res.json({ success: true, options: fallbackOptions.map(formatOption) });
+    res.json({ success: true, options: DEFAULT_VISIBILITY_OPTIONS_SEED.map(o => formatOption(o, 2850)) });
   }
 }
 
@@ -418,48 +663,17 @@ async function getPaymentMethods(req, res, next) {
     const sql = includeInactive
       ? 'SELECT id, provider, account_name, account_number, merchant_code, instructions, is_active FROM payment_methods ORDER BY created_at ASC'
       : 'SELECT id, provider, account_name, account_number, merchant_code, instructions, is_active FROM payment_methods WHERE is_active = TRUE ORDER BY created_at ASC';
-    const [rows] = await pool.execute(sql);
+    let [rows] = await pool.execute(sql);
+    if (rows.length === 0) {
+      const [countRows] = await pool.execute('SELECT COUNT(*) AS total FROM payment_methods');
+      if (Number(countRows?.[0]?.total ?? 0) === 0) {
+        await ensureDefaultPaymentMethods(pool);
+        [rows] = await pool.execute(sql);
+      }
+    }
     res.json({ success: true, paymentMethods: rows });
   } catch (error) {
-    const fallbackPaymentMethods = [
-      {
-        id: 'pm_mpesa',
-        provider: 'mpesa',
-        account_name: 'KINIMMO SARL - Vodacom M-Pesa',
-        account_number: '+243 810 000 000',
-        merchant_code: '123456',
-        instructions: 'Envoyer le montant exact via M-Pesa puis insérer le code de transaction.',
-        is_active: true
-      },
-      {
-        id: 'pm_airtel',
-        provider: 'airtel',
-        account_name: 'KINIMMO SARL - Airtel Money RDC',
-        account_number: '+243 990 000 000',
-        merchant_code: '789012',
-        instructions: 'Paiement direct via Airtel Money RDC.',
-        is_active: true
-      },
-      {
-        id: 'pm_orange',
-        provider: 'orange',
-        account_name: 'KINIMMO SARL - Orange Money Kinshasa',
-        account_number: '+243 890 000 000',
-        merchant_code: '345678',
-        instructions: 'Paiement via Orange Money Kinshasa.',
-        is_active: true
-      },
-      {
-        id: 'pm_rawbank',
-        provider: 'bank_transfer',
-        account_name: 'KINIMMO RDC - Rawbank Kinshasa Gombe',
-        account_number: '01002-00012345678-90',
-        merchant_code: null,
-        instructions: 'Virement bancaire ou versement au guichet Rawbank.',
-        is_active: true
-      }
-    ];
-    return res.json({ success: true, paymentMethods: fallbackPaymentMethods });
+    return res.json({ success: true, paymentMethods: DEFAULT_PAYMENT_METHODS_SEED });
   }
 }
 
@@ -653,8 +867,14 @@ async function createInvoice(req, res, next) {
       });
     }
 
+    const [userRows] = await pool.execute('SELECT id FROM users WHERE id = ? LIMIT 1', [userId]);
+    if (userRows.length === 0) {
+      return res.status(401).json({ success: false, message: 'Session utilisateur invalide ou expirée. Veuillez vous reconnecter.' });
+    }
+
     const finalUsd = cycle === 'yearly' ? selectedPlan.price_yearly_usd : selectedPlan.price_usd;
     const finalCdf = cycle === 'yearly' ? selectedPlan.price_yearly_cdf : selectedPlan.price_cdf;
+    const safePaymentMethodId = await resolvePaymentMethodId(pool, paymentMethodId);
 
     const invoiceId = 'inv_' + crypto.randomBytes(8).toString('hex');
     const invoiceNumber = 'FAC-KIN-' + Date.now().toString().slice(-6);
@@ -674,7 +894,7 @@ async function createInvoice(req, res, next) {
         finalUsd,
         finalCdf,
         cycle,
-        paymentMethodId || null,
+        safePaymentMethodId,
         paymentGateway,
         dueDateStr
       ]
@@ -692,6 +912,7 @@ async function createInvoice(req, res, next) {
         billingCycle: cycle,
         amount: finalUsd,
         amountCdf: finalCdf,
+        paymentMethodId: safePaymentMethodId,
         status: 'pending',
         dueDate: dueDateStr
       }
@@ -706,28 +927,97 @@ async function createInvoice(req, res, next) {
  * POST /api/billing/boost-order
  */
 async function createBoostOrder(req, res, next) {
+  let connection = null;
+  let transactionStarted = false;
   try {
-    const userId = req.user.id;
-    const { propertyId, optionId, paymentMethodId, paymentGateway = 'manual_mobile_money' } = req.body;
+    const userId = req.user?.id;
+    const rawPropertyId = typeof req.body?.propertyId === 'string' ? req.body.propertyId.trim() : '';
+    const rawOptionId = typeof req.body?.optionId === 'string' ? req.body.optionId.trim() : '';
+    const { paymentMethodId, paymentGateway = 'manual_mobile_money' } = req.body || {};
 
-    if (!propertyId || !optionId) {
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    }
+
+    if (!rawPropertyId || !rawOptionId) {
       return res.status(400).json({ success: false, message: 'propertyId et optionId sont requis.' });
     }
 
-    // Vérifier la propriété
-    const [props] = await pool.execute('SELECT id, title, agent_id FROM properties WHERE id = ? LIMIT 1', [propertyId]);
+    // Vérifier que l'utilisateur existe bien en base (protection FK fk_invoices_user / fk_boost_user)
+    const [userRows] = await pool.execute(
+      'SELECT id, role, agency_id, email FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    if (userRows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: 'Session utilisateur introuvable ou expirée. Veuillez vous reconnecter.'
+      });
+    }
+    const dbUser = {
+      ...req.user,
+      ...userRows[0],
+      role: String(userRows[0].role || req.user.role || 'user').trim().toLowerCase()
+    };
+
+    // Vérifier la propriété, les droits de gestion du compte et son éligibilité au boost
+    const [props] = await pool.execute('SELECT * FROM properties WHERE id = ? LIMIT 1', [rawPropertyId]);
     if (props.length === 0) {
       return res.status(404).json({ success: false, message: 'Propriété introuvable.' });
     }
     const prop = props[0];
 
-    // Vérifier l'option de visibilité
-    const [options] = await pool.execute('SELECT * FROM visibility_options WHERE id = ? AND is_active = TRUE LIMIT 1', [optionId]);
-    if (options.length === 0) {
-      return res.status(404).json({ success: false, message: 'Option de visibilité introuvable.' });
+    const canManage = await canUserManagePropertyRow(pool, dbUser, prop);
+    if (!canManage) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès interdit : vous ne pouvez booster que vos propres annonces.'
+      });
     }
+
+    const eligibility = checkPropertyBoostEligibility(prop);
+    if (!eligibility.allowed) {
+      return res.status(400).json({
+        success: false,
+        message: eligibility.reason
+      });
+    }
+
+    // Vérifier l'option de visibilité (avec auto-amorçage idempotent si la table ou l'option par défaut manque)
     const activeRate = await getActiveExchangeRate();
+    let [options] = await pool.execute(
+      'SELECT * FROM visibility_options WHERE id = ? AND is_active = TRUE LIMIT 1',
+      [rawOptionId]
+    );
+    if (options.length === 0) {
+      const [anyOptRows] = await pool.execute(
+        'SELECT id, is_active FROM visibility_options WHERE id = ? LIMIT 1',
+        [rawOptionId]
+      );
+      if (anyOptRows.length === 0) {
+        const [optCountRows] = await pool.execute('SELECT COUNT(*) AS total FROM visibility_options');
+        const optTotal = Number(optCountRows?.[0]?.total ?? 0);
+        if (optTotal === 0) {
+          await ensureDefaultVisibilityOptions(pool, activeRate);
+        } else if (DEFAULT_VISIBILITY_OPTIONS_SEED.some((o) => o.id === rawOptionId)) {
+          await ensureDefaultVisibilityOptions(pool, activeRate, rawOptionId);
+        }
+        [options] = await pool.execute(
+          'SELECT * FROM visibility_options WHERE id = ? AND is_active = TRUE LIMIT 1',
+          [rawOptionId]
+        );
+      }
+    }
+
+    if (options.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Option de visibilité introuvable ou inactive.'
+      });
+    }
+
     const opt = formatOption(options[0], activeRate);
+    const safePaymentMethodId = await resolvePaymentMethodId(pool, paymentMethodId);
 
     const invoiceId = 'inv_' + crypto.randomBytes(8).toString('hex');
     const invoiceNumber = 'BST-KIN-' + Date.now().toString().slice(-6);
@@ -737,30 +1027,45 @@ async function createBoostOrder(req, res, next) {
     dueDate.setDate(dueDate.getDate() + 3);
     const dueDateStr = dueDate.toISOString().split('T')[0];
 
-    // Créer la facture pour le boost
-    await pool.execute(
+    let dbWriter = pool;
+    if (typeof pool.getConnection === 'function') {
+      connection = await pool.getConnection();
+      if (connection && typeof connection.beginTransaction === 'function') {
+        await connection.beginTransaction();
+        transactionStarted = true;
+        dbWriter = connection;
+      }
+    }
+
+    // 1. Créer la facture pour le boost
+    await dbWriter.execute(
       `INSERT INTO invoices (id, invoice_number, user_id, invoice_type, property_id, option_id, amount, currency, amount_cdf, payment_method_id, payment_gateway, status, due_date)
        VALUES (?, ?, ?, 'boost', ?, ?, ?, 'USD', ?, ?, ?, 'pending', ?)`,
       [
         invoiceId,
         invoiceNumber,
         userId,
-        propertyId,
+        rawPropertyId,
         opt.id,
         opt.price_usd,
         opt.price_cdf,
-        paymentMethodId || null,
-        paymentGateway,
+        safePaymentMethodId,
+        paymentGateway || 'manual_mobile_money',
         dueDateStr
       ]
     );
 
-    // Enregistrer la demande de boost en attente
-    await pool.execute(
+    // 2. Enregistrer la demande de boost en attente
+    await dbWriter.execute(
       `INSERT INTO listing_boosts (id, property_id, user_id, option_id, invoice_id, status)
        VALUES (?, ?, ?, ?, ?, 'pending')`,
-      [boostId, propertyId, userId, opt.id, invoiceId]
+      [boostId, rawPropertyId, userId, opt.id, invoiceId]
     );
+
+    if (transactionStarted && connection && typeof connection.commit === 'function') {
+      await connection.commit();
+      transactionStarted = false;
+    }
 
     res.status(201).json({
       success: true,
@@ -768,20 +1073,44 @@ async function createBoostOrder(req, res, next) {
       invoice: {
         id: invoiceId,
         invoiceNumber,
+        invoice_number: invoiceNumber,
         invoiceType: 'boost',
+        invoice_type: 'boost',
         boostId,
-        propertyId,
+        propertyId: rawPropertyId,
+        property_id: rawPropertyId,
         propertyTitle: prop.title,
+        property_title: prop.title,
+        optionId: opt.id,
+        option_id: opt.id,
         optionName: opt.name,
+        option_name: opt.name,
         boostType: opt.boost_type,
+        boost_type: opt.boost_type,
+        durationDays: opt.duration_days,
+        duration_days: opt.duration_days,
         amount: opt.price_usd,
         amountCdf: opt.price_cdf,
+        amount_cdf: opt.price_cdf,
+        paymentMethodId: safePaymentMethodId,
+        payment_method_id: safePaymentMethodId,
         status: 'pending',
         dueDate: dueDateStr
       }
     });
   } catch (error) {
+    if (transactionStarted && connection && typeof connection.rollback === 'function') {
+      try {
+        await connection.rollback();
+      } catch {}
+    }
     next(error);
+  } finally {
+    if (connection && typeof connection.release === 'function') {
+      try {
+        connection.release();
+      } catch {}
+    }
   }
 }
 
@@ -804,6 +1133,8 @@ async function submitPaymentProof(req, res, next) {
       return res.status(400).json({ success: false, message: 'Veuillez indiquer la référence de transaction Mobile Money ou joindre une capture.' });
     }
 
+    const safePaymentMethodId = await resolvePaymentMethodId(pool, paymentMethodId);
+
     await pool.execute(
       `UPDATE invoices
        SET payment_method_id = COALESCE(?, payment_method_id),
@@ -814,7 +1145,7 @@ async function submitPaymentProof(req, res, next) {
            payment_submitted_at = CURRENT_TIMESTAMP,
            rejection_reason = NULL
        WHERE id = ?`,
-      [paymentMethodId || null, transactionReference || null, proofImageUrl || null, gatewayTransactionId || null, id]
+      [safePaymentMethodId, transactionReference || null, proofImageUrl || null, gatewayTransactionId || null, id]
     );
 
     res.json({

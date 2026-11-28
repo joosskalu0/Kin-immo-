@@ -79,6 +79,8 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
         setPaymentMethods(pmRes.paymentMethods);
         if (pmRes.paymentMethods.length > 0) {
           setSelectedPaymentMethodId(pmRes.paymentMethods[0].id);
+        } else {
+          setSelectedPaymentMethodId('');
         }
       }
     } catch (err) {
@@ -94,6 +96,10 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
   const selectedPayment = paymentMethods.find((p) => p.id === selectedPaymentMethodId) || paymentMethods[0];
 
   const handleOrderBoost = async () => {
+    if (!selectedOption) {
+      setErrorMsg('Aucune option de visibilité disponible.');
+      return;
+    }
     setIsSubmitting(true);
     setErrorMsg(null);
 
@@ -101,7 +107,7 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
       const res = await mysqlApi.createBoostOrder(
         property.id,
         selectedOption.id,
-        selectedPaymentMethodId,
+        selectedPayment?.id,
         paymentGateway
       );
 
@@ -274,7 +280,10 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                     return (
                       <div
                         key={opt.id}
-                        onClick={() => setSelectedOptionId(opt.id)}
+                        onClick={() => {
+                          setErrorMsg(null);
+                          setSelectedOptionId(opt.id);
+                        }}
                         className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
                           isSelected
                             ? 'border-emerald-600 bg-emerald-50/50 shadow-sm'
@@ -329,7 +338,10 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                     <button
                       key={pm.id}
                       type="button"
-                      onClick={() => setSelectedPaymentMethodId(pm.id)}
+                      onClick={() => {
+                        setErrorMsg(null);
+                        setSelectedPaymentMethodId(pm.id);
+                      }}
                       className={`p-3 rounded-xl border text-left transition-all ${
                         selectedPaymentMethodId === pm.id
                           ? 'border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-500/20'

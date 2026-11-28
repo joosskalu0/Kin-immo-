@@ -135,11 +135,15 @@ export const BoostPage: React.FC<BoostPageProps> = ({
           }
         }
 
-        if (pmRes?.success && Array.isArray(pmRes.paymentMethods) && pmRes.paymentMethods.length > 0) {
+        if (pmRes?.success && Array.isArray(pmRes.paymentMethods)) {
           setPaymentMethods(pmRes.paymentMethods);
-          setSelectedPaymentMethodId((prev) =>
-            pmRes.paymentMethods.some((m: any) => m.id === prev) ? prev : pmRes.paymentMethods[0].id
-          );
+          if (pmRes.paymentMethods.length > 0) {
+            setSelectedPaymentMethodId((prev) =>
+              pmRes.paymentMethods.some((m: any) => m.id === prev) ? prev : pmRes.paymentMethods[0].id
+            );
+          } else {
+            setSelectedPaymentMethodId('');
+          }
         }
 
         if (myBoostsRes?.featured_slots_limit) {
@@ -526,7 +530,10 @@ export const BoostPage: React.FC<BoostPageProps> = ({
                   <button
                     key={prop.id}
                     type="button"
-                    onClick={() => setSelectedPropertyId(prop.id)}
+                    onClick={() => {
+                      setErrorMsg(null);
+                      setSelectedPropertyId(prop.id);
+                    }}
                     className={`p-3 rounded-2xl border-2 text-left transition-all flex items-center gap-3 cursor-pointer ${
                       isSelected
                         ? 'border-[#1D4ED8] bg-blue-50/40 shadow-xs'
@@ -605,7 +612,10 @@ export const BoostPage: React.FC<BoostPageProps> = ({
                   <button
                     key={opt.id}
                     type="button"
-                    onClick={() => setSelectedOptionId(opt.id)}
+                    onClick={() => {
+                      setErrorMsg(null);
+                      setSelectedOptionId(opt.id);
+                    }}
                     className={`p-4 rounded-2xl border-2 text-left transition-all flex flex-col justify-between gap-3 cursor-pointer ${
                       isSelected
                         ? 'border-[#1D4ED8] bg-blue-50/40 shadow-xs'
@@ -813,7 +823,10 @@ export const BoostPage: React.FC<BoostPageProps> = ({
                     <button
                       key={pm.id}
                       type="button"
-                      onClick={() => setSelectedPaymentMethodId(pm.id)}
+                      onClick={() => {
+                        setErrorMsg(null);
+                        setSelectedPaymentMethodId(pm.id);
+                      }}
                       className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${
                         selectedPayment?.id === pm.id
                           ? 'border-[#1D4ED8] bg-blue-50/50'

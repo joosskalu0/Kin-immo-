@@ -13,9 +13,28 @@ function errorHandler(err, req, res, next) {
   }
 
   if (err.code === 'ER_NO_REFERENCED_ROW_2') {
+    const rawMsg = String(err.sqlMessage || err.message || '');
+    let detail = "l'élément lié (annonce, option, moyen de paiement ou compte) n'existe plus";
+    if (rawMsg.includes('fk_invoices_payment_method') || rawMsg.includes('payment_method_id')) {
+      detail = "le moyen de paiement sélectionné n'est pas valide ou n'existe plus";
+    } else if (rawMsg.includes('fk_boost_option') || rawMsg.includes('option_id')) {
+      detail = "l'option de boost sélectionnée n'existe plus";
+    } else if (
+      rawMsg.includes('fk_boost_property') ||
+      rawMsg.includes('fk_invoices_property') ||
+      rawMsg.includes('property_id')
+    ) {
+      detail = "l'annonce sélectionnée n'existe plus";
+    } else if (
+      rawMsg.includes('fk_boost_user') ||
+      rawMsg.includes('fk_invoices_user') ||
+      rawMsg.includes('user_id')
+    ) {
+      detail = "votre session utilisateur est invalide, veuillez vous reconnecter";
+    }
     return res.status(400).json({
       success: false,
-      message: 'Référence invalide : l\'élément lié (propriété, agence ou utilisateur) n\'existe pas.'
+      message: `Référence invalide : ${detail}.`
     });
   }
 
