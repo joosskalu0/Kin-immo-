@@ -364,4 +364,70 @@ describe('BillingController - createBoostOrder & résolution FK', () => {
     assert.match(res.body.message, /moyen de paiement/i);
     assert.ok(!res.body.message.includes('fk_invoices_payment_method'));
   });
+
+  it('getPaymentMethods normalise is_active (0/1) en booléen et updatePaymentMethod synchronise via upsert', async () => {
+    const origExecute = realPool.execute;
+    const rows = new Map([
+      ['pm_mpesa', { id: 'pm_mpesa', provider: 'mpesa', account_name: 'M-Pesa Old', account_number: '+243810', merchant_code: '111', instructions: '', is_active: 0 }]
+    ]);
+
+    realPool.execute = async (sql, params = []) => {
+      if (sql.includes('FROM payment_methods WHERE id = ?')) {
+        const found = rows.get(params[0]);
+        return [found ? [found] : []];
+      }
+      if (sql.includes('FROM payment_methods ORDER BY')) {
+        return [Array.from(rows.values())];
+      }
+      if (sql.includes('UPDATE payment_methods')) {
+        const id = params[6];
+        if (!rows.has(id)) return [{ affectedRows: 0 }];
+        const cur = rows.get(id);
+        rows.set(id, {
+          ...cur,
+          provider: params[0] || cur.provider,
+          account_name: params[1] || cur.account_name,
+          account_number: params[2] || cur.account_number,
+          merchant_code: params[3],
+          instructions: params[4] !== null ? params[4] : cur.instructions,
+          is_active: params[5] !== null ? (params[5] ? 1 : 0) : cur.is_active,
+        });
+        return [{ affectedRows: 1 }];
+      }
+      if (sql.includes('INSERT IGNORE INTO payment_methods')) {
+        rows.set(params[0], {
+          id: params[0],
+          provider: params[1],
+          account_name: params[2],
+          account_number: params[3],
+          merchant_code: params[4],
+          instructions: params[5],
+          is_active: params[6] ? 1 : 0,
+        });
+        return [{ affectedRows: 1 }];
+      }
+      return [[]];
+    };
+
+    try {
+      const listRes = createMockRes();
+      await billingController.getPaymentMethods({ query: { include_inactive: 'true' } }, listRes, (err) => { throw err; });
+      assert.equal(listRes.body.paymentMethods[0].is_active, false);
+
+      const updRes = createMockRes();
+      await billingController.updatePaymentMethod(
+        {
+          params: { id: 'pm_custom_1' },
+          body: { provider: 'airtel', account_name: 'Kinimmo Airtel', account_number: '+243991112233', merchant_code: '9988', is_active: true }
+        },
+        updRes,
+        (err) => { throw err; }
+      );
+      assert.equal(updRes.body.success, true);
+      assert.equal(updRes.body.paymentMethod.account_name, 'Kinimmo Airtel');
+      assert.equal(updRes.body.paymentMethod.is_active, true);
+    } finally {
+      realPool.execute = origExecute;
+    }
+  });
 });

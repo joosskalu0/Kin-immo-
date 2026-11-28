@@ -657,6 +657,14 @@ async function getVisibilityOptions(req, res, next) {
  * Récupérer les coordonnées et modes de paiement officiels Kinimmo
  * GET /api/billing/payment-methods
  */
+function formatPaymentMethodRow(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    is_active: row.is_active !== false && row.is_active !== 0
+  };
+}
+
 async function getPaymentMethods(req, res, next) {
   try {
     const includeInactive = req.query.include_inactive === 'true';
@@ -671,7 +679,7 @@ async function getPaymentMethods(req, res, next) {
         [rows] = await pool.execute(sql);
       }
     }
-    res.json({ success: true, paymentMethods: rows });
+    res.json({ success: true, paymentMethods: rows.map(formatPaymentMethodRow) });
   } catch (error) {
     return res.json({ success: true, paymentMethods: DEFAULT_PAYMENT_METHODS_SEED });
   }
@@ -699,7 +707,7 @@ async function createPaymentMethod(req, res, next) {
     res.status(201).json({
       success: true,
       message: 'Opérateur Mobile Money / Banque ajouté.',
-      paymentMethod: { id, provider, account_name, account_number, merchant_code, instructions, is_active: Boolean(is_active) }
+      paymentMethod: { id, provider, account_name, account_number, merchant_code: merchant_code || null, instructions: instructions || '', is_active: Boolean(is_active) }
     });
   } catch (error) {
     next(error);
@@ -710,7 +718,7 @@ async function updatePaymentMethod(req, res, next) {
   try {
     const { id } = req.params;
     const { provider, account_name, account_number, merchant_code, instructions, is_active } = req.body;
-    await pool.execute(
+    const [result] = await pool.execute(
       `UPDATE payment_methods
        SET provider = COALESCE(?, provider),
            account_name = COALESCE(?, account_name),
@@ -719,9 +727,24 @@ async function updatePaymentMethod(req, res, next) {
            instructions = COALESCE(?, instructions),
            is_active = COALESCE(?, is_active)
        WHERE id = ?`,
-      [provider || null, account_name || null, account_number || null, merchant_code !== undefined ? merchant_code : null, instructions !== undefined ? instructions : null, is_active !== undefined ? Boolean(is_active) : null, id]
+      [provider || null, account_name || null, account_number || null, merchant_code !== undefined ? (merchant_code || null) : null, instructions !== undefined ? instructions : null, is_active !== undefined ? Boolean(is_active) : null, id]
     );
-    res.json({ success: true, message: 'Opérateur mis à jour.' });
+
+    if (Number(result?.affectedRows ?? 0) === 0 && account_name && account_number) {
+      await pool.execute(
+        `INSERT IGNORE INTO payment_methods (id, provider, account_name, account_number, merchant_code, instructions, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, provider || 'mpesa', account_name, account_number, merchant_code || null, instructions || '', is_active !== undefined ? Boolean(is_active) : true]
+      );
+    }
+
+    const [rows] = await pool.execute(
+      'SELECT id, provider, account_name, account_number, merchant_code, instructions, is_active FROM payment_methods WHERE id = ? LIMIT 1',
+      [id]
+    );
+    const paymentMethod = rows.length > 0 ? formatPaymentMethodRow(rows[0]) : undefined;
+
+    res.json({ success: true, message: 'Opérateur mis à jour.', paymentMethod });
   } catch (error) {
     next(error);
   }
