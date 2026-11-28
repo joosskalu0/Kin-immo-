@@ -38,7 +38,7 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
   property,
   onSuccess
 }) => {
-  const { user, addInvoice, submitManualPaymentProof } = useApp();
+  const { user, addInvoice, submitManualPaymentProof, cdfExchangeRate } = useApp();
   const [options, setOptions] = useState<VisibilityOption[]>([]);
   const [selectedOptionId, setSelectedOptionId] = useState<string>('opt_featured_7d');
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
@@ -307,7 +307,9 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                               {Number(opt.price_usd ?? (opt as any).price ?? 0)} $
                             </span>
                             <span className="text-[10px] text-slate-500 block">
-                              (~{Number(opt.price_cdf ?? ((Number(opt.price_usd ?? (opt as any).price ?? 0)) * 2850)).toLocaleString()} CDF)
+                              (~{(Number(opt.price_usd ?? (opt as any).price ?? 0) > 0
+                                ? Math.round(Number(opt.price_usd ?? (opt as any).price ?? 0) * cdfExchangeRate)
+                                : Number(opt.price_cdf ?? 0)).toLocaleString('fr-FR')} CDF)
                             </span>
                           </div>
                         </div>
@@ -389,7 +391,9 @@ export const VisibilityBoostModal: React.FC<VisibilityBoostModalProps> = ({
                   <div className="text-xl font-black text-slate-900">
                     {Number(selectedOption?.price_usd ?? (selectedOption as any)?.price ?? 0)} USD{' '}
                     <span className="text-xs text-emerald-600 font-bold">
-                      (~{Number(selectedOption?.price_cdf ?? ((Number(selectedOption?.price_usd ?? (selectedOption as any)?.price ?? 0)) * 2850)).toLocaleString()} CDF)
+                      (~{(Number(selectedOption?.price_usd ?? (selectedOption as any)?.price ?? 0) > 0
+                        ? Math.round(Number(selectedOption?.price_usd ?? (selectedOption as any)?.price ?? 0) * cdfExchangeRate)
+                        : Number(selectedOption?.price_cdf ?? 0)).toLocaleString('fr-FR')} CDF)
                     </span>
                   </div>
                 </div>

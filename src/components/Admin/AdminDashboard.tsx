@@ -1875,7 +1875,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         setIsSavingSettings(true);
                         try {
                           const res = await updateContactSettings(siteSettings);
-                          showNotification('success', res.message || 'Coordonnées et Service VIP enregistrés dans la base MySQL !');
+                          if (res?.success) {
+                            showNotification('success', res.message || 'Coordonnées et Service VIP enregistrés dans la base MySQL !');
+                          } else {
+                            showNotification('error', res?.error || res?.message || 'Échec de l\'enregistrement dans MySQL.');
+                          }
                         } catch (err: any) {
                           showNotification('error', err?.message || 'Erreur lors de l\'enregistrement');
                         } finally {
@@ -2374,7 +2378,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         setIsSavingSettings(true);
                         try {
                           const res = await updateContactSettings(siteSettings);
-                          showNotification('success', res.message || 'Paramètres de contact et conciergerie VIP mis à jour dans MySQL !');
+                          if (res?.success) {
+                            showNotification('success', res.message || 'Paramètres de contact et conciergerie VIP mis à jour dans MySQL !');
+                          } else {
+                            showNotification('error', res?.error || res?.message || 'Échec de la mise à jour dans MySQL.');
+                          }
                         } catch (err: any) {
                           showNotification('error', err?.message || 'Erreur lors de la mise à jour');
                         } finally {
@@ -2445,13 +2453,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex justify-end pt-4 border-t border-slate-800">
                   <button
                     type="button"
+                    disabled={isSavingSettings}
                     onClick={async () => {
-                      await updateContactSettings({ exchangeRate: siteSettings.exchangeRate, defaultCurrency: siteSettings.defaultCurrency });
-                      showNotification('success', `Taux de change actualisé à 1 USD = ${siteSettings.exchangeRate} CDF et synchronisé dans MySQL !`);
+                      const rate = Number(siteSettings.exchangeRate);
+                      if (!Number.isFinite(rate) || rate <= 0) {
+                        showNotification('error', 'Veuillez saisir un taux de change USD/CDF valide (> 0).');
+                        return;
+                      }
+                      setIsSavingSettings(true);
+                      try {
+                        const res = await updateContactSettings({
+                          exchangeRate: rate,
+                          defaultCurrency: siteSettings.defaultCurrency,
+                        });
+                        if (res?.success) {
+                          showNotification('success', `Taux de change actualisé à 1 USD = ${rate.toLocaleString('fr-FR')} CDF et synchronisé dans MySQL !`);
+                        } else {
+                          showNotification('error', res?.error || res?.message || 'Impossible de synchroniser le taux de change dans MySQL.');
+                        }
+                      } finally {
+                        setIsSavingSettings(false);
+                      }
                     }}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-lg shadow-emerald-600/20 cursor-pointer"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-lg shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
                   >
-                    Enregistrer le taux du jour dans MySQL
+                    {isSavingSettings ? 'Enregistrement...' : 'Enregistrer le taux du jour dans MySQL'}
                   </button>
                 </div>
               </div>

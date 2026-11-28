@@ -9,6 +9,8 @@ const DEFAULT_SETTINGS = {
   office_address: 'Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC',
   working_hours: 'Lundi - Samedi : 08h00 - 18h30 | Urgences VIP 24h/7j',
   exchange_rate_usd_cdf: '2850',
+  exchange_rate_updated_at: '2026-11-18T10:00:00.000Z',
+  default_currency: 'USD',
   auto_approve_properties: 'false',
   vip_enabled: 'true',
   vip_title: 'Service Client VIP & Conciergerie',

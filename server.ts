@@ -662,13 +662,26 @@ function mapCategoryToAudienceServer(category?: string, id?: string): string {
   return 'grand_public';
 }
 
-function normalizeServerPlan(p: any): any {
+function getActiveExchangeRateServer(): number {
+  try {
+    const raw = Number(inMemorySettings?.exchange_rate_usd_cdf);
+    if (Number.isFinite(raw) && raw > 0) return raw;
+  } catch {}
+  return 2850;
+}
+
+function normalizeServerPlan(p: any, activeRate?: number): any {
+  const rate = Number.isFinite(Number(activeRate)) && Number(activeRate) > 0 ? Number(activeRate) : 2850;
   const base = INITIAL_PLANS.find((ip) => ip.id === p.id);
   const audience = p.audience || mapCategoryToAudienceServer(p.category, p.id);
   const priceUsd = Number(p.price_usd ?? p.priceMonthly ?? base?.price_usd ?? 0);
-  const priceCdf = Number(p.price_cdf ?? p.priceMonthlyCDF ?? base?.price_cdf ?? Math.round(priceUsd * 2850));
+  const priceCdf = activeRate && priceUsd > 0
+    ? Math.round(priceUsd * rate)
+    : Number(p.price_cdf ?? p.priceMonthlyCDF ?? base?.price_cdf ?? Math.round(priceUsd * rate));
   const priceYearlyUsd = Number(p.price_yearly_usd ?? p.priceYearly ?? base?.price_yearly_usd ?? Math.round(priceUsd * 10));
-  const priceYearlyCdf = Number(p.price_yearly_cdf ?? p.priceYearlyCDF ?? base?.price_yearly_cdf ?? Math.round(priceYearlyUsd * 2850));
+  const priceYearlyCdf = activeRate && priceYearlyUsd > 0
+    ? Math.round(priceYearlyUsd * rate)
+    : Number(p.price_yearly_cdf ?? p.priceYearlyCDF ?? base?.price_yearly_cdf ?? Math.round(priceYearlyUsd * rate));
   const maxListings = Number(p.max_listings ?? p.maxListings ?? base?.max_listings ?? 3);
   const maxPhotos = Number(p.max_photos_per_listing ?? p.maxPhotos ?? base?.max_photos_per_listing ?? 6);
   const maxVideos = Number(p.max_videos ?? p.maxVideos ?? base?.max_videos ?? 1);
@@ -716,7 +729,7 @@ function loadLocalPlans(): any[] {
       const content = fs.readFileSync(LOCAL_PLANS_FILE, 'utf-8');
       const parsed = JSON.parse(content);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const normalized = parsed.map(normalizeServerPlan);
+        const normalized = parsed.map((p: any) => normalizeServerPlan(p));
         // Ensure promoter_vip exists if an older pricing_plans.json only had starter/pro/agency/enterprise
         for (const defPlan of INITIAL_PLANS) {
           if (!normalized.some((p) => p.id === defPlan.id)) {
@@ -729,7 +742,7 @@ function loadLocalPlans(): any[] {
   } catch (e) {
     console.error('Erreur lecture pricing_plans.json', e);
   }
-  return INITIAL_PLANS.map(normalizeServerPlan);
+  return INITIAL_PLANS.map((p: any) => normalizeServerPlan(p));
 }
 
 function saveLocalPlans(list: any[]) {
@@ -3820,7 +3833,8 @@ function downgradeAccountToFreeServer(userId: string) {
 app.get('/api/billing/plans', (req: Request, res: Response) => {
   try {
     const { category, audience, include_inactive } = req.query;
-    let list = inMemoryPlans.map(normalizeServerPlan);
+    const activeRate = getActiveExchangeRateServer();
+    let list = inMemoryPlans.map((p) => normalizeServerPlan(p, activeRate));
     if (include_inactive !== 'true') {
       list = list.filter((p) => p.is_active !== false && LAUNCH_AUDIENCES.includes(p.audience));
     }
@@ -3830,7 +3844,7 @@ app.get('/api/billing/plans', (req: Request, res: Response) => {
     if (category && category !== 'all') {
       list = list.filter((p) => p.category === category);
     }
-    return res.json({ success: true, count: list.length, plans: list });
+    return res.json({ success: true, count: list.length, plans: list, exchangeRate: activeRate });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
@@ -3903,7 +3917,17 @@ app.delete('/api/billing/plans/:id', (req: Request, res: Response) => {
 // 5b. Options de visibilité & Boosts à la carte (GET /api/billing/visibility-options)
 app.get('/api/billing/visibility-options', (_req: Request, res: Response) => {
   try {
-    return res.json({ success: true, count: inMemoryOptions.length, options: inMemoryOptions });
+    const activeRate = getActiveExchangeRateServer();
+    const options = inMemoryOptions.map((opt) => {
+      const priceUsd = Number(opt.price_usd ?? opt.price ?? 0);
+      const priceCdf = priceUsd > 0 ? Math.round(priceUsd * activeRate) : Number(opt.price_cdf ?? opt.priceCDF ?? 0);
+      return {
+        ...opt,
+        price_cdf: priceCdf,
+        priceCDF: priceCdf,
+      };
+    });
+    return res.json({ success: true, count: options.length, options, exchangeRate: activeRate });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message });
   }
@@ -4261,7 +4285,7 @@ function activateBoostOnPropertyAndInvoice(inv: any, adminUser: AuthUser) {
       },
       details: {
         amenities: prop.amenities || ['Sécurité 24/7', 'Groupe & Forage', 'Titre foncier garanti'],
-        priceInfo: formatPropertyPrimaryPriceWithPeriod(prop, 2850, false),
+        priceInfo: formatPropertyPrimaryPriceWithPeriod(prop, getActiveExchangeRateServer(), false),
         deliveryDate: 'Disponible immédiatement'
       }
     };
@@ -8157,6 +8181,8 @@ const DEFAULT_SETTINGS = {
   office_address: 'Boulevard du 30 Juin, Gombe, Kinshasa',
   working_hours: 'Lun - Sam : 08h30 - 18h00',
   exchange_rate_usd_cdf: 2850,
+  exchange_rate_updated_at: '2026-11-18T10:00:00.000Z',
+  default_currency: 'USD',
   auto_approve_properties: true,
   featured_slots_limit: DEFAULT_FEATURED_SLOTS_LIMIT,
   vip_enabled: true,
@@ -8201,11 +8227,37 @@ app.put('/api/admin/settings', (req: Request, res: Response) => {
   if (!user) return res.status(401).json({ success: false, error: 'Authentification requise.' });
   if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
   const incoming = { ...(req.body || {}) };
+  let updatedRate: number | null = null;
+  if (Object.prototype.hasOwnProperty.call(incoming, 'exchange_rate_usd_cdf')) {
+    const parsedRate = Number(incoming.exchange_rate_usd_cdf);
+    if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
+      return res.status(400).json({ success: false, error: 'Le taux de change USD/CDF doit être un nombre strictement positif.' });
+    }
+    updatedRate = Math.round(parsedRate * 100) / 100;
+    incoming.exchange_rate_usd_cdf = updatedRate;
+    incoming.exchange_rate_updated_at = new Date().toISOString();
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, 'default_currency')) {
+    const curr = String(incoming.default_currency || 'USD').trim().toUpperCase();
+    incoming.default_currency = curr === 'CDF' ? 'CDF' : 'USD';
+  }
   if (incoming.featured_slots_limit !== undefined) {
     incoming.featured_slots_limit = parseFeaturedSlotsLimit(incoming.featured_slots_limit);
   }
   inMemorySettings = { ...inMemorySettings, ...incoming, updated_at: new Date().toISOString() };
   saveLocalSettings(inMemorySettings);
+
+  if (updatedRate !== null) {
+    inMemoryPlans = inMemoryPlans.map((p) => normalizeServerPlan(p, updatedRate!));
+    saveLocalPlans(inMemoryPlans);
+    inMemoryOptions = inMemoryOptions.map((opt) => {
+      const priceUsd = Number(opt.price_usd ?? opt.price ?? 0);
+      const priceCdf = priceUsd > 0 ? Math.round(priceUsd * updatedRate!) : Number(opt.price_cdf ?? opt.priceCDF ?? 0);
+      return { ...opt, price_cdf: priceCdf, priceCDF: priceCdf };
+    });
+    saveLocalOptions(inMemoryOptions);
+  }
+
   return res.json({ success: true, message: 'Paramètres mis à jour.', settings: inMemorySettings });
 });
 
@@ -9502,7 +9554,7 @@ function resolveSeoMetadataForRequest(req: Request, baseUrl: string): ServerSeoM
       const slug = getPropertySlug(prop);
       const canonicalUrl = `${baseUrl}/annonces/${encodeURIComponent(slug)}`;
       const isSale = prop.status === 'for-sale' || prop.category === 'sale';
-      const priceStr = formatPropertyPrimaryPriceWithPeriod(prop, 2850, true);
+      const priceStr = formatPropertyPrimaryPriceWithPeriod(prop, getActiveExchangeRateServer(), true);
       const locStr = [prop.quartier, prop.commune || prop.city || 'Kinshasa'].filter(Boolean).join(', ');
       const title = `${prop.title} — ${priceStr} à ${prop.commune || 'Kinshasa'} | Kinimmo`;
       const rawDesc = prop.description

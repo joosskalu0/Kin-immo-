@@ -12,20 +12,32 @@ function isLaunchAudience(audience) {
   return audience === 'grand_public' || audience === 'agence';
 }
 
-function formatPlan(p) {
+async function getActiveExchangeRate() {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT setting_value FROM site_settings WHERE setting_key = 'exchange_rate_usd_cdf' LIMIT 1"
+    );
+    const raw = rows && rows[0] ? Number(rows[0].setting_value) : NaN;
+    if (Number.isFinite(raw) && raw > 0) return raw;
+  } catch {}
+  return 2850;
+}
+
+function formatPlan(p, activeRate = 2850) {
+  const rate = Number.isFinite(Number(activeRate)) && Number(activeRate) > 0 ? Number(activeRate) : 2850;
   const audience = p.audience || mapCategoryToAudience(p.category, p.id);
   const priceUsd = Number(p.price_usd !== undefined ? p.price_usd : (p.priceMonthly || 0));
-  const priceCdf = Number(p.price_cdf !== undefined ? p.price_cdf : (p.priceMonthlyCDF || (priceUsd * 2850)));
+  const priceCdf = priceUsd > 0
+    ? Math.round(priceUsd * rate)
+    : Number(p.price_cdf !== undefined ? p.price_cdf : (p.priceMonthlyCDF || 0));
   const priceYearlyUsd = Number(
     p.price_yearly_usd !== undefined && p.price_yearly_usd !== null && Number(p.price_yearly_usd) > 0
       ? p.price_yearly_usd
       : (p.priceYearly !== undefined ? p.priceYearly : Math.round(priceUsd * 10 * 100) / 100)
   );
-  const priceYearlyCdf = Number(
-    p.price_yearly_cdf !== undefined && p.price_yearly_cdf !== null && Number(p.price_yearly_cdf) > 0
-      ? p.price_yearly_cdf
-      : (p.priceYearlyCDF !== undefined ? p.priceYearlyCDF : Math.round(priceYearlyUsd * 2850))
-  );
+  const priceYearlyCdf = priceYearlyUsd > 0
+    ? Math.round(priceYearlyUsd * rate)
+    : Number(p.price_yearly_cdf !== undefined && p.price_yearly_cdf !== null ? p.price_yearly_cdf : (p.priceYearlyCDF || 0));
   const maxListings = Number(p.max_listings !== undefined ? p.max_listings : (p.maxListings ?? 3));
   const featuredListings = Number(p.max_featured_listings !== undefined ? p.max_featured_listings : (p.featuredListings ?? 0));
   const maxPhotos = Number(p.max_photos_per_listing !== undefined ? p.max_photos_per_listing : (p.maxPhotos ?? (priceUsd === 0 ? 6 : 15)));
@@ -124,9 +136,12 @@ function formatPlan(p) {
   };
 }
 
-function formatOption(opt) {
+function formatOption(opt, activeRate = 2850) {
+  const rate = Number.isFinite(Number(activeRate)) && Number(activeRate) > 0 ? Number(activeRate) : 2850;
   const priceUsd = Number(opt.price_usd !== undefined ? opt.price_usd : (opt.price || 0));
-  const priceCdf = Number(opt.price_cdf !== undefined ? opt.price_cdf : (opt.priceCDF || (priceUsd * 2850)));
+  const priceCdf = priceUsd > 0
+    ? Math.round(priceUsd * rate)
+    : Number(opt.price_cdf !== undefined ? opt.price_cdf : (opt.priceCDF || 0));
 
   return {
     id: opt.id,
@@ -169,12 +184,13 @@ async function getPlans(req, res, next) {
     }
     sql += ' ORDER BY price_usd ASC';
 
+    const activeRate = await getActiveExchangeRate();
     const [rows] = await pool.execute(sql, params);
-    let mapped = rows.map(formatPlan);
+    let mapped = rows.map(p => formatPlan(p, activeRate));
     if (!includeInactive) {
       mapped = mapped.filter(p => p.isActive && isLaunchAudience(p.audience));
     }
-    res.json({ success: true, plans: mapped });
+    res.json({ success: true, plans: mapped, exchangeRate: activeRate });
   } catch (error) {
     const { include_inactive } = req.query || {};
     const includeInactive = include_inactive === 'true';
@@ -300,7 +316,7 @@ async function getPlans(req, res, next) {
         is_active: false
       }
     ];
-    let formatted = fallbackRealEstatePlans.map(formatPlan);
+    let formatted = fallbackRealEstatePlans.map(p => formatPlan(p, 2850));
     if (!includeInactive) {
       formatted = formatted.filter(p => p.isActive && isLaunchAudience(p.audience));
     }
@@ -314,10 +330,11 @@ async function getPlans(req, res, next) {
  */
 async function getVisibilityOptions(req, res, next) {
   try {
+    const activeRate = await getActiveExchangeRate();
     const [rows] = await pool.execute(
       'SELECT * FROM visibility_options WHERE is_active = TRUE ORDER BY price_usd ASC'
     );
-    res.json({ success: true, options: rows.map(formatOption) });
+    res.json({ success: true, options: rows.map(o => formatOption(o, activeRate)), exchangeRate: activeRate });
   } catch (error) {
     // Fallback dynamique si la table n'a pas encore été importée
     const fallbackOptions = [
@@ -570,7 +587,8 @@ async function createInvoice(req, res, next) {
     if (plans.length === 0) {
       return res.status(404).json({ success: false, message: 'Plan de tarification introuvable ou non actif.' });
     }
-    const selectedPlan = formatPlan(plans[0]);
+    const activeRate = await getActiveExchangeRate();
+    const selectedPlan = formatPlan(plans[0], activeRate);
 
     const cycle = startTrial ? 'trial' : (billingCycle === 'yearly' ? 'yearly' : 'monthly');
     const trialDays = Number(selectedPlan.trial_days || 0);
@@ -708,7 +726,8 @@ async function createBoostOrder(req, res, next) {
     if (options.length === 0) {
       return res.status(404).json({ success: false, message: 'Option de visibilité introuvable.' });
     }
-    const opt = options[0];
+    const activeRate = await getActiveExchangeRate();
+    const opt = formatOption(options[0], activeRate);
 
     const invoiceId = 'inv_' + crypto.randomBytes(8).toString('hex');
     const invoiceNumber = 'BST-KIN-' + Date.now().toString().slice(-6);
@@ -2108,10 +2127,11 @@ async function createPlan(req, res, next) {
       is_active = true
     } = req.body;
 
+    const activeRate = await getActiveExchangeRate();
     const id = req.body.id || 'plan_' + crypto.randomBytes(6).toString('hex');
     const featuresJson = typeof features === 'string' ? features : JSON.stringify(features);
     const yearlyUsd = price_yearly_usd !== undefined ? Number(price_yearly_usd) : Math.round(Number(price_usd) * 10 * 100) / 100;
-    const yearlyCdf = price_yearly_cdf !== undefined ? Number(price_yearly_cdf) : Math.round(yearlyUsd * 2850);
+    const yearlyCdf = price_yearly_cdf !== undefined ? Number(price_yearly_cdf) : Math.round(yearlyUsd * activeRate);
 
     await pool.execute(
       `INSERT INTO pricing_plans (

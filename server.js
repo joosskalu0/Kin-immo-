@@ -3893,13 +3893,22 @@ function mapCategoryToAudienceServer(category, id) {
   if (category === "enterprise") return "entreprise";
   return "grand_public";
 }
-function normalizeServerPlan(p) {
+function getActiveExchangeRateServer() {
+  try {
+    const raw = Number(inMemorySettings?.exchange_rate_usd_cdf);
+    if (Number.isFinite(raw) && raw > 0) return raw;
+  } catch {
+  }
+  return 2850;
+}
+function normalizeServerPlan(p, activeRate) {
+  const rate = Number.isFinite(Number(activeRate)) && Number(activeRate) > 0 ? Number(activeRate) : 2850;
   const base = INITIAL_PLANS.find((ip) => ip.id === p.id);
   const audience = p.audience || mapCategoryToAudienceServer(p.category, p.id);
   const priceUsd = Number(p.price_usd ?? p.priceMonthly ?? base?.price_usd ?? 0);
-  const priceCdf = Number(p.price_cdf ?? p.priceMonthlyCDF ?? base?.price_cdf ?? Math.round(priceUsd * 2850));
+  const priceCdf = activeRate && priceUsd > 0 ? Math.round(priceUsd * rate) : Number(p.price_cdf ?? p.priceMonthlyCDF ?? base?.price_cdf ?? Math.round(priceUsd * rate));
   const priceYearlyUsd = Number(p.price_yearly_usd ?? p.priceYearly ?? base?.price_yearly_usd ?? Math.round(priceUsd * 10));
-  const priceYearlyCdf = Number(p.price_yearly_cdf ?? p.priceYearlyCDF ?? base?.price_yearly_cdf ?? Math.round(priceYearlyUsd * 2850));
+  const priceYearlyCdf = activeRate && priceYearlyUsd > 0 ? Math.round(priceYearlyUsd * rate) : Number(p.price_yearly_cdf ?? p.priceYearlyCDF ?? base?.price_yearly_cdf ?? Math.round(priceYearlyUsd * rate));
   const maxListings = Number(p.max_listings ?? p.maxListings ?? base?.max_listings ?? 3);
   const maxPhotos = Number(p.max_photos_per_listing ?? p.maxPhotos ?? base?.max_photos_per_listing ?? 6);
   const maxVideos = Number(p.max_videos ?? p.maxVideos ?? base?.max_videos ?? 1);
@@ -3945,7 +3954,7 @@ function loadLocalPlans() {
       const content = fs2.readFileSync(LOCAL_PLANS_FILE, "utf-8");
       const parsed = JSON.parse(content);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const normalized = parsed.map(normalizeServerPlan);
+        const normalized = parsed.map((p) => normalizeServerPlan(p));
         for (const defPlan of INITIAL_PLANS) {
           if (!normalized.some((p) => p.id === defPlan.id)) {
             normalized.push(defPlan);
@@ -3957,7 +3966,7 @@ function loadLocalPlans() {
   } catch (e) {
     console.error("Erreur lecture pricing_plans.json", e);
   }
-  return INITIAL_PLANS.map(normalizeServerPlan);
+  return INITIAL_PLANS.map((p) => normalizeServerPlan(p));
 }
 function saveLocalPlans(list) {
   try {
@@ -6601,7 +6610,8 @@ function downgradeAccountToFreeServer(userId) {
 app.get("/api/billing/plans", (req, res) => {
   try {
     const { category, audience, include_inactive } = req.query;
-    let list = inMemoryPlans.map(normalizeServerPlan);
+    const activeRate = getActiveExchangeRateServer();
+    let list = inMemoryPlans.map((p) => normalizeServerPlan(p, activeRate));
     if (include_inactive !== "true") {
       list = list.filter((p) => p.is_active !== false && LAUNCH_AUDIENCES.includes(p.audience));
     }
@@ -6611,7 +6621,7 @@ app.get("/api/billing/plans", (req, res) => {
     if (category && category !== "all") {
       list = list.filter((p) => p.category === category);
     }
-    return res.json({ success: true, count: list.length, plans: list });
+    return res.json({ success: true, count: list.length, plans: list, exchangeRate: activeRate });
   } catch (err) {
     return res.status(500).json({ success: false, error: err?.message });
   }
@@ -6675,7 +6685,17 @@ app.delete("/api/billing/plans/:id", (req, res) => {
 });
 app.get("/api/billing/visibility-options", (_req, res) => {
   try {
-    return res.json({ success: true, count: inMemoryOptions.length, options: inMemoryOptions });
+    const activeRate = getActiveExchangeRateServer();
+    const options = inMemoryOptions.map((opt) => {
+      const priceUsd = Number(opt.price_usd ?? opt.price ?? 0);
+      const priceCdf = priceUsd > 0 ? Math.round(priceUsd * activeRate) : Number(opt.price_cdf ?? opt.priceCDF ?? 0);
+      return {
+        ...opt,
+        price_cdf: priceCdf,
+        priceCDF: priceCdf
+      };
+    });
+    return res.json({ success: true, count: options.length, options, exchangeRate: activeRate });
   } catch (err) {
     return res.status(500).json({ success: false, error: err?.message });
   }
@@ -6993,7 +7013,7 @@ function activateBoostOnPropertyAndInvoice(inv, adminUser) {
       },
       details: {
         amenities: prop.amenities || ["S\xE9curit\xE9 24/7", "Groupe & Forage", "Titre foncier garanti"],
-        priceInfo: formatPropertyPrimaryPriceWithPeriod(prop, 2850, false),
+        priceInfo: formatPropertyPrimaryPriceWithPeriod(prop, getActiveExchangeRateServer(), false),
         deliveryDate: "Disponible imm\xE9diatement"
       }
     };
@@ -10319,6 +10339,8 @@ var DEFAULT_SETTINGS = {
   office_address: "Boulevard du 30 Juin, Gombe, Kinshasa",
   working_hours: "Lun - Sam : 08h30 - 18h00",
   exchange_rate_usd_cdf: 2850,
+  exchange_rate_updated_at: "2026-11-18T10:00:00.000Z",
+  default_currency: "USD",
   auto_approve_properties: true,
   featured_slots_limit: DEFAULT_FEATURED_SLOTS_LIMIT,
   vip_enabled: true,
@@ -10364,11 +10386,35 @@ app.put("/api/admin/settings", (req, res) => {
   if (!user) return res.status(401).json({ success: false, error: "Authentification requise." });
   if (user.role !== "admin") return res.status(403).json({ success: false, error: "Acc\xE8s r\xE9serv\xE9 aux administrateurs." });
   const incoming = { ...req.body || {} };
+  let updatedRate = null;
+  if (Object.prototype.hasOwnProperty.call(incoming, "exchange_rate_usd_cdf")) {
+    const parsedRate = Number(incoming.exchange_rate_usd_cdf);
+    if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
+      return res.status(400).json({ success: false, error: "Le taux de change USD/CDF doit \xEAtre un nombre strictement positif." });
+    }
+    updatedRate = Math.round(parsedRate * 100) / 100;
+    incoming.exchange_rate_usd_cdf = updatedRate;
+    incoming.exchange_rate_updated_at = (/* @__PURE__ */ new Date()).toISOString();
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "default_currency")) {
+    const curr = String(incoming.default_currency || "USD").trim().toUpperCase();
+    incoming.default_currency = curr === "CDF" ? "CDF" : "USD";
+  }
   if (incoming.featured_slots_limit !== void 0) {
     incoming.featured_slots_limit = parseFeaturedSlotsLimit(incoming.featured_slots_limit);
   }
   inMemorySettings = { ...inMemorySettings, ...incoming, updated_at: (/* @__PURE__ */ new Date()).toISOString() };
   saveLocalSettings(inMemorySettings);
+  if (updatedRate !== null) {
+    inMemoryPlans = inMemoryPlans.map((p) => normalizeServerPlan(p, updatedRate));
+    saveLocalPlans(inMemoryPlans);
+    inMemoryOptions = inMemoryOptions.map((opt) => {
+      const priceUsd = Number(opt.price_usd ?? opt.price ?? 0);
+      const priceCdf = priceUsd > 0 ? Math.round(priceUsd * updatedRate) : Number(opt.price_cdf ?? opt.priceCDF ?? 0);
+      return { ...opt, price_cdf: priceCdf, priceCDF: priceCdf };
+    });
+    saveLocalOptions(inMemoryOptions);
+  }
   return res.json({ success: true, message: "Param\xE8tres mis \xE0 jour.", settings: inMemorySettings });
 });
 var inMemoryAgencies = (() => {
@@ -11495,7 +11541,7 @@ function resolveSeoMetadataForRequest(req, baseUrl) {
       const slug = getPropertySlug(prop);
       const canonicalUrl = `${baseUrl}/annonces/${encodeURIComponent(slug)}`;
       const isSale = prop.status === "for-sale" || prop.category === "sale";
-      const priceStr = formatPropertyPrimaryPriceWithPeriod(prop, 2850, true);
+      const priceStr = formatPropertyPrimaryPriceWithPeriod(prop, getActiveExchangeRateServer(), true);
       const locStr = [prop.quartier, prop.commune || prop.city || "Kinshasa"].filter(Boolean).join(", ");
       const title = `${prop.title} \u2014 ${priceStr} \xE0 ${prop.commune || "Kinshasa"} | Kinimmo`;
       const rawDesc = prop.description ? String(prop.description).replace(/\s+/g, " ").trim().slice(0, 155) : `${isSale ? "\xC0 vendre" : "\xC0 louer"} \xE0 ${locStr}. ${prop.area || 0} m\xB2, ${prop.bedrooms || 0} chambres. Consultez les photos et contactez l'agent sur Kinimmo.`;

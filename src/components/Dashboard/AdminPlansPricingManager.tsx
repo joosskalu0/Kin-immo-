@@ -38,6 +38,8 @@ export const AdminPlansPricingManager: React.FC = () => {
   const [exchangeRateInput, setExchangeRateInput] = useState<number>(cdfExchangeRate || 2850);
   const [newFeatureInput, setNewFeatureInput] = useState<string>('');
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [isSavingRate, setIsSavingRate] = useState<boolean>(false);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
 
   useEffect(() => {
@@ -81,8 +83,15 @@ export const AdminPlansPricingManager: React.FC = () => {
   );
 
   const showNotification = (msg: string) => {
+    setErrorToast(null);
     setSuccessToast(msg);
     setTimeout(() => setSuccessToast(null), 3500);
+  };
+
+  const showErrorNotification = (msg: string) => {
+    setSuccessToast(null);
+    setErrorToast(msg);
+    setTimeout(() => setErrorToast(null), 5000);
   };
 
   const handleStartEdit = (plan: SubscriptionPlan) => {
@@ -122,12 +131,23 @@ export const AdminPlansPricingManager: React.FC = () => {
     showNotification(`Tarifs, quotas et audience de "${cleanPlan.name}" mis à jour avec succès !`);
   };
 
-  const handleSaveExchangeRate = (e: React.FormEvent) => {
+  const handleSaveExchangeRate = async (e: React.FormEvent) => {
     e.preventDefault();
     const rate = Number(exchangeRateInput);
-    if (rate > 0) {
-      setCdfExchangeRate(rate);
-      showNotification(`Taux de change mis à jour : 1 USD = ${rate.toLocaleString()} FC (Francs Congolais)`);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      showErrorNotification('Veuillez saisir un taux de change USD/CDF valide (> 0).');
+      return;
+    }
+    setIsSavingRate(true);
+    try {
+      const res = await setCdfExchangeRate(rate);
+      if (res?.success) {
+        showNotification(`Taux de change mis à jour : 1 USD = ${rate.toLocaleString('fr-FR')} FC et synchronisé dans MySQL.`);
+      } else {
+        showErrorNotification(res?.error || res?.message || 'Impossible de sauvegarder le taux dans MySQL.');
+      }
+    } finally {
+      setIsSavingRate(false);
     }
   };
 
@@ -338,12 +358,16 @@ export const AdminPlansPricingManager: React.FC = () => {
               </div>
               <button
                 type="submit"
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
+                disabled={isSavingRate}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>Appliquer</span>
+                <span>{isSavingRate ? 'Enregistrement...' : 'Appliquer'}</span>
               </button>
             </div>
+            {errorToast && (
+              <p className="text-[11px] font-bold text-rose-400">{errorToast}</p>
+            )}
             <p className="text-[11px] text-slate-500 flex items-center justify-between gap-2">
               <span>Sert aux conversions annonces, factures et reçus PDF.</span>
               <span className="text-amber-400/80 font-semibold shrink-0">

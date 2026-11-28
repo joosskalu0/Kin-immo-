@@ -598,7 +598,7 @@ export const BoostPage: React.FC<BoostPageProps> = ({
               {options.map((opt) => {
                 const isSelected = selectedOption?.id === opt.id;
                 const priceUsd = Number(opt.price_usd ?? opt.price ?? 0);
-                const priceCdf = Number(opt.price_cdf ?? opt.priceCDF ?? Math.round(priceUsd * cdfExchangeRate));
+                const priceCdf = priceUsd > 0 ? Math.round(priceUsd * cdfExchangeRate) : Number(opt.price_cdf ?? opt.priceCDF ?? 0);
                 const visibleBadge = getOptionVisibleBadge(opt);
 
                 return (
@@ -669,10 +669,9 @@ export const BoostPage: React.FC<BoostPageProps> = ({
                   {Number(selectedOption?.price_usd ?? selectedOption?.price ?? 0)} USD
                 </strong>{' '}
                 (~
-                {Number(
-                  selectedOption?.price_cdf ??
-                    selectedOption?.priceCDF ??
-                    Math.round(Number(selectedOption?.price_usd ?? 0) * cdfExchangeRate)
+                {(Number(selectedOption?.price_usd ?? selectedOption?.price ?? 0) > 0
+                  ? Math.round(Number(selectedOption?.price_usd ?? selectedOption?.price ?? 0) * cdfExchangeRate)
+                  : Number(selectedOption?.price_cdf ?? selectedOption?.priceCDF ?? 0)
                 ).toLocaleString('fr-FR')}{' '}
                 CDF) • Étiquette : <strong>{getOptionVisibleBadge(selectedOption)}</strong>
               </p>

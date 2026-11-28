@@ -54,18 +54,25 @@ export function isLaunchAudience(audience?: PlanAudience): boolean {
   return audience === 'grand_public' || audience === 'agence';
 }
 
-export function normalizePlan(raw: any, exchangeRate: number = 2850): SubscriptionPlan {
+export function normalizePlan(
+  raw: any,
+  exchangeRate: number = 2850,
+  forceRecalculateCdf: boolean = false
+): SubscriptionPlan {
+  const safeRate = Number.isFinite(Number(exchangeRate)) && Number(exchangeRate) > 0 ? Number(exchangeRate) : 2850;
   const audience = mapCategoryToAudience(raw);
   const priceMonthly = Number(raw.priceMonthly ?? raw.price_usd ?? raw.price ?? 0);
-  const priceMonthlyCDF = Number(
-    raw.priceMonthlyCDF ?? raw.price_cdf ?? Math.round(priceMonthly * exchangeRate)
-  );
+  const priceMonthlyCDF =
+    forceRecalculateCdf && priceMonthly > 0
+      ? Math.round(priceMonthly * safeRate)
+      : Number(raw.priceMonthlyCDF ?? raw.price_cdf ?? Math.round(priceMonthly * safeRate));
   const priceYearly = Number(
     raw.priceYearly ?? raw.price_yearly_usd ?? Math.round(priceMonthly * 10)
   );
-  const priceYearlyCDF = Number(
-    raw.priceYearlyCDF ?? raw.price_yearly_cdf ?? Math.round(priceYearly * exchangeRate)
-  );
+  const priceYearlyCDF =
+    forceRecalculateCdf && priceYearly > 0
+      ? Math.round(priceYearly * safeRate)
+      : Number(raw.priceYearlyCDF ?? raw.price_yearly_cdf ?? Math.round(priceYearly * safeRate));
   const maxListings = Number(raw.maxListings ?? raw.max_listings ?? 3);
   const maxPhotos = Number(raw.maxPhotos ?? raw.max_photos ?? (priceMonthly === 0 ? 5 : audience === 'agence' ? 20 : 12));
   const maxVideos = Number(raw.maxVideos ?? raw.max_videos ?? (priceMonthly === 0 ? 0 : audience === 'agence' ? 15 : 3));

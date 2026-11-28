@@ -826,6 +826,27 @@ async function updateSettings(req, res, next) {
       return res.status(400).json({ success: false, message: 'Données de configuration invalides.' });
     }
 
+    const sanitizedPayload = { ...payload };
+    let updatedExchangeRate = null;
+
+    if (Object.prototype.hasOwnProperty.call(sanitizedPayload, 'exchange_rate_usd_cdf')) {
+      const parsedRate = Number(sanitizedPayload.exchange_rate_usd_cdf);
+      if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Le taux de change USD/CDF doit être un nombre strictement positif.'
+        });
+      }
+      updatedExchangeRate = Math.round(parsedRate * 100) / 100;
+      sanitizedPayload.exchange_rate_usd_cdf = String(updatedExchangeRate);
+      sanitizedPayload.exchange_rate_updated_at = new Date().toISOString();
+    }
+
+    if (Object.prototype.hasOwnProperty.call(sanitizedPayload, 'default_currency')) {
+      const normalizedCurr = String(sanitizedPayload.default_currency || 'USD').trim().toUpperCase();
+      sanitizedPayload.default_currency = normalizedCurr === 'CDF' ? 'CDF' : 'USD';
+    }
+
     // Assurer que la table existe
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS site_settings (
@@ -837,8 +858,9 @@ async function updateSettings(req, res, next) {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    for (const [key, rawValue] of Object.entries(payload)) {
-      const stringValue = typeof rawValue === 'object' ? JSON.stringify(rawValue) : String(rawValue ?? '');
+    for (const [key, rawValue] of Object.entries(sanitizedPayload)) {
+      if (rawValue === undefined) continue;
+      const stringValue = typeof rawValue === 'object' && rawValue !== null ? JSON.stringify(rawValue) : String(rawValue ?? '');
       await pool.execute(
         `INSERT INTO site_settings (setting_key, setting_value) 
          VALUES (?, ?) 
@@ -847,9 +869,35 @@ async function updateSettings(req, res, next) {
       );
     }
 
+    // Synchroniser les équivalents CDF des formules et options de visibilité lorsque le taux admin change
+    if (updatedExchangeRate !== null) {
+      try {
+        await pool.execute(
+          `UPDATE pricing_plans
+           SET price_cdf = ROUND(price_usd * ?, 0),
+               price_yearly_cdf = ROUND(COALESCE(price_yearly_usd, price_usd * 10) * ?, 0)`,
+          [updatedExchangeRate, updatedExchangeRate]
+        );
+      } catch {}
+      try {
+        await pool.execute(
+          `UPDATE visibility_options
+           SET price_cdf = ROUND(price_usd * ?, 0)`,
+          [updatedExchangeRate]
+        );
+      } catch {}
+    }
+
+    const [rows] = await pool.execute('SELECT setting_key, setting_value FROM site_settings');
+    const settings = {};
+    for (const r of rows) {
+      settings[r.setting_key] = r.setting_value;
+    }
+
     res.json({
       success: true,
-      message: 'Coordonnées de contact et conciergerie VIP enregistrées avec succès dans MySQL.'
+      message: 'Paramètres enregistrés avec succès dans MySQL.',
+      settings
     });
   } catch (error) {
     next(error);

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import {
   Property,
@@ -207,7 +207,7 @@ interface AppContextType {
   setPricingDisplayCurrency: (mode: 'CDF' | 'USD' | 'BOTH') => void;
   cdfExchangeRate: number;
   cdfExchangeRateUpdatedAt: string;
-  setCdfExchangeRate: (rate: number) => void;
+  setCdfExchangeRate: (rate: number) => Promise<{ success: boolean; message?: string; error?: string }>;
 
   // Dynamic Payment Methods & P2 Billing Workflow
   paymentMethods: PaymentMethodConfig[];
@@ -303,7 +303,7 @@ interface AppContextType {
 
   // Coordonnées de Contact & Conciergerie VIP
   contactSettings: SiteContactSettings;
-  updateContactSettings: (newSettings: Partial<SiteContactSettings>) => Promise<{ success: boolean; message?: string }>;
+  updateContactSettings: (newSettings: Partial<SiteContactSettings>) => Promise<{ success: boolean; message?: string; error?: string }>;
 
   // Signalements & Détection Anti-Fraude
   reports: PropertyUserReport[];
@@ -500,11 +500,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
 
-  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(() => getDefaultPlans(2800));
+  const [contactSettings, setContactSettings] = useState<SiteContactSettings>(() => {
+    return mysqlApi.getStoredContactSettings();
+  });
+
+  const initialExchangeRate =
+    Number(contactSettings.exchangeRate) > 0 ? Number(contactSettings.exchangeRate) : 2850;
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(() =>
+    getDefaultPlans(initialExchangeRate)
+  );
 
   const [pricingDisplayCurrency, setPricingDisplayCurrency] = useState<'CDF' | 'USD' | 'BOTH'>('CDF');
-  const [cdfExchangeRate, setCdfExchangeRate] = useState<number>(2800);
-  const [cdfExchangeRateUpdatedAt, setCdfExchangeRateUpdatedAt] = useState<string>('2026-11-18T10:00:00.000Z');
+  const [cdfExchangeRate, setCdfExchangeRate] = useState<number>(initialExchangeRate);
+  const [cdfExchangeRateUpdatedAt, setCdfExchangeRateUpdatedAt] = useState<string>(
+    contactSettings.exchangeRateUpdatedAt || '2026-11-18T10:00:00.000Z'
+  );
+  const cdfExchangeRateRef = useRef<number>(initialExchangeRate);
+  const cdfExchangeRateUpdatedAtRef = useRef<string>(
+    contactSettings.exchangeRateUpdatedAt || '2026-11-18T10:00:00.000Z'
+  );
+  const mysqlSettingsLoadedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    cdfExchangeRateRef.current = cdfExchangeRate;
+  }, [cdfExchangeRate]);
+
+  useEffect(() => {
+    cdfExchangeRateUpdatedAtRef.current = cdfExchangeRateUpdatedAt;
+  }, [cdfExchangeRateUpdatedAt]);
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(() => mysqlApi.getLocalPaymentMethods());
 
@@ -901,16 +924,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setHeroSlides((prev) => prev.filter((s) => s.propertyId !== propertyId));
   };
 
-  // Coordonnées de Contact & Conciergerie VIP
-  const [contactSettings, setContactSettings] = useState<SiteContactSettings>(() => {
-    return mysqlApi.getStoredContactSettings();
-  });
-
+  // Coordonnées de Contact & Conciergerie VIP (synchronisation bidirectionnelle avec le taux de change)
   useEffect(() => {
     let isMounted = true;
     mysqlApi.getContactSettings().then((remoteSettings) => {
       if (isMounted && remoteSettings) {
+        mysqlSettingsLoadedRef.current = true;
         setContactSettings(remoteSettings);
+        const remoteRate = Number(remoteSettings.exchangeRate);
+        if (Number.isFinite(remoteRate) && remoteRate > 0) {
+          cdfExchangeRateRef.current = remoteRate;
+          setCdfExchangeRate(remoteRate);
+          if (remoteSettings.exchangeRateUpdatedAt) {
+            cdfExchangeRateUpdatedAtRef.current = remoteSettings.exchangeRateUpdatedAt;
+            setCdfExchangeRateUpdatedAt(remoteSettings.exchangeRateUpdatedAt);
+          }
+          setSubscriptionPlans((prev) => prev.map((p) => normalizePlan(p, remoteRate, true)));
+        }
       }
     }).catch(() => {});
     return () => {
@@ -918,10 +948,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  const updateContactSettings = async (newSettings: Partial<SiteContactSettings>) => {
+  const updateContactSettings = async (
+    newSettings: Partial<SiteContactSettings>
+  ): Promise<{ success: boolean; message?: string; error?: string }> => {
+    const previousSettings = contactSettings;
+    const isRateProvided = newSettings.exchangeRate !== undefined;
+    const parsedRate = isRateProvided ? Number(newSettings.exchangeRate) : contactSettings.exchangeRate;
+    if (isRateProvided && (!Number.isFinite(parsedRate) || parsedRate <= 0)) {
+      return { success: false, error: 'Le taux de change USD/CDF doit être un nombre strictement positif.' };
+    }
+
+    const nextRate = isRateProvided ? Math.round(parsedRate * 100) / 100 : contactSettings.exchangeRate;
+    const nextRateUpdatedAt = isRateProvided
+      ? new Date().toISOString()
+      : (newSettings.exchangeRateUpdatedAt ?? contactSettings.exchangeRateUpdatedAt ?? cdfExchangeRateUpdatedAt);
+
     const merged: SiteContactSettings = {
       ...contactSettings,
       ...newSettings,
+      exchangeRate: nextRate,
+      exchangeRateUpdatedAt: nextRateUpdatedAt,
       featuredSlotsLimit: parseFeaturedSlotsLimit(newSettings.featuredSlotsLimit ?? contactSettings.featuredSlotsLimit),
       virtualTourAllowedDomains: newSettings.virtualTourAllowedDomains ?? contactSettings.virtualTourAllowedDomains,
       vipConcierge: {
@@ -929,8 +975,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...(newSettings.vipConcierge || {})
       }
     };
-    setContactSettings(merged);
-    return await mysqlApi.adminUpdateContactSettings(merged);
+
+    const res = await mysqlApi.adminUpdateContactSettings(merged);
+    if (!res.success) {
+      setContactSettings(previousSettings);
+      return {
+        success: false,
+        error: res.error || res.message || 'Impossible de sauvegarder les paramètres dans MySQL.'
+      };
+    }
+
+    const syncedSettings = res.settings || merged;
+    setContactSettings(syncedSettings);
+
+    if (isRateProvided && syncedSettings.exchangeRate > 0) {
+      const appliedRate = syncedSettings.exchangeRate;
+      const appliedUpdatedAt = syncedSettings.exchangeRateUpdatedAt || nextRateUpdatedAt;
+      cdfExchangeRateRef.current = appliedRate;
+      cdfExchangeRateUpdatedAtRef.current = appliedUpdatedAt;
+      setCdfExchangeRate(appliedRate);
+      setCdfExchangeRateUpdatedAt(appliedUpdatedAt);
+      const recalculatedPlans = subscriptionPlans.map((p) => normalizePlan(p, appliedRate, true));
+      setSubscriptionPlans(recalculatedPlans);
+      savePricingConfigToFirestore({
+        cdfExchangeRate: appliedRate,
+        cdfExchangeRateUpdatedAt: appliedUpdatedAt,
+        pricingDisplayCurrency,
+        subscriptionPlans: recalculatedPlans,
+      }).catch((err) => console.error('Firestore save cdf exchange rate error:', err));
+    }
+
+    return { success: true, message: res.message };
   };
 
   // Contenus P1 : Blog / Guides & Pages Légales CMS
@@ -1230,17 +1305,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const unsubPricing = subscribeToPricingConfig((firestorePricing) => {
       if (firestorePricing) {
-        if (typeof firestorePricing.cdfExchangeRate === 'number' && firestorePricing.cdfExchangeRate > 0) {
-          setCdfExchangeRate(firestorePricing.cdfExchangeRate);
-        }
-        if ((firestorePricing as any).cdfExchangeRateUpdatedAt) {
-          setCdfExchangeRateUpdatedAt((firestorePricing as any).cdfExchangeRateUpdatedAt);
+        const fsRate = Number(firestorePricing.cdfExchangeRate);
+        const fsUpdatedAt = (firestorePricing as any).cdfExchangeRateUpdatedAt as string | undefined;
+        const fsTime = fsUpdatedAt ? Date.parse(fsUpdatedAt) : 0;
+        const localTime = cdfExchangeRateUpdatedAtRef.current ? Date.parse(cdfExchangeRateUpdatedAtRef.current) : 0;
+        const shouldApplyFirestoreRate =
+          Number.isFinite(fsRate) &&
+          fsRate > 0 &&
+          (!mysqlSettingsLoadedRef.current || (fsTime > 0 && fsTime > localTime));
+
+        const effectiveRateForPlans = shouldApplyFirestoreRate ? fsRate : cdfExchangeRateRef.current;
+
+        if (shouldApplyFirestoreRate) {
+          cdfExchangeRateRef.current = fsRate;
+          setCdfExchangeRate(fsRate);
+          setContactSettings((prev) => ({
+            ...prev,
+            exchangeRate: fsRate,
+            exchangeRateUpdatedAt: fsUpdatedAt || prev.exchangeRateUpdatedAt,
+          }));
+          if (fsUpdatedAt) {
+            cdfExchangeRateUpdatedAtRef.current = fsUpdatedAt;
+            setCdfExchangeRateUpdatedAt(fsUpdatedAt);
+          }
         }
         if (firestorePricing.pricingDisplayCurrency) {
           setPricingDisplayCurrency(firestorePricing.pricingDisplayCurrency as 'USD' | 'CDF' | 'BOTH');
         }
         if (Array.isArray(firestorePricing.subscriptionPlans) && firestorePricing.subscriptionPlans.length > 0) {
-          setSubscriptionPlans(firestorePricing.subscriptionPlans.map((p: any) => normalizePlan(p, firestorePricing.cdfExchangeRate || 2850)));
+          setSubscriptionPlans(
+            firestorePricing.subscriptionPlans.map((p: any) =>
+              normalizePlan(p, effectiveRateForPlans || 2850, shouldApplyFirestoreRate)
+            )
+          );
         }
       }
     });
@@ -1248,7 +1345,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Synchronize plans & dynamic payment methods from MySQL / Express API
     mysqlApi.getPricingPlans(undefined, true).then((res) => {
       if (res && res.success && Array.isArray(res.plans) && res.plans.length > 0) {
-        setSubscriptionPlans(res.plans.map((p: any) => normalizePlan(p, 2850)));
+        const serverRate = Number((res as any).exchangeRate);
+        const rateToUse =
+          Number.isFinite(serverRate) && serverRate > 0 ? serverRate : cdfExchangeRateRef.current || 2850;
+        setSubscriptionPlans(res.plans.map((p: any) => normalizePlan(p, rateToUse)));
       }
     }).catch(() => {});
 
@@ -2179,18 +2279,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const handleSetCdfExchangeRate = (rate: number) => {
-    if (typeof rate === 'number' && rate > 0) {
-      const updatedAt = new Date().toISOString();
-      setCdfExchangeRate(rate);
-      setCdfExchangeRateUpdatedAt(updatedAt);
-      savePricingConfigToFirestore({
-        cdfExchangeRate: rate,
-        cdfExchangeRateUpdatedAt: updatedAt,
-        pricingDisplayCurrency,
-        subscriptionPlans,
-      }).catch(err => console.error('Firestore save cdf exchange rate error:', err));
+  const handleSetCdfExchangeRate = async (
+    rate: number
+  ): Promise<{ success: boolean; message?: string; error?: string }> => {
+    const parsedRate = Number(rate);
+    if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
+      return { success: false, error: 'Le taux de change USD/CDF doit être strictement positif.' };
     }
+    return updateContactSettings({ exchangeRate: parsedRate });
   };
 
   const handleSetPricingDisplayCurrency = (currency: 'CDF' | 'USD' | 'BOTH') => {

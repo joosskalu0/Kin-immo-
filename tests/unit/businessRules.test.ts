@@ -585,4 +585,36 @@ describe('8. Résolution publique des coordonnées de l annonceur (visiteur non 
   });
 });
 
+describe('9. Unification et recalcul dynamique du taux de change USD/CDF', () => {
+  it('recalcule immédiatement les montants CDF des forfaits lorsque forceRecalculateCdf est activé', () => {
+    const stalePlan = {
+      id: 'pro',
+      name: 'Pro Courtier',
+      audience: 'grand_public',
+      priceMonthly: 29,
+      priceMonthlyCDF: 82650, // calculé à 2850
+      priceYearly: 290,
+      priceYearlyCDF: 826500,
+    };
+
+    const recalculated = normalizePlan(stalePlan, 2950, true);
+    assert.equal(recalculated.priceMonthlyCDF, 85550);
+    assert.equal(recalculated.priceYearlyCDF, 855500);
+    assert.equal(recalculated.price_cdf, 85550);
+    assert.equal(recalculated.price_yearly_cdf, 855500);
+  });
+
+  it('applique exactement le taux admin mis à jour sur les conversions annonces USD <-> CDF', () => {
+    const usdProp = makeProperty({ price: 1000, currency: 'USD', status: 'for-rent', period: 'month' });
+    const displayAt3100 = getPropertyDisplayCurrencies(usdProp, 3100);
+    assert.equal(displayAt3100.effectiveRate, 3100);
+    assert.match(displayAt3100.secondaryFormatted, /3[\s\u202f]?100[\s\u202f]?000\s?FC/);
+
+    const cdfProp = makeProperty({ price: 3100000, currency: 'CDF', status: 'for-rent', period: 'month' });
+    const displayCdfAt3100 = getPropertyDisplayCurrencies(cdfProp, 3100);
+    assert.equal(displayCdfAt3100.effectiveRate, 3100);
+    assert.match(displayCdfAt3100.secondaryFormatted, /\$1[\s,\u202f]?000/);
+  });
+});
+
 

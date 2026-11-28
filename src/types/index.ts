@@ -752,6 +752,7 @@ export interface SiteContactSettings {
   officeAddress: string;
   workingHours: string;
   exchangeRate: number;
+  exchangeRateUpdatedAt?: string;
   defaultCurrency?: string;
   domainUrl?: string;
   adminUrl?: string;

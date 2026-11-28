@@ -1356,7 +1356,7 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {plans.map((p) => {
               const priceUsd = Number(p.priceMonthly ?? p.price_usd ?? p.price ?? 0);
-              const priceCdf = Number(p.priceMonthlyCDF ?? p.price_cdf ?? Math.round(priceUsd * cdfExchangeRate));
+              const priceCdf = priceUsd > 0 ? Math.round(priceUsd * cdfExchangeRate) : Number(p.priceMonthlyCDF ?? p.price_cdf ?? 0);
               const priceYearlyUsd = Number(p.priceYearly ?? p.price_yearly_usd ?? Math.round(priceUsd * 10));
               const trialDays = Number(p.trialDays ?? p.trial_days ?? 0);
               const audience = (p.audience || mapCategoryToAudience(p.category, p.id)) as PlanAudience;
@@ -1505,7 +1505,7 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {options.map((opt) => {
               const priceUsd = Number(opt.price_usd ?? (opt as any).price ?? 0);
-              const priceCdf = Number(opt.price_cdf ?? (opt as any).priceCDF ?? (priceUsd * 2850));
+              const priceCdf = priceUsd > 0 ? Math.round(priceUsd * cdfExchangeRate) : Number(opt.price_cdf ?? (opt as any).priceCDF ?? 0);
 
               return (
                 <div
@@ -1924,7 +1924,7 @@ export const AdminMonetizationManager: React.FC<AdminMonetizationManagerProps> =
                       setOptionForm({
                         ...optionForm,
                         price_usd: val,
-                        price_cdf: Math.round(val * 2850)
+                        price_cdf: Math.round(val * cdfExchangeRate)
                       });
                     }}
                     className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-amber-400 font-black text-sm focus:border-emerald-500 focus:outline-none"

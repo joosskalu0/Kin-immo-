@@ -1428,7 +1428,12 @@ export const mysqlApi = {
     try {
       const stored = localStorage.getItem('kinimmo_site_contact_settings');
       if (stored) {
-        return { ...DEFAULT_CONTACT_SETTINGS, ...JSON.parse(stored) };
+        const parsed = { ...DEFAULT_CONTACT_SETTINGS, ...JSON.parse(stored) };
+        return {
+          ...parsed,
+          exchangeRate: Number(parsed.exchangeRate) > 0 ? Number(parsed.exchangeRate) : 2850,
+          defaultCurrency: String(parsed.defaultCurrency || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD',
+        };
       }
     } catch {}
     return DEFAULT_CONTACT_SETTINGS;
@@ -1439,6 +1444,7 @@ export const mysqlApi = {
       const res = await apiRequest('/settings/contact');
       if (res.success && res.settings) {
         const s = res.settings;
+        const parsedRate = Number(s.exchange_rate_usd_cdf);
         const mapped: SiteContactSettings = {
           siteName: s.site_name || DEFAULT_CONTACT_SETTINGS.siteName,
           contactEmail: s.contact_email || DEFAULT_CONTACT_SETTINGS.contactEmail,
@@ -1446,12 +1452,14 @@ export const mysqlApi = {
           supportWhatsApp: s.support_whatsapp || DEFAULT_CONTACT_SETTINGS.supportWhatsApp,
           officeAddress: s.office_address || DEFAULT_CONTACT_SETTINGS.officeAddress,
           workingHours: s.working_hours || DEFAULT_CONTACT_SETTINGS.workingHours,
-          exchangeRate: Number(s.exchange_rate_usd_cdf) || 2850,
-          autoApproveProperties: s.auto_approve_properties === 'true',
+          exchangeRate: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 2850,
+          exchangeRateUpdatedAt: s.exchange_rate_updated_at || s.updated_at || DEFAULT_CONTACT_SETTINGS.exchangeRateUpdatedAt,
+          defaultCurrency: String(s.default_currency || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD',
+          autoApproveProperties: s.auto_approve_properties === 'true' || s.auto_approve_properties === true,
           featuredSlotsLimit: parseFeaturedSlotsLimit(s.featured_slots_limit),
           virtualTourAllowedDomains: normalizeAllowedDomains(s.virtual_tour_allowed_domains),
           vipConcierge: {
-            enabled: s.vip_enabled !== 'false',
+            enabled: s.vip_enabled !== 'false' && s.vip_enabled !== false,
             title: s.vip_title || DEFAULT_CONTACT_SETTINGS.vipConcierge.title,
             subtitle: s.vip_subtitle || DEFAULT_CONTACT_SETTINGS.vipConcierge.subtitle,
             phone: s.vip_phone || DEFAULT_CONTACT_SETTINGS.vipConcierge.phone,
@@ -1473,15 +1481,20 @@ export const mysqlApi = {
     return this.getStoredContactSettings();
   },
 
-  async adminUpdateContactSettings(settings: SiteContactSettings): Promise<{ success: boolean; message?: string; error?: string }> {
+  async adminUpdateContactSettings(settings: SiteContactSettings): Promise<{ success: boolean; settings?: SiteContactSettings; message?: string; error?: string }> {
+    const parsedRate = Number(settings.exchangeRate);
+    if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
+      return { success: false, error: 'Le taux de change USD/CDF doit être un nombre strictement positif.' };
+    }
+
+    const updatedAt = settings.exchangeRateUpdatedAt || new Date().toISOString();
     const normalizedSettings: SiteContactSettings = {
       ...settings,
+      exchangeRate: Math.round(parsedRate * 100) / 100,
+      exchangeRateUpdatedAt: updatedAt,
+      defaultCurrency: String(settings.defaultCurrency || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD',
       virtualTourAllowedDomains: normalizeAllowedDomains(settings.virtualTourAllowedDomains),
     };
-    // Sauvegarde locale instantanée pour réactivité UI
-    try {
-      localStorage.setItem('kinimmo_site_contact_settings', JSON.stringify(normalizedSettings));
-    } catch {}
 
     const payload = {
       site_name: normalizedSettings.siteName,
@@ -1491,6 +1504,8 @@ export const mysqlApi = {
       office_address: normalizedSettings.officeAddress,
       working_hours: normalizedSettings.workingHours,
       exchange_rate_usd_cdf: String(normalizedSettings.exchangeRate),
+      exchange_rate_updated_at: updatedAt,
+      default_currency: normalizedSettings.defaultCurrency || 'USD',
       auto_approve_properties: String(normalizedSettings.autoApproveProperties ?? false),
       featured_slots_limit: String(parseFeaturedSlotsLimit(normalizedSettings.featuredSlotsLimit)),
       virtual_tour_allowed_domains: JSON.stringify(normalizedSettings.virtualTourAllowedDomains || DEFAULT_VIRTUAL_TOUR_DOMAINS),
@@ -1513,11 +1528,35 @@ export const mysqlApi = {
         body: JSON.stringify(payload)
       });
       if (res.success) {
-        return { success: true, message: res.message || 'Coordonnées enregistrées dans la base MySQL.' };
+        const serverSettings = res.settings || {};
+        const finalRate = Number(serverSettings.exchange_rate_usd_cdf) > 0
+          ? Number(serverSettings.exchange_rate_usd_cdf)
+          : normalizedSettings.exchangeRate;
+        const finalUpdatedAt = serverSettings.exchange_rate_updated_at || updatedAt;
+        const syncedSettings: SiteContactSettings = {
+          ...normalizedSettings,
+          exchangeRate: finalRate,
+          exchangeRateUpdatedAt: finalUpdatedAt,
+          defaultCurrency: String(serverSettings.default_currency || normalizedSettings.defaultCurrency || 'USD').toUpperCase() === 'CDF' ? 'CDF' : 'USD',
+        };
+        try {
+          localStorage.setItem('kinimmo_site_contact_settings', JSON.stringify(syncedSettings));
+        } catch {}
+        return {
+          success: true,
+          settings: syncedSettings,
+          message: res.message || 'Paramètres enregistrés dans la base MySQL.'
+        };
       }
-      return { success: true, message: 'Coordonnées sauvegardées avec succès.' };
+      return {
+        success: false,
+        error: res.error || res.message || 'Échec de la synchronisation avec le serveur MySQL.'
+      };
     } catch (e: any) {
-      return { success: true, message: 'Coordonnées sauvegardées localement.' };
+      return {
+        success: false,
+        error: e?.message || 'Erreur réseau lors de la sauvegarde dans MySQL.'
+      };
     }
   },
 
@@ -1711,6 +1750,8 @@ export const DEFAULT_CONTACT_SETTINGS: SiteContactSettings = {
   officeAddress: 'Avenue Kananga, Q/ Binza Pigeon, C/ Ngaliema, Kinshasa, RDC',
   workingHours: 'Lundi - Samedi : 08h00 - 18h30 | Urgences VIP 24h/7j',
   exchangeRate: 2850,
+  exchangeRateUpdatedAt: '2026-11-18T10:00:00.000Z',
+  defaultCurrency: 'USD',
   autoApproveProperties: false,
   featuredSlotsLimit: DEFAULT_FEATURED_SLOTS_LIMIT,
   virtualTourAllowedDomains: DEFAULT_VIRTUAL_TOUR_DOMAINS,
